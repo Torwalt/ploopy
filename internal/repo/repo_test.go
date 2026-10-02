@@ -202,6 +202,107 @@ func TestRootFindsTheRepository(t *testing.T) {
 	}
 }
 
+func TestBranchIsEmptyOnADetachedHead(t *testing.T) {
+	root := newRepo(t)
+	r := New(root, nil)
+	ctx := context.Background()
+
+	if branch, err := r.Branch(ctx); err != nil || branch != "work" {
+		t.Fatalf("branch %q, %v", branch, err)
+	}
+	git(t, root, "switch", "-q", "--detach")
+	if branch, err := r.Branch(ctx); err != nil || branch != "" {
+		t.Fatalf("detached head named branch %q, %v", branch, err)
+	}
+}
+
+func TestTheDefaultBranchIsWhatOriginsHeadNames(t *testing.T) {
+	root := newRepo(t)
+	r := New(root, nil)
+	ctx := context.Background()
+
+	if _, err := r.DefaultBranch(ctx); err == nil {
+		t.Fatal("a repository with only a work branch has no default")
+	}
+	git(t, root, "branch", "main")
+	if name, err := r.DefaultBranch(ctx); err != nil || name != "main" {
+		t.Fatalf("default %q, %v; want main", name, err)
+	}
+	git(t, root, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+	git(t, root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk")
+	if name, err := r.DefaultBranch(ctx); err != nil || name != "trunk" {
+		t.Fatalf("default %q, %v; want trunk", name, err)
+	}
+}
+
+func TestLinkedTellsAWorktreeFromTheMainCheckout(t *testing.T) {
+	root := newRepo(t)
+	linked := filepath.Join(t.TempDir(), "linked")
+	git(t, root, "worktree", "add", "-q", "-b", "other", linked)
+	ctx := context.Background()
+
+	if is, err := New(root, nil).Linked(ctx); err != nil || is {
+		t.Fatalf("main checkout linked %v, %v", is, err)
+	}
+	if is, err := New(linked, nil).Linked(ctx); err != nil || !is {
+		t.Fatalf("worktree linked %v, %v", is, err)
+	}
+}
+
+func TestCommittedSeesOnlyWhatHeadHolds(t *testing.T) {
+	root := newRepo(t)
+	write(t, root, "docs/plans/NEW.md", "# new\n")
+	r := New(root, nil)
+	ctx := context.Background()
+
+	if !r.Committed(ctx, "README.md") {
+		t.Fatal("README.md is committed")
+	}
+	if r.Committed(ctx, "docs/plans/NEW.md") {
+		t.Fatal("an untracked file is not committed")
+	}
+	if r.Committed(ctx, "../outside.md") {
+		t.Fatal("a path outside the repository is not committed")
+	}
+}
+
+func TestHandOffMovesTheBranchIntoAWorktree(t *testing.T) {
+	root := newRepo(t)
+	git(t, root, "branch", "master")
+	write(t, root, "work.txt", "work\n")
+	commit(t, root, "work")
+	path := filepath.Join(t.TempDir(), "repo.worktrees", "sco-1", "work")
+	ctx := context.Background()
+
+	if err := New(root, nil).HandOff(ctx, "work", "master", path); err != nil {
+		t.Fatal(err)
+	}
+	if branch, _ := New(root, nil).Branch(ctx); branch != "master" {
+		t.Fatalf("the checkout is on %q, want master", branch)
+	}
+	if branch, _ := New(path, nil).Branch(ctx); branch != "work" {
+		t.Fatalf("the worktree is on %q, want work", branch)
+	}
+	if _, err := os.Stat(filepath.Join(path, "work.txt")); err != nil {
+		t.Fatal("the worktree does not hold the branch's commits")
+	}
+}
+
+func TestAFailedHandOffPutsTheCheckoutBack(t *testing.T) {
+	root := newRepo(t)
+	git(t, root, "branch", "master")
+	path := t.TempDir()
+	write(t, path, "occupied.txt", "x\n")
+	ctx := context.Background()
+
+	if err := New(root, nil).HandOff(ctx, "work", "master", path); err == nil {
+		t.Fatal("a worktree cannot be made in a directory that is not empty")
+	}
+	if branch, _ := New(root, nil).Branch(ctx); branch != "work" {
+		t.Fatalf("the checkout was left on %q, want work", branch)
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

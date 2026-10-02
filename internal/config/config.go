@@ -20,6 +20,7 @@ type Config struct {
 	Context     []string `toml:"context"`      // read first by every session
 	Verify      string   `toml:"verify"`       // run after every unit
 	Test        string   `toml:"test"`         // run after units that want tests
+	Setup       string   `toml:"setup"`        // readies a fresh worktree before its first check
 	AuthorPaths []string `toml:"author_paths"` // the author's files, never the session's dirt
 	Skill       string   `toml:"skill"`        // overrides the bundled plan-unit skill
 	StateCommit string   `toml:"state_commit"` // message template for the progress commit

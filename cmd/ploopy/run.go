@@ -12,6 +12,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
+	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
@@ -36,6 +37,7 @@ type runFlags struct {
 	context      string
 	notify       string
 	allowDirty   bool
+	worktree     bool
 	dryRun       bool
 	finish       string
 	budget       float64
@@ -78,6 +80,8 @@ func newRun(e *env) *cobra.Command {
 	flags.StringVar(&f.context, "context", "", `documents every session reads first, e.g. "A.md B.md"`)
 	flags.StringVar(&f.notify, "notify", "", "command run when the loop stops")
 	flags.BoolVar(&f.allowDirty, "allow-dirty", false, "hand a dirty working tree to the first session")
+	flags.BoolVar(&f.worktree, "worktree", false,
+		"run in a worktree of the current branch; this checkout moves to the default branch")
 	flags.BoolVar(&f.dryRun, "dry-run", false, "print the first session's prompt and stop")
 	flags.StringVar(&f.finish, "finish", "", "when the run ends: none, suspend or poweroff")
 	flags.Float64Var(&f.budget, "budget", 0, "spending cap per session, in dollars")
@@ -95,6 +99,15 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 	}
 	if errs := lintReport(e, p, os.Stderr, false); len(errs) > 0 {
 		return fmt.Errorf("%s does not lint; fix it before running it", p.Path)
+	}
+	moved, err := chooseWorktree(ctx, e, f)
+	if err != nil {
+		return err
+	}
+	if moved != nil {
+		if err := moved.check(ctx, e, p, f.allowDirty); err != nil {
+			return err
+		}
 	}
 
 	chosen, err := chooseHarness(e, p, f)
@@ -155,13 +168,26 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 
 	report := ui.NewReporter(os.Stdout, os.Stderr)
 	report.Quiet = f.quiet
-	runner, err := loop.New(e.root, opts, report)
-	if err != nil {
-		return err
+	if f.dryRun {
+		runner, err := loop.New(e.root, opts, report)
+		if err != nil {
+			return err
+		}
+		return dryRun(e, runner, p, f)
 	}
 
-	if f.dryRun {
-		return dryRun(e, runner, p, f)
+	root := e.root
+	if moved != nil {
+		if err := repo.New(e.root, nil).HandOff(ctx, moved.branch, moved.onto, moved.path); err != nil {
+			return err
+		}
+		report.Say("%s is on %s now; %s runs in %s", e.root, moved.onto, moved.branch, moved.path)
+		root = moved.path
+		opts.SetupCmd = e.cfg.Setup
+	}
+	runner, err := loop.New(root, opts, report)
+	if err != nil {
+		return err
 	}
 
 	report.Say("%s with %s%s at %s effort%s%s", p.Path, chosen.harness.Name(),
@@ -171,6 +197,10 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 	result := runner.Run(ctx)
 	release()
 
+	if moved != nil {
+		report.Say("the worktree stays at %s; once %s is done with: git worktree remove %s && git switch %s",
+			moved.path, moved.branch, moved.path, moved.branch)
+	}
 	if err := finish.Run(os.Stdout, f.grace); err != nil {
 		fmt.Fprintln(os.Stderr, "ploopy: the end action failed:", err)
 	}

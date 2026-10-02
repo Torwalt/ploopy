@@ -542,6 +542,50 @@ func TestPreflightStopsARunOnAnAlreadyRedRepository(t *testing.T) {
 	}
 }
 
+// A fresh worktree is readied before the preflight could find it red.
+func TestSetupRunsBeforeThePreflight(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Do: commits("one.go", "first"), Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	writeFile(t, f.root, ".gitignore", "deps/\n")
+	f.git("add", ".gitignore")
+	f.git("commit", "-q", "-m", "ignore deps")
+	f.opts.SetupCmd = "mkdir -p deps && echo installed > deps/lib"
+	f.opts.VerifyCmd = "test -f deps/lib"
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+}
+
+func TestAFailedSetupStopsTheRunBeforeAnySession(t *testing.T) {
+	f := setup(t, twoUnits, fake.Step{Do: commits("one.go", "first"), Outcome: done()})
+	f.opts.SetupCmd = "echo no network; exit 1"
+
+	result := f.run()
+	if result.Status != "failed" || !strings.Contains(result.Message, "no network") {
+		t.Fatalf("run %+v", result)
+	}
+	if f.h.Started() != 0 {
+		t.Fatal("a failed setup must stop the run before any session")
+	}
+}
+
+// What setup changes in tracked files would be blamed on the first unit.
+func TestASetupThatDirtiesTheTreeStopsTheRun(t *testing.T) {
+	f := setup(t, twoUnits, fake.Step{Do: commits("one.go", "first"), Outcome: done()})
+	f.opts.SetupCmd = "echo resolved > lock.txt"
+
+	result := f.run()
+	if result.Status != "failed" || !strings.Contains(result.Message, "lock.txt") {
+		t.Fatalf("run %+v", result)
+	}
+	if f.h.Started() != 0 {
+		t.Fatal("a dirty setup must stop the run before any session")
+	}
+}
+
 // The plan-writing skill promises an unlanded unit may be edited mid-run.
 func TestThePlanIsReadAgainBetweenUnits(t *testing.T) {
 	f := setup(t, twoUnits,

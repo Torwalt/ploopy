@@ -5,6 +5,7 @@ package repo
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
@@ -57,6 +58,66 @@ func (r *Repo) git(ctx context.Context, args ...string) (string, error) {
 func (r *Repo) Head(ctx context.Context) (string, error) {
 	out, err := r.git(ctx, "rev-parse", "HEAD")
 	return strings.TrimSpace(out), err
+}
+
+// Branch is the branch checked out here, or empty on a detached head.
+func (r *Repo) Branch(ctx context.Context) (string, error) {
+	out, err := r.git(ctx, "branch", "--show-current")
+	return strings.TrimSpace(out), err
+}
+
+// DefaultBranch is the branch work is integrated into: the one origin's HEAD
+// names, else master, else main.
+func (r *Repo) DefaultBranch(ctx context.Context) (string, error) {
+	if out, err := r.git(ctx, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		return strings.TrimPrefix(strings.TrimSpace(out), "origin/"), nil
+	}
+	for _, name := range []string{"master", "main"} {
+		for _, ref := range []string{"refs/heads/" + name, "refs/remotes/origin/" + name} {
+			if _, err := r.git(ctx, "rev-parse", "--verify", "--quiet", ref); err == nil {
+				return name, nil
+			}
+		}
+	}
+	return "", errors.New("no default branch: origin/HEAD is unset and there is no master or main")
+}
+
+// Linked reports whether this checkout is a linked worktree rather than the
+// repository's main one.
+func (r *Repo) Linked(ctx context.Context) (bool, error) {
+	out, err := r.git(ctx, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir")
+	if err != nil {
+		return false, err
+	}
+	dirs := strings.Split(strings.TrimSpace(out), "\n")
+	if len(dirs) != 2 {
+		return false, fmt.Errorf("git rev-parse named %d directories, not 2", len(dirs))
+	}
+	return dirs[0] != dirs[1], nil
+}
+
+// Committed reports whether path is in the commit at HEAD.
+func (r *Repo) Committed(ctx context.Context, path string) bool {
+	_, err := r.git(ctx, "cat-file", "-e", "HEAD:"+filepath.ToSlash(path))
+	return err == nil
+}
+
+// HandOff moves this checkout onto another branch and checks branch out in a
+// new worktree at path. When the worktree cannot be made, the checkout goes
+// back to branch.
+func (r *Repo) HandOff(ctx context.Context, branch, onto, path string) error {
+	// Interrupted halfway, the branch would be checked out nowhere.
+	ctx = context.WithoutCancel(ctx)
+	if _, err := r.git(ctx, "switch", "--quiet", onto); err != nil {
+		return err
+	}
+	if _, err := r.git(ctx, "worktree", "add", "--quiet", path, branch); err != nil {
+		if _, back := r.git(ctx, "switch", "--quiet", branch); back != nil {
+			return fmt.Errorf("%w; switching back to %s failed too: %w", err, branch, back)
+		}
+		return err
+	}
+	return nil
 }
 
 // Change is one entry of the working tree's status.

@@ -59,6 +59,7 @@ type Options struct {
 	BaseContext []string
 	Skill       string // the plan-unit skill, inlined in every prompt
 
+	SetupCmd    string // readies a fresh worktree, once, before the preflight
 	VerifyCmd   string
 	TestCmd     string
 	AuthorPaths []string
@@ -313,6 +314,9 @@ func (l *Loop) Run(ctx context.Context) Result {
 	if result, stop := l.checkTree(ctx, *unit); stop {
 		return result
 	}
+	if err := l.setup(ctx); err != nil {
+		return l.failRun(err.Error())
+	}
 	if err := l.preflight(ctx); err != nil {
 		return l.failRun(err.Error())
 	}
@@ -383,6 +387,32 @@ func (l *Loop) checkTree(ctx context.Context, unit plan.Unit) (Result, bool) {
 	return Result{}, false
 }
 
+// setup readies a fresh worktree, which has none of the repository's ignored
+// dependencies. Whatever it changes must be ignored, or the first unit would
+// be blamed for it.
+func (l *Loop) setup(ctx context.Context) error {
+	if l.opts.SetupCmd == "" {
+		return nil
+	}
+	l.report.Say("setup: `%s`", l.opts.SetupCmd)
+	logPath := filepath.Join(l.logs, "setup")
+	if err := l.runCheck(ctx, l.opts.SetupCmd, logPath); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("setup failed: `%s`:\n%s", l.opts.SetupCmd, logTail(logPath))
+	}
+	dirt, err := l.repo.DirtLines(ctx)
+	if err != nil {
+		return err
+	}
+	if len(dirt) > 0 {
+		return fmt.Errorf("setup left the tree dirty; `%s` may change only ignored files:\n%s",
+			l.opts.SetupCmd, strings.Join(dirt, "\n"))
+	}
+	return nil
+}
+
 // preflight runs the repository's own check once, so a tree that was already
 // red is not blamed on the first unit.
 func (l *Loop) preflight(ctx context.Context) error {
@@ -395,13 +425,8 @@ func (l *Loop) preflight(ctx context.Context) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		output, _ := os.ReadFile(logPath)
-		lines := strings.Split(strings.TrimRight(string(output), "\n"), "\n")
-		if len(lines) > checkTailLines {
-			lines = lines[len(lines)-checkTailLines:]
-		}
 		return fmt.Errorf("preflight failed: `%s` is already red before the first unit:\n%s",
-			l.opts.VerifyCmd, strings.Join(lines, "\n"))
+			l.opts.VerifyCmd, logTail(logPath))
 	}
 	return nil
 }

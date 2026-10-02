@@ -30,10 +30,10 @@ inputs.ploopy.url = "github:Torwalt/ploopy";
     ploopy mark PLAN 1.2 skipped      record a status by hand
     ploopy replay PLAN 1.2            what that unit's session did
 
-With nothing passed, ploopy asks for the plan, the harness, the model, the
-effort, what a unit due in peak hours does and what to do when the run ends.
-Every answer is also a flag, for a run nobody is watching: `ploopy run --help`.
-Arguments after `--` go to the harness.
+With nothing passed, ploopy asks for the plan, where it runs, the harness, the
+model, the effort, what a unit due in peak hours does and what to do when the
+run ends. Every answer is also a flag, for a run nobody is watching:
+`ploopy run --help`. Arguments after `--` go to the harness.
 
 ## Harnesses
 
@@ -49,6 +49,19 @@ did the work.
 
 opencode reports in prose, so it is the degraded path: the outcome is read from
 the last lines of its output.
+
+## Worktrees
+
+On a branch other than the default, ploopy asks whether to run here or in a
+worktree (`--worktree`). In a worktree, this checkout moves to the default
+branch — origin's HEAD, else `master`, else `main` — and the branch is checked
+out in `../<repo>.worktrees/<branch>`, so you can keep working here while the
+run goes on there. The worktree gets only what is committed, so a dirty tree
+or an uncommitted plan is refused before anything moves.
+
+The worktree stays when the run ends: its `.ploopy/` holds the logs `replay`
+reads. Resume a stopped run by running `ploopy` inside it; once the branch is
+done with, `git worktree remove` it and switch back.
 
 ## Overnight
 
@@ -70,16 +83,18 @@ Optional `.ploopy.toml` at the repository root:
     plans = "docs/plans"
     context = ["AGENTS.md"]
     verify = "make lint"
+    setup = "pnpm install --frozen-lockfile"
     test = "make test"
     author_paths = ["NOTES.md"]
     skill = ".agents/skills/plan-unit/SKILL.md"
     state_commit = "plans: record %s progress"
 
 `verify` runs once before the first unit and after every unit; without it,
-nothing is checked. `author_paths` are yours: the loop never counts them as a
-session's mess, so you can keep working while it runs. Without `skill`, a
-repository's `.agents/skills/plan-unit/SKILL.md` is used if it exists, else the
-one the binary ships with.
+nothing is checked. `setup` readies a fresh worktree before that first check,
+and may change only ignored files. `author_paths` are yours: the loop never
+counts them as a session's mess, so you can keep working while it runs.
+Without `skill`, a repository's `.agents/skills/plan-unit/SKILL.md` is used if
+it exists, else the one the binary ships with.
 
 Session logs, prompts and handovers go to `.ploopy/` in the repository. It
 ignores itself, so nothing there can reach a commit.

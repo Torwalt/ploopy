@@ -145,12 +145,17 @@ func (l *Loop) check(ctx context.Context, name, command, stem string, notes *[]s
 		}
 	}
 
-	output, _ := os.ReadFile(logPath)
+	return fmt.Sprintf("`%s` failed twice:\n%s", command, logTail(logPath))
+}
+
+// logTail is the end of a command's log, where it says why it failed.
+func logTail(path string) string {
+	output, _ := os.ReadFile(path)
 	lines := strings.Split(strings.TrimRight(string(output), "\n"), "\n")
 	if len(lines) > checkTailLines {
 		lines = lines[len(lines)-checkTailLines:]
 	}
-	return fmt.Sprintf("`%s` failed twice:\n%s", command, strings.Join(lines, "\n"))
+	return strings.Join(lines, "\n")
 }
 
 func (l *Loop) runCheck(ctx context.Context, command, logPath string) error {

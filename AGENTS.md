@@ -34,7 +34,8 @@ session's self-report where the repository can be asked instead.
 - `internal/state` — `<PLAN>.state.json` beside the plan. The format is frozen;
   new fields are additive and omitted when empty.
 - `internal/repo` — git process integration: head, dirt, commits since a base,
-  ancestry, single-path commits. Must not import `loop` or `harness`.
+  ancestry, single-path commits, branches and worktree hand-off. Must not
+  import `loop` or `harness`.
 - `internal/harness` — the `Harness`/`Session`/`Event` contract, the marker and
   limit parsers, the child-process runner, and the adapters under
   `harness/claude` and `harness/opencode`. Must not import `loop`.
