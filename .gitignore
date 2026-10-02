@@ -1,0 +1,4 @@
+.ploopy/
+.direnv/
+result
+.env

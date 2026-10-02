@@ -1,0 +1,36 @@
+{
+  "units": {
+    "1.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-02T10:40:54+02:00",
+      "agent": "claude high",
+      "base": "1111111111111111111111111111111111111111",
+      "commits": [
+        "2222222222222222222222222222222222222222 parser: accept empty sections"
+      ],
+      "attempts": 1,
+      "notes": [
+        "`make check` failed once and passed on a rerun"
+      ],
+      "handover": "# 1.1 Accept empty sections\n\n## What landed\n\n- `parser: accept empty sections`.\n",
+      "session_id": "3f2b8c1e-0000-4000-8000-000000000001",
+      "cost_usd": 0.42,
+      "harness": "claude"
+    },
+    "1.2": {
+      "status": "blocked",
+      "outcome": "blocked",
+      "date": "2026-10-02T11:05:10+02:00",
+      "agent": "opencode high",
+      "base": "2222222222222222222222222222222222222222",
+      "attempts": 2,
+      "reason": "the unit names a function HEAD does not have"
+    },
+    "1.3": {
+      "status": "skipped",
+      "outcome": "skipped",
+      "date": "2026-10-02T11:10:00+02:00"
+    }
+  }
+}
