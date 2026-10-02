@@ -757,80 +757,98 @@ var peakWindow = []harness.Window{{
 	Start: 60, End: 240,
 }}
 
-func peakFixture(t *testing.T, at time.Time) *fixture {
+// peakFixture runs on a clock that moves only when the loop sleeps or a
+// session moves it.
+func peakFixture(t *testing.T, at time.Time, windows []harness.Window) (*fixture, *time.Time) {
 	t.Helper()
 	f := setup(t, twoUnits,
 		fake.Step{Do: commits("one.go", "first"), Outcome: done()},
 		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
 	)
-	f.h.Windows = peakWindow
-	f.opts.Now = func() time.Time { return at }
-	return f
+	f.h.Windows = windows
+	clock := at
+	f.opts.Now = func() time.Time { return clock }
+	f.opts.Sleep = func(_ context.Context, d time.Duration) error {
+		f.slept = append(f.slept, d)
+		clock = clock.Add(d)
+		return nil
+	}
+	return f, &clock
 }
 
-func TestThePeakGateWaitsWhenTheAuthorSaysSo(t *testing.T) {
-	f := peakFixture(t, time.Date(2026, 10, 2, 2, 30, 0, 0, time.UTC))
-	asked := 0
-	f.opts.Confirm = func(string) bool { asked++; return true }
+func TestAUnitDueInPeakHoursWaitsWhenTheAuthorChoseTo(t *testing.T) {
+	f, _ := peakFixture(t, time.Date(2026, 10, 2, 2, 30, 0, 0, time.UTC), peakWindow)
+	f.opts.WaitOffPeak = true
 
 	if result := f.run(); result.Status != "done" {
 		t.Fatalf("run %+v", result)
 	}
-	if asked == 0 {
-		t.Fatal("the author was never asked")
-	}
-	if len(f.slept) == 0 || f.slept[0] != 90*time.Minute {
-		t.Fatalf("slept %v, want a wait to 04:00 UTC", f.slept)
+	if len(f.slept) != 1 || f.slept[0] != 90*time.Minute {
+		t.Fatalf("slept %v, want one wait to 04:00 UTC", f.slept)
 	}
 }
 
-func TestThePeakGateRunsAnywayWhenTheAuthorDeclines(t *testing.T) {
-	f := peakFixture(t, time.Date(2026, 10, 2, 2, 30, 0, 0, time.UTC))
-	f.opts.Confirm = func(string) bool { return false }
+func TestAUnitDueInPeakHoursRunsWhenTheAuthorChoseTo(t *testing.T) {
+	f, _ := peakFixture(t, time.Date(2026, 10, 2, 2, 30, 0, 0, time.UTC), peakWindow)
 
 	if result := f.run(); result.Status != "done" {
 		t.Fatalf("run %+v", result)
 	}
 	if len(f.slept) != 0 {
-		t.Fatalf("declining should not wait: %v", f.slept)
+		t.Fatalf("running through peak hours should not wait: %v", f.slept)
 	}
 }
 
-func TestOffPeakIsNeverAsked(t *testing.T) {
-	f := peakFixture(t, time.Date(2026, 10, 2, 22, 0, 0, 0, time.UTC))
-	asked := 0
-	f.opts.Confirm = func(string) bool { asked++; return true }
+func TestOffPeakNeverWaits(t *testing.T) {
+	f, _ := peakFixture(t, time.Date(2026, 10, 2, 22, 0, 0, 0, time.UTC), peakWindow)
+	f.opts.WaitOffPeak = true
 
 	f.run()
-	if asked != 0 {
-		t.Fatalf("the author was asked %d times off-peak", asked)
+	if len(f.slept) != 0 {
+		t.Fatalf("slept %v off-peak", f.slept)
 	}
 }
 
-// Nobody is watching, so nothing is asked and nothing waits.
-func TestANonInteractiveRunNeverWaitsForOffPeak(t *testing.T) {
-	f := peakFixture(t, time.Date(2026, 10, 2, 2, 30, 0, 0, time.UTC))
-	f.opts.Confirm = nil
+// An overnight run started off-peak reaches the window with nobody watching.
+func TestARunThatReachesPeakHoursWaitsThemOut(t *testing.T) {
+	f, clock := peakFixture(t, time.Date(2026, 10, 2, 0, 30, 0, 0, time.UTC), peakWindow)
+	f.opts.WaitOffPeak = true
+	f.h.Steps[0].Do = func(dir string) error {
+		*clock = clock.Add(time.Hour)
+		return commits("one.go", "first")(dir)
+	}
 
 	if result := f.run(); result.Status != "done" {
 		t.Fatalf("run %+v", result)
 	}
-	if len(f.slept) != 0 {
-		t.Fatalf("slept %v", f.slept)
+	if len(f.slept) != 1 || f.slept[0] != 150*time.Minute {
+		t.Fatalf("slept %v, want 1.2 held from 01:30 to 04:00 UTC", f.slept)
+	}
+}
+
+// A peak that wraps midnight is declared as two windows and waited out whole.
+func TestWindowsThatMeetAtMidnightAreWaitedOutTogether(t *testing.T) {
+	windows := []harness.Window{
+		{Days: []time.Weekday{time.Thursday}, Start: 22 * 60, End: 24 * 60},
+		{Days: []time.Weekday{time.Friday}, Start: 0, End: 2 * 60},
+	}
+	f, _ := peakFixture(t, time.Date(2026, 10, 1, 23, 0, 0, 0, time.UTC), windows)
+	f.opts.WaitOffPeak = true
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if len(f.slept) != 2 || f.slept[0] != time.Hour || f.slept[1] != 2*time.Hour {
+		t.Fatalf("slept %v, want 1h to midnight, then 2h to 02:00 UTC", f.slept)
 	}
 }
 
 func TestAHarnessWithoutPeakWindowsIsNeverGated(t *testing.T) {
-	f := setup(t, twoUnits,
-		fake.Step{Do: commits("one.go", "first"), Outcome: done()},
-		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
-	)
-	f.opts.Now = func() time.Time { return time.Date(2026, 10, 2, 2, 30, 0, 0, time.UTC) }
-	asked := 0
-	f.opts.Confirm = func(string) bool { asked++; return true }
+	f, _ := peakFixture(t, time.Date(2026, 10, 2, 2, 30, 0, 0, time.UTC), nil)
+	f.opts.WaitOffPeak = true
 
 	f.run()
-	if asked != 0 {
-		t.Fatalf("a harness with no windows asked %d times", asked)
+	if len(f.slept) != 0 {
+		t.Fatalf("a harness with no windows slept %v", f.slept)
 	}
 }

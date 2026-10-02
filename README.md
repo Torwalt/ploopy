@@ -31,8 +31,9 @@ inputs.ploopy.url = "github:Torwalt/ploopy";
     ploopy replay PLAN 1.2            what that unit's session did
 
 With nothing passed, ploopy asks for the plan, the harness, the model, the
-effort and what to do when the run ends. Every answer is also a flag, for a run
-nobody is watching: `ploopy run --help`. Arguments after `--` go to the harness.
+effort, what a unit due in peak hours does and what to do when the run ends.
+Every answer is also a flag, for a run nobody is watching: `ploopy run --help`.
+Arguments after `--` go to the harness.
 
 ## Harnesses
 
@@ -52,8 +53,11 @@ the last lines of its output.
 ## Overnight
 
 DeepSeek bills double on weekday mornings — 01:00–04:00 and 06:00–10:00 UTC,
-Monday to Friday. Starting a run inside one of those windows asks whether to
-wait for off-peak; a unit already running is never interrupted.
+Monday to Friday. A run on a harness with peak hours asks once, before it
+starts, what a unit due to start in them does: wait for off-peak, or run
+anyway. `--peak wait` or `--peak run` answers for a run nobody is watching,
+which otherwise runs anyway. Nothing is asked once the run has started, and a
+unit already running is never interrupted.
 
 A run can end by suspending or powering the machine off, after a countdown any
 keypress cancels. For as long as it runs, idle suspend is inhibited, so a lid

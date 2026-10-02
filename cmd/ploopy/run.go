@@ -82,7 +82,7 @@ func newRun(e *env) *cobra.Command {
 	flags.StringVar(&f.finish, "finish", "", "when the run ends: none, suspend or poweroff")
 	flags.Float64Var(&f.budget, "budget", 0, "spending cap per session, in dollars")
 	flags.StringVar(&f.fallback, "fallback", "", "comma-separated models to fall back to")
-	flags.StringVar(&f.peak, "peak", "ask", "in a harness's peak hours: ask or run")
+	flags.StringVar(&f.peak, "peak", "", "a unit due in the harness's peak hours: wait or run")
 	flags.BoolVar(&f.quiet, "quiet", false, "report decisions only, without the session feed")
 	flags.DurationVar(&f.grace, "grace", time.Minute, "countdown before the end action")
 	return cmd
@@ -98,6 +98,10 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 	}
 
 	chosen, err := chooseHarness(e, p, f)
+	if err != nil {
+		return err
+	}
+	waitOffPeak, err := choosePeak(chosen.harness, f)
 	if err != nil {
 		return err
 	}
@@ -146,9 +150,7 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 		HarnessArgs:    e.extra,
 		MaxBudgetUSD:   f.budget,
 		FallbackModels: splitList(f.fallback),
-	}
-	if f.peak != "run" && ui.Interactive() {
-		opts.Confirm = ui.Ask
+		WaitOffPeak:    waitOffPeak,
 	}
 
 	report := ui.NewReporter(os.Stdout, os.Stderr)
@@ -162,8 +164,8 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 		return dryRun(e, runner, p, f)
 	}
 
-	report.Say("%s with %s%s at %s effort%s", p.Path, chosen.harness.Name(),
-		modelSuffix(chosen.model), chosen.effort, finishSuffix(finish))
+	report.Say("%s with %s%s at %s effort%s%s", p.Path, chosen.harness.Name(),
+		modelSuffix(chosen.model), chosen.effort, peakSuffix(waitOffPeak), finishSuffix(finish))
 
 	release := ui.Inhibit(ctx, "ploopy is running "+p.Path)
 	result := runner.Run(ctx)
@@ -226,6 +228,13 @@ func modelSuffix(model string) string {
 		return ""
 	}
 	return " (" + model + ")"
+}
+
+func peakSuffix(waitOffPeak bool) string {
+	if !waitOffPeak {
+		return ""
+	}
+	return ", off-peak only"
 }
 
 func finishSuffix(finish ui.Finish) string {
@@ -341,6 +350,71 @@ func chooseHarness(e *env, p *plan.Plan, f *runFlags) (harnessChoice, error) {
 			chosen.Name(), strings.Join(chosen.Efforts(), ", "))
 	}
 	return harnessChoice{harness: chosen, model: model, effort: effort}, nil
+}
+
+// choosePeak settles, before the run, what a unit due to start in the
+// harness's peak hours does. A run nobody is watching runs through them.
+func choosePeak(h harness.Harness, f *runFlags) (bool, error) {
+	switch f.peak {
+	case "wait":
+		return true, nil
+	case "run":
+		return false, nil
+	case "":
+	default:
+		return false, fmt.Errorf("--peak must be wait or run, not %s", f.peak)
+	}
+	windows := h.PeakWindows()
+	if len(windows) == 0 || !ui.Interactive() {
+		return false, nil
+	}
+	title := fmt.Sprintf("%s bills double %s. A unit due to start then?",
+		h.Name(), peakHours(windows, time.Now()))
+	picked, err := ui.Pick(title, "peak", []ui.Choice{
+		{Label: "wait for off-peak", Value: "wait"},
+		{Label: "run anyway", Value: "run"},
+	})
+	if err != nil {
+		return false, err
+	}
+	return picked == "wait", nil
+}
+
+// peakHours renders the windows in local time, today's offset applied. The
+// days stay UTC days.
+func peakHours(windows []harness.Window, now time.Time) string {
+	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	clock := func(minutes int) string {
+		return midnight.Add(time.Duration(minutes) * time.Minute).In(now.Location()).Format("15:04")
+	}
+	var parts []string
+	last := ""
+	for _, w := range windows {
+		span := clock(w.Start) + "–" + clock(w.End)
+		if days := weekdays(w.Days); days != last || len(parts) == 0 {
+			parts = append(parts, days+" "+span)
+			last = days
+		} else {
+			parts[len(parts)-1] += ", " + span
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+// weekdays names a set of days, a consecutive run as a range.
+func weekdays(days []time.Weekday) string {
+	names := make([]string, 0, len(days))
+	for _, day := range days {
+		names = append(names, day.String()[:3])
+	}
+	consecutive := len(days) > 2
+	for i := 1; i < len(days); i++ {
+		consecutive = consecutive && days[i] == days[i-1]+1
+	}
+	if consecutive {
+		return names[0] + "–" + names[len(names)-1]
+	}
+	return strings.Join(names, ", ")
 }
 
 func chooseFinish(f *runFlags) (ui.Finish, error) {

@@ -56,19 +56,3 @@ func Pick(title, flag string, choices []Choice) (string, error) {
 	}
 	return picked, nil
 }
-
-// Ask puts a yes-or-no question. A run with nobody watching answers no.
-func Ask(question string) bool {
-	if !Interactive() {
-		return false
-	}
-	var answer bool
-	if err := huh.NewConfirm().
-		Title(question).
-		Value(&answer).
-		WithTheme(huh.ThemeBase16()).
-		Run(); err != nil {
-		return false
-	}
-	return answer
-}

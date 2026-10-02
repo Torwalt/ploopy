@@ -70,11 +70,11 @@ type Options struct {
 	MaxBudgetUSD   float64
 	FallbackModels []string
 
-	// Confirm asks the author a yes-or-no question. Nil is non-interactive:
-	// nothing is asked and nothing waits.
-	Confirm func(question string) bool
-	Now     func() time.Time
-	Sleep   func(ctx context.Context, d time.Duration) error
+	// WaitOffPeak holds a unit due to start in the harness's peak hours until
+	// they end. The author decides it before the run; nothing is asked during it.
+	WaitOffPeak bool
+	Now         func() time.Time
+	Sleep       func(ctx context.Context, d time.Duration) error
 }
 
 // Defaults fills in what a run does not set.
@@ -134,6 +134,7 @@ type Loop struct {
 	handovers string
 	progress  *progress
 	unit      string
+	peakSaid  time.Time // the peak window already reported as run through
 }
 
 // New prepares a run. The plan itself is read again before every unit.
@@ -405,35 +406,38 @@ func (l *Loop) preflight(ctx context.Context) error {
 	return nil
 }
 
-// peakGate asks before starting a unit in hours the harness bills double. It
-// never interrupts a unit already running.
+// peakGate holds a unit due to start in hours the harness bills double, when
+// the author chose to wait. It never interrupts a unit already running.
 func (l *Loop) peakGate(ctx context.Context) error {
 	windows := l.opts.Harness.PeakWindows()
 	if len(windows) == 0 {
 		return nil
 	}
-	now := l.opts.Now()
-	inPeak, until := harness.Peak(windows, now)
-	if !inPeak {
-		return nil
-	}
+	// Windows that meet at midnight are waited out together.
+	for {
+		now := l.opts.Now()
+		inPeak, until := harness.Peak(windows, now)
+		if !inPeak {
+			return nil
+		}
+		local := until.In(now.Location())
 
-	local := until.In(now.Location())
-	wait := until.Sub(now)
-	if l.opts.Confirm == nil {
-		l.report.Say("%s is in peak hours until %s; running anyway",
+		if !l.opts.WaitOffPeak {
+			if !until.Equal(l.peakSaid) {
+				l.peakSaid = until
+				l.report.Say("%s is in peak hours until %s; running anyway",
+					l.opts.Harness.Name(), local.Format("15:04"))
+			}
+			return nil
+		}
+
+		l.record("peak", "waiting for off-peak until "+local.Format(time.RFC3339))
+		l.report.Say("%s bills double until %s; waiting for off-peak",
 			l.opts.Harness.Name(), local.Format("15:04"))
-		return nil
+		if err := l.opts.Sleep(ctx, until.Sub(now)); err != nil {
+			return err
+		}
 	}
-	question := fmt.Sprintf("%s bills double until %s (%s from now). Wait for off-peak?",
-		l.opts.Harness.Name(), local.Format("15:04"), wait.Round(time.Minute))
-	if !l.opts.Confirm(question) {
-		return nil
-	}
-
-	l.record("peak", "waiting for off-peak until "+local.Format(time.RFC3339))
-	l.report.Say("waiting until %s for off-peak rates", local.Format("15:04"))
-	return l.opts.Sleep(ctx, wait)
 }
 
 func (l *Loop) sessionStem(u plan.Unit) string {
