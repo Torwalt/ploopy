@@ -17,31 +17,32 @@ import (
 )
 
 type runFlags struct {
-	planName   string
-	all        bool
-	agent      string
-	effort     string
-	model      string
-	from       string
-	until      string
-	units      int
-	retries    int
-	timeout    time.Duration
-	backoff    time.Duration
-	tests      bool
-	noTests    bool
-	verify     string
-	testCmd    string
-	context    string
-	notify     string
-	allowDirty bool
-	dryRun     bool
-	finish     string
-	budget     float64
-	fallback   string
-	peak       string
-	quiet      bool
-	grace      time.Duration
+	planName     string
+	all          bool
+	agent        string
+	effort       string
+	model        string
+	from         string
+	until        string
+	units        int
+	retries      int
+	blockRetries int
+	timeout      time.Duration
+	backoff      time.Duration
+	tests        bool
+	noTests      bool
+	verify       string
+	testCmd      string
+	context      string
+	notify       string
+	allowDirty   bool
+	dryRun       bool
+	finish       string
+	budget       float64
+	fallback     string
+	peak         string
+	quiet        bool
+	grace        time.Duration
 }
 
 func newRun(e *env) *cobra.Command {
@@ -66,6 +67,8 @@ func newRun(e *env) *cobra.Command {
 	flags.StringVar(&f.until, "until", "", "stop after unit ID")
 	flags.IntVar(&f.units, "units", 0, "run at most N units")
 	flags.IntVar(&f.retries, "retries", 1, "retries per unit after a failed check")
+	flags.IntVar(&f.blockRetries, "block-retries", 1,
+		"second opinions before a BLOCKED report stops the run")
 	flags.DurationVar(&f.timeout, "timeout", 90*time.Minute, "wall clock per session")
 	flags.DurationVar(&f.backoff, "backoff", 2*time.Minute, "pause after a session that changed nothing")
 	flags.BoolVar(&f.tests, "test", false, "run the test command after every unit")
@@ -127,6 +130,7 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 		Until:          f.until,
 		MaxUnits:       f.units,
 		Retries:        f.retries,
+		BlockRetries:   f.blockRetries,
 		Timeout:        f.timeout,
 		Backoff:        f.backoff,
 		Tests:          testsOverride(f),

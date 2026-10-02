@@ -91,4 +91,10 @@ The agent is never believed. A unit landed when, and only when:
 5. `verify` passes, and `test` too when the unit asks for it.
 
 Anything else is a failed attempt, retried with the reason in the next prompt.
-A usage limit is waited out rather than retried. `BLOCKED` stops the run.
+A usage limit is waited out rather than retried.
+
+`BLOCKED` is the one claim the repository cannot answer, so it is not taken on
+trust. The unit goes to a fresh session that is told the claim and asked to
+establish it; a block two sessions agree on stops the run and is recorded with
+both reasons. `--block-retries 0` believes the first. A unit left blocked is
+open again, and the run that picks it up tells its session what blocked it.

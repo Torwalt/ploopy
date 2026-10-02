@@ -103,3 +103,5 @@ have one: verify it and finish with `NOTHING-TO-DO`.
      changed nothing.
    - `BLOCKED <reason>` — you cannot finish. Commit nothing that does not
      verify; say in the handover what stopped you and what is left uncommitted.
+     A block goes to a fresh session to establish before it stops the run, so
+     give a reason that one can check.

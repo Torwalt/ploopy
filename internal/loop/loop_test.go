@@ -61,14 +61,15 @@ func setup(t *testing.T, planText string, steps ...fake.Step) *fixture {
 
 	f := &fixture{t: t, root: root, h: fake.New(steps...)}
 	f.opts = Options{
-		PlanPath:    "docs/plans/PASS.md",
-		Retries:     1,
-		Harness:     f.h,
-		Model:       "fake-model",
-		Effort:      "high",
-		Skill:       "---\nname: plan-unit\n---\n\n# skill body\n",
-		BaseContext: []string{"AGENTS.md"},
-		Now:         time.Now,
+		PlanPath:     "docs/plans/PASS.md",
+		Retries:      1,
+		BlockRetries: 1,
+		Harness:      f.h,
+		Model:        "fake-model",
+		Effort:       "high",
+		Skill:        "---\nname: plan-unit\n---\n\n# skill body\n",
+		BaseContext:  []string{"AGENTS.md"},
+		Now:          time.Now,
 		Sleep: func(_ context.Context, d time.Duration) error {
 			f.slept = append(f.slept, d)
 			return nil
@@ -313,21 +314,119 @@ func TestAnAuthorCommitIsNotTheUnitsWork(t *testing.T) {
 	}
 }
 
-func TestBlockedStopsAndRecordsTheReason(t *testing.T) {
+// A block is the one claim the repository cannot answer, so two sessions must
+// agree on it before the run stops.
+func TestABlockTwoSessionsAgreeOnStopsTheRun(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Outcome: harness.Outcome{
+			Marker: harness.Blocked, Reason: "the premise is wrong"}},
+		fake.Step{Outcome: harness.Outcome{
+			Marker: harness.Blocked, Reason: "the premise is still wrong"}},
+	)
+
+	result := f.run()
+	if result.Status != "failed" || !strings.Contains(result.Message, "still wrong") {
+		t.Fatalf("run %+v", result)
+	}
+	if f.h.Started() != 2 {
+		t.Fatalf("%d sessions ran; a block needs a second opinion", f.h.Started())
+	}
+	if !strings.Contains(f.h.Prompts[1], "the premise is wrong") {
+		t.Fatal("the second session was not told what the first claimed")
+	}
+	entry := f.state().Entry("1.1")
+	if entry == nil || entry.Status != state.Blocked || entry.Reason != "the premise is still wrong" {
+		t.Fatalf("unit 1.1 is %+v", entry)
+	}
+	if entry.Attempts != 2 {
+		t.Fatalf("unit 1.1 recorded %d attempts", entry.Attempts)
+	}
+	if !strings.Contains(strings.Join(entry.Notes, " "), "previous session blocked") {
+		t.Fatalf("the first block was not recorded: %v", entry.Notes)
+	}
+}
+
+func TestASecondSessionCanOverturnABlock(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Outcome: harness.Outcome{
+			Marker: harness.Blocked, Reason: "the premise is wrong"}},
+		fake.Step{Do: commits("one.go", "first"), Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if f.state().Status("1.1") != state.Landed {
+		t.Fatal("the overturned block did not land")
+	}
+	if entry := f.state().Entry("1.1"); entry.Attempts != 2 {
+		t.Fatalf("unit 1.1 recorded %d attempts", entry.Attempts)
+	}
+}
+
+// A block the session's own commits contradict is still a block, but the
+// record says what it left behind.
+func TestABlockRecordsWhatTheSessionLeftBehind(t *testing.T) {
+	f := setup(t, twoUnits, fake.Step{
+		Do:      commits("one.go", "half of it"),
+		Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the rest is impossible"},
+	})
+	f.opts.BlockRetries = 0
+
+	if result := f.run(); result.Status != "failed" {
+		t.Fatalf("run %+v", result)
+	}
+	entry := f.state().Entry("1.1")
+	if entry == nil || len(entry.Commits) != 1 {
+		t.Fatalf("unit 1.1 recorded %+v", entry)
+	}
+	if !strings.Contains(strings.Join(entry.Notes, " "), "committed 1 time") {
+		t.Fatalf("the commit was not noted: %v", entry.Notes)
+	}
+}
+
+func TestBlockRetriesZeroBelievesTheFirstBlock(t *testing.T) {
 	f := setup(t, twoUnits, fake.Step{
 		Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the premise is wrong"},
 	})
+	f.opts.BlockRetries = 0
 
 	result := f.run()
 	if result.Status != "failed" || !strings.Contains(result.Message, "the premise is wrong") {
 		t.Fatalf("run %+v", result)
 	}
-	entry := f.state().Entry("1.1")
-	if entry == nil || entry.Status != state.Blocked || entry.Reason != "the premise is wrong" {
+	if f.h.Started() != 1 {
+		t.Fatalf("%d sessions ran, want 1", f.h.Started())
+	}
+	if entry := f.state().Entry("1.1"); entry == nil || entry.Status != state.Blocked {
 		t.Fatalf("unit 1.1 is %+v", entry)
 	}
-	if f.h.Started() != 1 {
-		t.Fatalf("a block must stop the run, but %d sessions ran", f.h.Started())
+}
+
+// A blocked unit is open again; the run that picks it up must not start cold.
+func TestAReRunOfABlockedUnitIsToldWhatBlockedIt(t *testing.T) {
+	f := setup(t, twoUnits, fake.Step{
+		Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the premise is wrong"},
+	})
+	f.opts.BlockRetries = 0
+	if result := f.run(); result.Status != "failed" {
+		t.Fatalf("first run %+v", result)
+	}
+
+	before := f.h.Started()
+	f.h.Steps = append(f.h.Steps,
+		fake.Step{Do: commits("one.go", "first"), Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("second run %+v", result)
+	}
+	if !strings.Contains(f.h.Prompts[before], "the premise is wrong") {
+		t.Fatal("the re-run was not told what blocked the unit")
+	}
+	if f.state().Status("1.1") != state.Landed {
+		t.Fatal("the re-run did not land the unit")
 	}
 }
 

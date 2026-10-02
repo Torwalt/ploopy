@@ -36,11 +36,7 @@ const checkTailLines = 40
 // the question.
 func (l *Loop) judge(ctx context.Context, p *plan.Plan, u plan.Unit, base string, outcome harness.Outcome, stem string) Verdict {
 	if outcome.Marker == harness.Blocked {
-		reason := outcome.Reason
-		if reason == "" {
-			reason = "no reason given"
-		}
-		return Verdict{Kind: Blocked, Reason: reason, Marker: outcome.Marker}
+		return l.blocked(ctx, outcome, base)
 	}
 	if outcome.TimedOut {
 		return Verdict{Kind: Failed, Reason: fmt.Sprintf(
@@ -96,6 +92,28 @@ func (l *Loop) judge(ctx context.Context, p *plan.Plan, u plan.Unit, base string
 	}
 
 	return Verdict{Kind: Landed, Reason: outcome.Reason, Marker: outcome.Marker, Commits: commits, Notes: notes}
+}
+
+// blocked is the one verdict the repository cannot answer: a claim about what
+// cannot be done. What the session left behind is read all the same, so a
+// second opinion and the record start from more than the claim. This is
+// evidence, never the verdict, so what git cannot answer is simply left out.
+func (l *Loop) blocked(ctx context.Context, outcome harness.Outcome, base string) Verdict {
+	reason := outcome.Reason
+	if reason == "" {
+		reason = "no reason given"
+	}
+	verdict := Verdict{Kind: Blocked, Reason: reason, Marker: outcome.Marker}
+	verdict.Commits, _ = l.repo.Commits(ctx, base)
+	if len(verdict.Commits) > 0 {
+		verdict.Notes = append(verdict.Notes, fmt.Sprintf(
+			"the session committed %d time(s) before blocking", len(verdict.Commits)))
+	}
+	if dirt, _ := l.repo.DirtLines(ctx); len(dirt) > 0 {
+		verdict.Notes = append(verdict.Notes, fmt.Sprintf(
+			"the session left %d uncommitted path(s)", len(dirt)))
+	}
+	return verdict
 }
 
 // check runs a repository command, and runs it a second time before blaming

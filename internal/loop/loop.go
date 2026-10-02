@@ -47,6 +47,7 @@ type Options struct {
 	MaxUnits int
 
 	Retries        int
+	BlockRetries   int
 	Timeout        time.Duration
 	Backoff        time.Duration
 	TransientLimit int
@@ -468,6 +469,9 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 			return err
 		}
 	}
+	if failure == "" {
+		failure = blockedEarlier(s.Entry(u.ID))
+	}
 	if !resumed {
 		_ = os.Remove(l.handoverPath(u))
 	}
@@ -477,7 +481,8 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 
 	l.report.Say("unit %s — %s", u.ID, u.Title)
 
-	attempt, transient, waits := 0, 0, 0
+	attempt, transient, waits, blocks := 0, 0, 0, 0
+	priorBlock := ""
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -570,7 +575,26 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 		// A cancelled run still judges and records the session it was running.
 		judgeCtx := context.WithoutCancel(ctx)
 		verdict := l.judge(judgeCtx, p, u, base, outcome, stem)
-		settled, err := l.settle(judgeCtx, p, u, verdict, base, attempt, outcome, tail)
+
+		if verdict.Kind == Blocked {
+			if blocks < l.opts.BlockRetries {
+				blocks++
+				priorBlock = verdict.Reason
+				if failure, err = l.blockedAttempt(judgeCtx, verdict); err != nil {
+					return err
+				}
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				continue
+			}
+			if priorBlock != "" {
+				verdict.Notes = append(verdict.Notes,
+					"a previous session blocked with: "+priorBlock)
+			}
+		}
+
+		settled, err := l.settle(judgeCtx, p, u, verdict, base, attempt+blocks, outcome, tail)
 		if err != nil {
 			return err
 		}
@@ -757,10 +781,7 @@ func (l *Loop) settle(ctx context.Context, p *plan.Plan, u plan.Unit, verdict Ve
 	handover := l.handover(u, tail, &notes)
 
 	if verdict.Kind == Blocked {
-		verdict.Notes = notes
-		if verdict.Commits, err = l.repo.Commits(ctx, base); err != nil {
-			return false, err
-		}
+		verdict.Notes = append(verdict.Notes, notes...)
 		s.Set(u.ID, l.entry(verdict, base, attempt+1, handover, outcome))
 		if err := l.commitState(ctx, p, s); err != nil {
 			return false, err
@@ -813,4 +834,58 @@ func (l *Loop) failedAttempt(ctx context.Context, u plan.Unit, verdict Verdict, 
 			u.ID, attempt, strings.TrimSuffix(first, ":"))
 	}
 	return attempt, failure, nil
+}
+
+// blockedAttempt sends a block back for a second opinion. A block is the one
+// claim the repository cannot answer, so it is believed only once a fresh
+// session with no memory of the first agrees with it.
+func (l *Loop) blockedAttempt(ctx context.Context, verdict Verdict) (string, error) {
+	l.report.Say("blocked: %s; asking a fresh session to establish it", verdict.Reason)
+	l.record("blocked", "second opinion on: "+verdict.Reason)
+
+	dirt, _ := l.repo.DirtLines(ctx)
+	failure := fmt.Sprintf("A previous session stopped at this unit and reported:\n\n"+
+		"    BLOCKED %s\n\n"+
+		"It had this work order and no more information than you, and the repository is "+
+		"as it left it: %s. That claim is not established. Check it against the "+
+		"repository before you accept it: if it is wrong, implement the unit; if it "+
+		"holds, finish BLOCKED with the same reason and say in the handover what you "+
+		"checked.", verdict.Reason, leftBehind(len(verdict.Commits), len(dirt)))
+
+	l.progress.Failure, l.progress.Session, l.progress.LeftDirty = failure, nil, len(dirt) > 0
+	return failure, l.progress.save()
+}
+
+// leftBehind is what the repository shows for a session that blocked.
+func leftBehind(commits, dirt int) string {
+	left := "it committed nothing"
+	if commits > 0 {
+		left = fmt.Sprintf(
+			"it left %d commit(s), which still count toward this unit", commits)
+	}
+	if dirt > 0 {
+		left += fmt.Sprintf(", and %d path(s) are left uncommitted", dirt)
+	}
+	return left
+}
+
+// blockedEarlier is what an earlier run's block tells the session that picks
+// the unit up again, so a re-run does not start cold.
+func blockedEarlier(entry *state.Entry) string {
+	if entry == nil || entry.Status != state.Blocked {
+		return ""
+	}
+	reason := entry.Reason
+	if reason == "" {
+		reason = "no reason given"
+	}
+	text := fmt.Sprintf("An earlier run stopped at this unit and reported:\n\n"+
+		"    BLOCKED %s\n\n"+
+		"It is being tried again. The code may have moved since, or the claim may have "+
+		"been wrong. Establish it for yourself before accepting it: if it still holds, "+
+		"finish BLOCKED with the same reason.", reason)
+	if strings.TrimSpace(entry.Handover) != "" {
+		text += "\n\nThat session's handover:\n\n" + entry.Handover
+	}
+	return text
 }
