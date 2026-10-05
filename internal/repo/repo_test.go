@@ -187,6 +187,42 @@ func TestCommitOnlyLeavesEverythingElseAlone(t *testing.T) {
 	}
 }
 
+// failingHooks installs pre-commit and commit-msg hooks that refuse every
+// commit, the way a hook whose config is missing does.
+func failingHooks(t *testing.T, root string) {
+	t.Helper()
+	for _, name := range []string{"pre-commit", "commit-msg"} {
+		hook := filepath.Join(root, ".git", "hooks", name)
+		if err := os.WriteFile(hook, []byte("#!/bin/sh\necho refused >&2\nexit 1\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestPloopysCommitsSkipTheRepositorysHooks(t *testing.T) {
+	root := newRepo(t)
+	ctx := context.Background()
+	write(t, root, "docs/plans/A.md", "# A\n")
+	write(t, root, "docs/plans/A.state.json", "{}\n")
+	commit(t, root, "plan")
+	failingHooks(t, root)
+	r := New(root, nil)
+
+	write(t, root, "docs/plans/A.state.json", "{\"units\": {}}\n")
+	if err := r.CommitOnly(ctx, "docs/plans/A.state.json", "plans: record A progress"); err != nil {
+		t.Fatalf("the state commit ran the hooks: %v", err)
+	}
+	if err := r.CommitEmpty(ctx, "ploopy report: A"); err != nil {
+		t.Fatalf("the report commit ran the hooks: %v", err)
+	}
+	if err := r.RemoveAndCommit(ctx, []string{"docs/plans/A.md", "docs/plans/A.state.json"}, "plans: close A"); err != nil {
+		t.Fatalf("the close commit ran the hooks: %v", err)
+	}
+	if log := git(t, root, "log", "--format=%s", "-3"); log != "plans: close A\nploopy report: A\nplans: record A progress\n" {
+		t.Fatalf("the commits are:\n%s", log)
+	}
+}
+
 func TestRootFindsTheRepository(t *testing.T) {
 	root := newRepo(t)
 	write(t, root, "deep/inside/file.txt", "x\n")

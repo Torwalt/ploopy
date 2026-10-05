@@ -305,8 +305,10 @@ func (r *Repo) Contains(ctx context.Context, base string) bool {
 }
 
 // CommitEmpty records a commit that changes nothing, for its message.
+// Like every commit ploopy makes, it skips the repository's hooks: ploopy
+// wrote what it commits, so they have nothing to check and must not stop a run.
 func (r *Repo) CommitEmpty(ctx context.Context, message string) error {
-	_, err := r.git(ctx, "commit", "-q", "--allow-empty", "--only", "-m", message)
+	_, err := r.git(ctx, "commit", "-q", "--no-verify", "--allow-empty", "--only", "-m", message)
 	return err
 }
 
@@ -316,7 +318,7 @@ func (r *Repo) RemoveAndCommit(ctx context.Context, paths []string, message stri
 	if _, err := r.git(ctx, append([]string{"rm", "-q", "--"}, paths...)...); err != nil {
 		return err
 	}
-	_, err := r.git(ctx, append([]string{"commit", "-q", "-m", message, "--"}, paths...)...)
+	_, err := r.git(ctx, append([]string{"commit", "-q", "--no-verify", "-m", message, "--"}, paths...)...)
 	return err
 }
 
@@ -325,7 +327,7 @@ func (r *Repo) CommitOnly(ctx context.Context, path, message string) error {
 	if _, err := r.git(ctx, "add", "--", path); err != nil {
 		return err
 	}
-	_, err := r.git(ctx, "commit", "-q", "-m", message, "--", path)
+	_, err := r.git(ctx, "commit", "-q", "--no-verify", "-m", message, "--", path)
 	return err
 }
 

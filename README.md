@@ -189,6 +189,10 @@ it exists, else the one the binary ships with.
 Session logs, prompts and handovers go to `.ploopy/` in the repository. It
 ignores itself, so nothing there can reach a commit.
 
+ploopy's own commits — progress, `mark`, `close`, a stamped report — skip the
+repository's hooks: ploopy wrote what they hold. A session's commits run them
+as usual.
+
 ## How it decides
 
 The agent is never believed. A unit landed when, and only when:
