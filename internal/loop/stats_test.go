@@ -130,3 +130,25 @@ func TestChecksAndWaitsAreRecorded(t *testing.T) {
 		t.Fatalf("unit 1.1 %+v", entry)
 	}
 }
+
+func TestEveryToolCallIsTimed(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Do: commits("one.go", "first"), Outcome: done(), Events: []harness.Event{
+			{Kind: harness.EventToolUse, Tool: "bash", Text: "just test"},
+			{Kind: harness.EventToolDone, Tool: "bash", Text: "just test", Took: 90 * time.Second},
+		}},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	var tools []record
+	for _, r := range f.records() {
+		if r.Kind == "tool" {
+			tools = append(tools, r)
+		}
+	}
+	if len(tools) != 1 || tools[0].Command != "just test" || tools[0].Seconds != 90 || tools[0].Unit != "1.1" {
+		t.Fatalf("tool records %+v", tools)
+	}
+}

@@ -33,6 +33,7 @@ const (
 	EventUsage
 	EventNotice
 	EventRaw
+	EventToolDone // a tool call finished; Took is how long it ran
 )
 
 // Event is one observable step of a session. On an EventUsage, CostUSD and
@@ -43,6 +44,7 @@ type Event struct {
 	Tool    string
 	CostUSD float64
 	Tokens  int
+	Took    time.Duration
 }
 
 // RateLimit is a session that ended because the account ran out of room, not

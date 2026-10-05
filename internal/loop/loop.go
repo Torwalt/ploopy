@@ -808,8 +808,15 @@ func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, agent Age
 	var tail []string
 	for event := range session.Events() {
 		l.report.Event(event)
-		if event.Kind == harness.EventToolUse {
+		switch event.Kind {
+		case harness.EventToolUse:
 			info.Tools++
+		case harness.EventToolDone:
+			l.log(record{
+				Kind: "tool", Unit: u.ID, Stem: stem, Agent: agent.Label(),
+				Started: l.opts.Now().Add(-event.Took), Seconds: event.Took.Seconds(),
+				Tool: event.Tool, Command: event.Text,
+			})
 		}
 		if event.Kind == harness.EventText || event.Kind == harness.EventRaw {
 			tail = append(tail, event.Text)

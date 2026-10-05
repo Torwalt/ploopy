@@ -74,7 +74,7 @@ func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session
 
 	s := &session{
 		proc: proc, events: make(chan harness.Event, 64),
-		done: make(chan struct{}), id: spec.SessionID,
+		done: make(chan struct{}), id: spec.SessionID, calls: map[string]call{},
 	}
 	go s.read()
 	return s, nil
@@ -109,6 +109,7 @@ type session struct {
 	done    chan struct{}
 	id      string
 	outcome harness.Outcome
+	calls   map[string]call
 
 	// said is what the agent wrote, decoded. A session killed before its
 	// result event still left its final message here.
@@ -181,11 +182,20 @@ func (u usage) tokens() harness.Tokens {
 
 type assistantMessage struct {
 	Content []struct {
-		Type  string          `json:"type"`
-		Text  string          `json:"text"`
-		Name  string          `json:"name"`
-		Input json.RawMessage `json:"input"`
+		Type      string          `json:"type"`
+		ID        string          `json:"id"`
+		Text      string          `json:"text"`
+		Name      string          `json:"name"`
+		Input     json.RawMessage `json:"input"`
+		ToolUseID string          `json:"tool_use_id"`
 	} `json:"content"`
+}
+
+// call is a tool call waiting for its result. Claude Code reports no times,
+// so a call runs from when it was seen until its result is.
+type call struct {
+	tool, text string
+	at         time.Time
 }
 
 func (s *session) read() {
@@ -204,6 +214,8 @@ func (s *session) read() {
 		switch parsed.Type {
 		case "assistant":
 			s.assistant(parsed)
+		case "user":
+			s.toolResults(parsed)
 		case "system":
 			if parsed.EstimatedTokens > 0 {
 				s.events <- harness.Event{Kind: harness.EventUsage, Tokens: parsed.EstimatedTokens}
@@ -227,11 +239,28 @@ func (s *session) assistant(parsed streamLine) {
 				s.events <- harness.Event{Kind: harness.EventText, Text: text}
 			}
 		case "tool_use":
-			s.events <- harness.Event{
-				Kind: harness.EventToolUse,
-				Tool: block.Name,
-				Text: harness.Summarise(block.Input),
+			text := harness.Summarise(block.Input)
+			if block.ID != "" {
+				s.calls[block.ID] = call{tool: block.Name, text: text, at: time.Now()}
 			}
+			s.events <- harness.Event{Kind: harness.EventToolUse, Tool: block.Name, Text: text}
+		}
+	}
+}
+
+func (s *session) toolResults(parsed streamLine) {
+	var message assistantMessage
+	if json.Unmarshal(parsed.Message, &message) != nil {
+		return
+	}
+	for _, block := range message.Content {
+		pending, ok := s.calls[block.ToolUseID]
+		if block.Type != "tool_result" || !ok {
+			continue
+		}
+		delete(s.calls, block.ToolUseID)
+		s.events <- harness.Event{
+			Kind: harness.EventToolDone, Tool: pending.tool, Text: pending.text, Took: time.Since(pending.at),
 		}
 	}
 }

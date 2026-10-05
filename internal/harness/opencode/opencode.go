@@ -110,6 +110,10 @@ type part struct {
 	Tool  string `json:"tool"`
 	State struct {
 		Input json.RawMessage `json:"input"`
+		Time  struct {
+			Start int64 `json:"start"`
+			End   int64 `json:"end"`
+		} `json:"time"`
 	} `json:"state"`
 	Tokens struct {
 		Input     int `json:"input"`
@@ -156,8 +160,13 @@ func (s *session) handle(e event) {
 			s.events <- harness.Event{Kind: harness.EventText, Text: text}
 		}
 	case "tool_use":
-		s.events <- harness.Event{
-			Kind: harness.EventToolUse, Tool: e.Part.Tool, Text: harness.Summarise(e.Part.State.Input),
+		// opencode reports a call once it is over, with its own clock.
+		text := harness.Summarise(e.Part.State.Input)
+		s.events <- harness.Event{Kind: harness.EventToolUse, Tool: e.Part.Tool, Text: text}
+		if took := e.Part.State.Time.End - e.Part.State.Time.Start; e.Part.State.Time.Start > 0 && took >= 0 {
+			s.events <- harness.Event{
+				Kind: harness.EventToolDone, Tool: e.Part.Tool, Text: text, Took: time.Duration(took) * time.Millisecond,
+			}
 		}
 	case "step_finish":
 		// Each step reports its own use; the session's is the sum.

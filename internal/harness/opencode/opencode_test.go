@@ -51,7 +51,7 @@ func startWithEvents(t *testing.T, spec harness.Spec) (harness.Outcome, []harnes
 // stream is what `opencode run --format json` printed for a session that ran
 // one command and finished, trimmed to the fields that matter.
 const stream = `{"type":"step_start","timestamp":1,"sessionID":"ses_1","part":{"type":"step-start"}}
-{"type":"tool_use","timestamp":2,"sessionID":"ses_1","part":{"type":"tool","tool":"bash","state":{"status":"completed","input":{"command":"go test ./..."},"output":"ok\n"}}}
+{"type":"tool_use","timestamp":2,"sessionID":"ses_1","part":{"type":"tool","tool":"bash","state":{"status":"completed","input":{"command":"go test ./..."},"output":"ok\n","time":{"start":1000,"end":3500}}}}
 {"type":"step_finish","timestamp":3,"sessionID":"ses_1","part":{"type":"step-finish","reason":"tool-calls","tokens":{"total":9702,"input":8000,"output":38,"reasoning":10,"cache":{"write":0,"read":1664}},"cost":0.001}}
 {"type":"step_start","timestamp":4,"sessionID":"ses_1","part":{"type":"step-start"}}
 {"type":"text","timestamp":5,"sessionID":"ses_1","part":{"type":"text","text":"Implemented the unit.\n\nDONE"}}
@@ -82,16 +82,20 @@ func TestTokensAndCostAreSummedOverSteps(t *testing.T) {
 	}
 
 	var tools int
+	var took time.Duration
 	for _, event := range events {
-		if event.Kind == harness.EventToolUse {
+		switch event.Kind {
+		case harness.EventToolUse:
 			tools++
 			if event.Tool != "bash" || event.Text != "go test ./..." {
 				t.Fatalf("tool event %+v", event)
 			}
+		case harness.EventToolDone:
+			took = event.Took
 		}
 	}
-	if tools != 1 {
-		t.Fatalf("%d tool events", tools)
+	if tools != 1 || took != 2500*time.Millisecond {
+		t.Fatalf("%d tool events, the call took %v", tools, took)
 	}
 }
 

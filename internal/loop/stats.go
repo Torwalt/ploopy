@@ -42,6 +42,8 @@ type record struct {
 	Tools   int             `json:"tools,omitempty"`
 	Verdict string          `json:"verdict,omitempty"`
 	Reason  string          `json:"reason,omitempty"`
+	Tool    string          `json:"tool,omitempty"`
+	Command string          `json:"command,omitempty"`
 }
 
 // sessionInfo is what the loop itself saw of a session.

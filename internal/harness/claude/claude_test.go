@@ -213,3 +213,22 @@ func TestTheGuardReadsAToolCall(t *testing.T) {
 		t.Fatal("a tool call with no command was refused")
 	}
 }
+
+// Claude Code reports no times, so a call runs from when it was seen until its
+// result is.
+func TestAToolCallIsTimedUntilItsResult(t *testing.T) {
+	fakeClaude(t, `{"type":"assistant","session_id":"abc","message":{"content":[{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"just test"}}]}}
+{"type":"user","session_id":"abc","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}]}}
+{"type":"user","session_id":"abc","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_unknown","content":"ok"}]}}`)
+
+	_, events := start(t, harness.Spec{Prompt: "x", SessionID: "abc"})
+	var done []harness.Event
+	for _, event := range events {
+		if event.Kind == harness.EventToolDone {
+			done = append(done, event)
+		}
+	}
+	if len(done) != 1 || done[0].Tool != "Bash" || done[0].Text != "just test" || done[0].Took < 0 {
+		t.Fatalf("finished calls %+v", done)
+	}
+}
