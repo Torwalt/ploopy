@@ -109,9 +109,6 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 			return err
 		}
 	}
-	if !cmd.Flags().Changed("push") {
-		f.push = e.cfg.Push
-	}
 	p, err := choosePlan(e, f)
 	if err != nil {
 		return err
@@ -129,19 +126,7 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		}
 	}
 
-	chosen, err := chooseHarness(e, p, f)
-	if err != nil {
-		return err
-	}
-	secondary, err := secondaryFromFlags(e, f, chosen)
-	if err != nil {
-		return err
-	}
-	waitOffPeak, err := choosePeak(peakHarness(chosen.harness, secondary), f)
-	if err != nil {
-		return err
-	}
-	finish, err := chooseFinish(f)
+	chosen, err := chooseSettings(ctx, cmd, e, p, f)
 	if err != nil {
 		return err
 	}
@@ -163,9 +148,9 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 
 	opts := loop.Options{
 		PlanPath:     p.Path,
-		Harness:      chosen.harness,
-		Model:        chosen.model,
-		Effort:       chosen.effort,
+		Harness:      chosen.agent.Harness,
+		Model:        chosen.agent.Model,
+		Effort:       chosen.agent.Effort,
 		Start:        f.from,
 		Until:        f.until,
 		MaxUnits:     f.units,
@@ -185,8 +170,8 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		AllowDirty:   f.allowDirty,
 		HarnessArgs:  e.extra,
 		MaxBudgetUSD: f.budget,
-		Secondary:    secondary,
-		WaitOffPeak:  waitOffPeak,
+		Secondary:    chosen.secondary,
+		WaitOffPeak:  chosen.waitOffPeak,
 	}
 
 	report := ui.NewReporter(os.Stdout, os.Stderr)
@@ -211,10 +196,10 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 	branch, _ := repo.New(root, nil).Branch(ctx)
 	steer := announce(control.Status{
 		Root: root, Plan: p.Path, Branch: branch,
-		Agent: loop.Agent{Harness: chosen.harness, Model: chosen.model, Effort: chosen.effort}.Label(),
+		Agent: chosen.agent.Label(),
 		Settings: control.Settings{
-			Finish: string(finish), Peak: peakName(waitOffPeak), Push: &f.push,
-			Secondary: toControlAgent(secondary),
+			Finish: string(chosen.finish), Peak: peakName(chosen.waitOffPeak), Push: &chosen.push,
+			Secondary: toControlAgent(chosen.secondary),
 		},
 	}, e.harnesses, report)
 	defer steer.close()
@@ -225,9 +210,9 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		return err
 	}
 
-	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, chosen.harness.Name(),
-		modelSuffix(chosen.model), chosen.effort, secondarySuffix(secondary),
-		peakSuffix(waitOffPeak), pushSuffix(f.push), finishSuffix(finish))
+	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, chosen.agent.Harness.Name(),
+		modelSuffix(chosen.agent.Model), chosen.agent.Effort, secondarySuffix(chosen.secondary),
+		peakSuffix(chosen), pushSuffix(chosen.push), finishSuffix(chosen.finish))
 	if steer.run != nil {
 		report.Say("change what happens next from another terminal with `ploopy adjust`")
 	}
@@ -351,8 +336,10 @@ func secondarySuffix(secondary *loop.Agent) string {
 	return ", then " + secondary.Label() + " on a usage limit"
 }
 
-func peakSuffix(waitOffPeak bool) string {
-	if !waitOffPeak {
+func peakSuffix(chosen chosenRun) string {
+	peaked := len(chosen.agent.Harness.PeakWindows()) > 0 ||
+		(chosen.secondary != nil && len(chosen.secondary.Harness.PeakWindows()) > 0)
+	if !chosen.waitOffPeak || !peaked {
 		return ""
 	}
 	return ", off-peak only"
@@ -411,121 +398,6 @@ func choosePlan(e *env, f *runFlags) (*plan.Plan, error) {
 	return byPath[picked], nil
 }
 
-type harnessChoice struct {
-	harness harness.Harness
-	model   string
-	effort  string
-}
-
-// chooseHarness takes what the flags say, then what the plan's front matter
-// says, then asks.
-func chooseHarness(e *env, p *plan.Plan, f *runFlags) (harnessChoice, error) {
-	name := f.agent
-	if name == "" {
-		name = p.Settings["agent"]
-	}
-	if name == "" {
-		choices := make([]ui.Choice, 0, len(e.harnesses))
-		for _, h := range e.harnesses {
-			choices = append(choices, ui.Choice{Label: h.Name(), Value: h.Name()})
-		}
-		picked, err := ui.Pick("Which harness?", "agent", choices)
-		if err != nil {
-			return harnessChoice{}, err
-		}
-		name = picked
-	}
-
-	chosen := e.harnesses.Get(name)
-	if chosen == nil {
-		return harnessChoice{}, fmt.Errorf("--agent must be one of %s, not %s",
-			strings.Join(e.harnesses.Names(), ", "), name)
-	}
-	// Front matter only answers for the harness it names.
-	fromPlan := p.Settings["agent"] == name
-
-	model := f.model
-	if model == "" && fromPlan {
-		model = p.Settings["model"]
-	}
-	if model == "" {
-		// A harness offers its default first, so a run nobody is watching
-		// needs no model named.
-		if !ui.Interactive() {
-			model = chosen.Models()[0]
-		} else {
-			picked, err := ui.Pick("Which model?", "model", labelled(chosen.Models()))
-			if err != nil {
-				return harnessChoice{}, err
-			}
-			model = picked
-		}
-	}
-
-	effort := f.effort
-	if effort == "" && fromPlan {
-		effort = p.Settings["effort"]
-	}
-	if effort == "" {
-		picked, err := ui.Pick("Which effort?", "effort", labelled(chosen.Efforts()))
-		if err != nil {
-			return harnessChoice{}, err
-		}
-		effort = picked
-	}
-	if !contains(chosen.Efforts(), effort) {
-		return harnessChoice{}, fmt.Errorf("--effort for %s must be one of %s",
-			chosen.Name(), strings.Join(chosen.Efforts(), ", "))
-	}
-	return harnessChoice{harness: chosen, model: model, effort: effort}, nil
-}
-
-// secondaryFromFlags is the agent that takes over on a usage limit. An effort
-// left out is the primary's, when the secondary has it.
-func secondaryFromFlags(e *env, f *runFlags, primary harnessChoice) (*loop.Agent, error) {
-	if f.secondary == "" || f.secondary == "none" {
-		return nil, nil
-	}
-	return resolveAgent(e.harnesses, "--secondary", f.secondary, f.secondaryMod, f.secondaryEff, primary.effort)
-}
-
-// peakHarness is the harness whose peak hours the run may meet: the primary's,
-// else the secondary's.
-func peakHarness(primary harness.Harness, secondary *loop.Agent) harness.Harness {
-	if len(primary.PeakWindows()) == 0 && secondary != nil {
-		return secondary.Harness
-	}
-	return primary
-}
-
-// choosePeak settles, before the run, what a unit due to start in the
-// harness's peak hours does. A run nobody is watching runs through them.
-func choosePeak(h harness.Harness, f *runFlags) (bool, error) {
-	switch f.peak {
-	case "wait":
-		return true, nil
-	case "run":
-		return false, nil
-	case "":
-	default:
-		return false, fmt.Errorf("--peak must be wait or run, not %s", f.peak)
-	}
-	windows := h.PeakWindows()
-	if len(windows) == 0 || !ui.Interactive() {
-		return false, nil
-	}
-	title := fmt.Sprintf("%s bills double %s. A unit due to start then?",
-		h.Name(), peakHours(windows, time.Now()))
-	picked, err := ui.Pick(title, "peak", []ui.Choice{
-		{Label: "wait for off-peak", Value: "wait"},
-		{Label: "run anyway", Value: "run"},
-	})
-	if err != nil {
-		return false, err
-	}
-	return picked == "wait", nil
-}
-
 // peakHours renders the windows in local time, today's offset applied. The
 // days stay UTC days.
 func peakHours(windows []harness.Window, now time.Time) string {
@@ -561,24 +433,6 @@ func weekdays(days []time.Weekday) string {
 		return names[0] + "–" + names[len(names)-1]
 	}
 	return strings.Join(names, ", ")
-}
-
-func chooseFinish(f *runFlags) (ui.Finish, error) {
-	if f.finish != "" {
-		finish := ui.Finish(f.finish)
-		if !finish.Valid() {
-			return "", fmt.Errorf("--finish must be none, suspend or poweroff, not %s", f.finish)
-		}
-		return finish, nil
-	}
-	if !ui.Interactive() {
-		return ui.FinishNone, nil
-	}
-	picked, err := ui.Pick("When the run ends?", "finish", ui.Finishes)
-	if err != nil {
-		return "", err
-	}
-	return ui.Finish(picked), nil
 }
 
 func labelled(values []string) []ui.Choice {

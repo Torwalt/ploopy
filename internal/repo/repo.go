@@ -318,24 +318,9 @@ func (r *Repo) CommitOnly(ctx context.Context, path, message string) error {
 // or to the only remote, and the upstream is set. It never forces, and never
 // pushes the default branch. Nothing may prompt: nobody is there to answer.
 func (r *Repo) Push(ctx context.Context) (string, error) {
-	branch, err := r.Branch(ctx)
+	branch, remote, track, err := r.pushTarget(ctx)
 	if err != nil {
 		return "", err
-	}
-	if branch == "" {
-		return "", errors.New("a detached head has no branch to push")
-	}
-	if name, err := r.DefaultBranch(ctx); err == nil && name == branch {
-		return "", fmt.Errorf("not pushing %s, the default branch", branch)
-	}
-
-	remote := r.config(ctx, "branch."+branch+".remote")
-	upstream := strings.TrimPrefix(r.config(ctx, "branch."+branch+".merge"), "refs/heads/")
-	track := remote == "" || remote == "." || upstream != branch
-	if track {
-		if remote, err = r.pushRemote(ctx, branch); err != nil {
-			return "", err
-		}
 	}
 
 	args := []string{"push", "--quiet"}
@@ -354,6 +339,43 @@ func (r *Repo) Push(ctx context.Context) (string, error) {
 		where += ", upstream set"
 	}
 	return where, nil
+}
+
+// CanPush says why the branch checked out here cannot be pushed, or nil.
+func (r *Repo) CanPush(ctx context.Context) error {
+	_, _, _, err := r.pushTarget(ctx)
+	return err
+}
+
+// pushTarget is the branch to push, where it goes, and whether its upstream is
+// to be set.
+func (r *Repo) pushTarget(ctx context.Context) (branch, remote string, track bool, err error) {
+	if branch, err = r.Branch(ctx); err != nil {
+		return "", "", false, err
+	}
+	if branch == "" {
+		return "", "", false, errors.New("a detached head has no branch to push")
+	}
+	if name, err := r.DefaultBranch(ctx); err == nil && name == branch {
+		return "", "", false, fmt.Errorf("not pushing %s, the default branch", branch)
+	}
+
+	remote = r.config(ctx, "branch."+branch+".remote")
+	upstream := strings.TrimPrefix(r.config(ctx, "branch."+branch+".merge"), "refs/heads/")
+	track = remote == "" || remote == "." || upstream != branch
+	if track {
+		if remote, err = r.pushRemote(ctx, branch); err != nil {
+			return "", "", false, err
+		}
+	}
+	return branch, remote, track, nil
+}
+
+// CommonDir is the repository's own git directory, shared by all its
+// worktrees.
+func (r *Repo) CommonDir(ctx context.Context) (string, error) {
+	out, err := r.git(ctx, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	return strings.TrimSpace(out), err
 }
 
 // pushRemote is where a branch without a matching upstream goes.

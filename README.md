@@ -31,10 +31,14 @@ inputs.ploopy.url = "github:Torwalt/ploopy";
     ploopy replay PLAN 1.2            what that unit's session did
     ploopy adjust                     change what a running run does next
 
-With nothing passed, ploopy asks for the plan, where it runs, the harness, the
-model, the effort, what a unit due in peak hours does and what to do when the
-run ends. Every answer is also a flag, for a run nobody is watching:
-`ploopy run --help`. Arguments after `--` go to the harness.
+With nothing passed, ploopy asks for the plan and where it runs, then puts the
+rest on one page: the harness, model and effort, the agent that takes over on
+a usage limit, what a unit due in peak hours does, whether to push, and what to
+do when the run ends. The page starts from the last run in this repository,
+and starting exactly like it is one keypress. What a flag or the plan's front
+matter already says is not asked. Every answer is also a flag, for a run
+nobody is watching: `ploopy run --help`. Arguments after `--` go to the
+harness.
 
 ## Harnesses
 
@@ -87,11 +91,11 @@ done with, `git worktree remove` it and switch back.
 ## Overnight
 
 DeepSeek bills double on weekday mornings — 01:00–04:00 and 06:00–10:00 UTC,
-Monday to Friday. A run on a harness with peak hours asks once, before it
-starts, what a unit due to start in them does: wait for off-peak, or run
-anyway. `--peak wait` or `--peak run` answers for a run nobody is watching,
-which otherwise runs anyway. Nothing is asked once the run has started, and a
-unit already running is never interrupted.
+Monday to Friday. Before a run starts, ploopy asks what a unit due to start
+in them does: wait for off-peak, or run anyway. `--peak wait` or `--peak run`
+answers for a run nobody is watching, which otherwise runs anyway. Nothing is
+asked once the run has started, `ploopy adjust --peak` changes it, and a unit
+already running is never interrupted.
 
 A run can end by suspending or powering the machine off, after a countdown
 that `c` or Ctrl-C cancels. Keys typed into the terminal during the run are
