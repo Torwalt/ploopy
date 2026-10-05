@@ -261,6 +261,10 @@ func (l *Loop) record(kind, message string) {
 		l.opts.Now().Format(time.RFC3339), l.unit, kind, line)
 }
 
+// Note records what happened after the loop itself ended, such as the end
+// action, in the same run log.
+func (l *Loop) Note(kind, message string) { l.record(kind, message) }
+
 // notify writes the run's status and runs the author's notify command.
 func (l *Loop) notify(status, message string) {
 	if err := os.MkdirAll(l.dir, 0o755); err == nil {

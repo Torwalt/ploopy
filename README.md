@@ -72,9 +72,11 @@ anyway. `--peak wait` or `--peak run` answers for a run nobody is watching,
 which otherwise runs anyway. Nothing is asked once the run has started, and a
 unit already running is never interrupted.
 
-A run can end by suspending or powering the machine off, after a countdown any
-keypress cancels. For as long as it runs, idle suspend is inhibited, so a lid
-or an idle timer cannot end the night early.
+A run can end by suspending or powering the machine off, after a countdown
+that `c` or Ctrl-C cancels. Keys typed into the terminal during the run are
+discarded, and nothing else cancels it. A run cancelled with Ctrl-C, or whose
+terminal closes, takes no end action. For as long as it runs, idle suspend is
+inhibited, so a lid or an idle timer cannot end the night early.
 
 ## Per-repository settings
 

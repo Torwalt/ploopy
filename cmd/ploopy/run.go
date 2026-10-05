@@ -201,13 +201,35 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 		report.Say("the worktree stays at %s; once %s is done with: git worktree remove %s && git switch %s",
 			moved.path, moved.branch, moved.path, moved.branch)
 	}
-	if err := finish.Run(os.Stdout, f.grace); err != nil {
-		fmt.Fprintln(os.Stderr, "ploopy: the end action failed:", err)
-	}
+	endAction(ctx, runner, report, finish, f.grace)
 	if result.Status != "done" {
 		return fmt.Errorf("%s", result.Message)
 	}
 	return nil
+}
+
+// endAction powers off or suspends after a countdown, and records what came of
+// it. A run the author cancelled does nothing more: whoever stopped it is
+// either at the keyboard or closed the terminal the countdown would show in.
+func endAction(ctx context.Context, runner *loop.Loop, report *ui.Reporter, finish ui.Finish, grace time.Duration) {
+	if !finish.Acts() {
+		return
+	}
+	if ctx.Err() != nil {
+		report.Say("the run was cancelled; not going to %s", finish)
+		runner.Note("finish", string(finish)+" skipped: the run was cancelled")
+		return
+	}
+	if finish.Countdown(os.Stdout, grace) {
+		report.Say("cancelled; the machine stays up")
+		runner.Note("finish", string(finish)+" cancelled at the keyboard")
+		return
+	}
+	runner.Note("finish", string(finish))
+	if err := finish.Execute(os.Stdout); err != nil {
+		report.Fail("the end action failed: %v", err)
+		runner.Note("finish", string(finish)+" failed: "+err.Error())
+	}
 }
 
 func dryRun(e *env, runner *loop.Loop, p *plan.Plan, f *runFlags) error {
