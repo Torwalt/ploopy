@@ -19,6 +19,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/state"
+	"github.com/Torwalt/ploopy/internal/stats"
 )
 
 const (
@@ -146,7 +147,7 @@ func sleep(ctx context.Context, d time.Duration) error {
 type Result struct {
 	Status  string // "done" or "failed"
 	Message string
-	Stats   Stats
+	Stats   stats.Run
 }
 
 // Loop is one run of one plan.
@@ -167,7 +168,7 @@ type Loop struct {
 	primaryFree time.Time // when the usage limit that moved the run to the secondary resets
 
 	runID   string
-	stats   Stats
+	stats   stats.Run
 	mark    time.Time                // when the current unit's clock last moved
 	checked map[string]time.Duration // verify and test time since the last session
 }
@@ -179,7 +180,7 @@ func New(root string, opts Options, report Reporter) (*Loop, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir := filepath.Join(root, ".ploopy", strings.ToLower(p.Name()))
+	dir := stats.Dir(root, p.Name())
 	return &Loop{
 		root: root, opts: opts,
 		repo:      repo.New(root, opts.AuthorPaths),
@@ -327,7 +328,7 @@ func (l *Loop) finish(message string) Result {
 
 // Run walks the plan's open units.
 func (l *Loop) Run(ctx context.Context) Result {
-	l.stats = Stats{Started: l.opts.Now()}
+	l.stats = stats.Run{Started: l.opts.Now()}
 	l.runID = l.stats.Started.Format(time.RFC3339)
 	if err := l.prepareWorkDir(); err != nil {
 		return l.failRun(err.Error())
@@ -812,7 +813,7 @@ func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, agent Age
 		case harness.EventToolUse:
 			info.Tools++
 		case harness.EventToolDone:
-			l.log(record{
+			l.log(stats.Record{
 				Kind: "tool", Unit: u.ID, Stem: stem, Agent: agent.Label(),
 				Started: l.opts.Now().Add(-event.Took), Seconds: event.Took.Seconds(),
 				Tool: event.Tool, Command: event.Text,
@@ -968,7 +969,26 @@ func (l *Loop) commitState(ctx context.Context, p *plan.Plan, s *state.State) er
 	if err != nil {
 		return err
 	}
-	return l.repo.CommitOnly(ctx, path, fmt.Sprintf(l.opts.StateCommit, p.Name()))
+	message := fmt.Sprintf(l.opts.StateCommit, p.Name())
+	// The commit that lands the last unit carries the plan's report, which
+	// outlives the state file and this checkout's stats log.
+	if Complete(p, s) {
+		records, _ := stats.Load(l.dir)
+		run := l.stats
+		run.Ended = l.opts.Now()
+		message += "\n\n" + strings.TrimRight(stats.Report(p, s, records, &run), "\n")
+	}
+	return l.repo.CommitOnly(ctx, path, message)
+}
+
+// Complete reports whether every unit of a plan is landed or skipped.
+func Complete(p *plan.Plan, s *state.State) bool {
+	for _, u := range p.Units {
+		if status := s.Status(u.ID); status != state.Landed && status != state.Skipped {
+			return false
+		}
+	}
+	return true
 }
 
 // settle records a verdict that ends the unit. It returns true when the unit

@@ -3,12 +3,11 @@ package ui
 import (
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/Torwalt/ploopy/internal/harness"
-	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/state"
+	"github.com/Torwalt/ploopy/internal/stats"
 )
 
 // total is what a group of units took.
@@ -35,7 +34,7 @@ func (t *total) add(e *state.Entry) {
 
 // Summary renders what a plan took, unit by unit and stage by stage, from its
 // state file. Given a run's stats, it closes with what that run took.
-func (r *Reporter) Summary(p *plan.Plan, s *state.State, run *loop.Stats) {
+func (r *Reporter) Summary(p *plan.Plan, s *state.State, run *stats.Run) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -95,7 +94,7 @@ func (r *Reporter) Summary(p *plan.Plan, s *state.State, run *loop.Stats) {
 	if run != nil {
 		wall := run.Ended.Sub(run.Started)
 		line := fmt.Sprintf("  this run: %s · %d session(s) in %s · checks %s · waiting %s",
-			clock(wall), run.Sessions, clock(run.Session), clock(run.Checks), clock(run.Waited))
+			stats.Clock(wall), run.Sessions, stats.Clock(run.Session), stats.Clock(run.Checks), stats.Clock(run.Waited))
 		if run.CostUSD > 0 {
 			line += fmt.Sprintf(" · $%.2f", run.CostUSD)
 		}
@@ -113,7 +112,7 @@ func (t total) render(id, title string) string {
 	}
 	tokens := ""
 	if t.tokens != (harness.Tokens{}) {
-		tokens = count(t.tokens.Prompt()) + " / " + count(t.tokens.Generated())
+		tokens = stats.Count(t.tokens.Prompt()) + " / " + stats.Count(t.tokens.Generated())
 	}
 	cost := ""
 	if t.cost > 0 {
@@ -122,47 +121,12 @@ func (t total) render(id, title string) string {
 			cost = "≈" + cost
 		}
 	}
-	return row(id, title, duration(t.elapsed), duration(t.checks), tries, tokens, cost)
+	return row(id, title, stats.Duration(t.elapsed), stats.Duration(t.checks), tries, tokens, cost)
 }
 
 func row(id, title, elapsed, checks, tries, tokens, cost string) string {
 	return fmt.Sprintf("  %-5s %-34s %8s %7s %5s %15s %8s",
 		id, truncate(title, 34), elapsed, checks, tries, tokens, cost)
-}
-
-// duration renders seconds the way a person reads a stopwatch.
-func duration(seconds int) string {
-	d := time.Duration(seconds) * time.Second
-	switch {
-	case seconds <= 0:
-		return ""
-	case d < time.Minute:
-		return fmt.Sprintf("%ds", seconds)
-	case d < time.Hour:
-		return fmt.Sprintf("%dm%02ds", seconds/60, seconds%60)
-	default:
-		return fmt.Sprintf("%dh%02dm", seconds/3600, seconds%3600/60)
-	}
-}
-
-// clock is a duration that shows zero as zero.
-func clock(d time.Duration) string {
-	if text := duration(int(d.Seconds())); text != "" {
-		return text
-	}
-	return "0s"
-}
-
-// count renders a token count in thousands or millions.
-func count(n int) string {
-	switch {
-	case n >= 1_000_000:
-		return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(n)/1e6), ".0") + "M"
-	case n >= 1000:
-		return fmt.Sprintf("%dk", (n+500)/1000)
-	default:
-		return fmt.Sprint(n)
-	}
 }
 
 // Totals is a plan's one-line account, for a listing of every plan.
@@ -174,7 +138,7 @@ func Totals(s *state.State) string {
 		}
 	}
 	var parts []string
-	if d := duration(whole.elapsed); d != "" {
+	if d := stats.Duration(whole.elapsed); d != "" {
 		parts = append(parts, d)
 	}
 	if whole.cost > 0 {

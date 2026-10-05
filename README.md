@@ -25,6 +25,7 @@ inputs.ploopy.url = "github:Torwalt/ploopy";
 
     ploopy                            ask what to run, and run it
     ploopy status [PLAN]              every plan, or one plan's units, and what they took
+    ploopy report [PLAN]              what a plan took, slowest units and commands, cost
     ploopy lint [PLAN]                check plans parse the way the loop needs
     ploopy show PLAN 1.2 [--prompt]   a unit's work order, or the whole prompt
     ploopy mark PLAN 1.2 skipped      record a status by hand
@@ -128,16 +129,25 @@ every two seconds; it says in its feed when it sees one. A stop or a new
 secondary ends a usage-limit wait at once, and running through peak hours ends
 a wait for off-peak. Nothing here reaches the state file or git.
 
-## What a run took
+## What a plan took
 
-When a run ends, before any end action, ploopy prints the plan unit by unit
-and stage by stage: wall clock, time in `verify` and `test`, attempts, tokens
-read and written, and cost. A unit's numbers cover every session it took,
-failed attempts included, and are recorded in `<PLAN>.state.json`.
-`ploopy status PLAN` prints the same table at any time.
+`ploopy report PLAN` is the plan's account: units landed and blocked, runs and
+wall clock, time in sessions, checks and waits, agents and their cost, tokens,
+each stage, the slowest units, whether `verify` and `test` got slower as the
+plan went on, the slowest commands the sessions ran, and what went wrong.
+DeepSeek's cost is what was billed; Claude's is marked `≈`, the API-price
+equivalent.
 
-Every session, check and wait is also appended to `.ploopy/<plan>/stats.jsonl`,
-one JSON object a line, for whatever else you want to ask of it.
+The run that lands a plan's last unit prints the report and stamps it into that
+unit's state commit, so it outlives the plan, its state file and the worktree:
+`git log --grep '^ploopy report: '` finds every one. `ploopy report PLAN
+--commit` stamps one by hand, into an empty commit.
+
+A unit's own numbers, every attempt included, are in `<PLAN>.state.json`;
+`ploopy status PLAN` shows them unit by unit. Every session, check, wait and
+tool call is appended to `.ploopy/<plan>/stats.jsonl`, one JSON object a line.
+That log stays with its checkout; without it the report tells what the state
+file holds.
 
 ## Per-repository settings
 

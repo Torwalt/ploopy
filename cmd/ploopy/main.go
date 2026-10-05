@@ -111,6 +111,7 @@ func newRoot(e *env) *cobra.Command {
 		newLint(e),
 		newMark(e),
 		newReplay(e),
+		newReport(e),
 		newAdjust(e),
 		guardCommand(),
 	)

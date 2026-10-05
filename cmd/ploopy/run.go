@@ -232,7 +232,12 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 	release()
 
 	if s, err := state.Load(filepath.Join(root, state.PathFor(p.Path))); err == nil {
-		report.Summary(p, s, &result.Stats)
+		if loop.Complete(p, s) {
+			fmt.Println()
+			fmt.Print(reportOf(catalog.Copy{Plan: p, State: s, Root: root}))
+		} else {
+			report.Summary(p, s, &result.Stats)
+		}
 	}
 
 	if moved != nil {

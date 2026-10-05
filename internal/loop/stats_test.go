@@ -5,24 +5,26 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/harness/fake"
+	"github.com/Torwalt/ploopy/internal/stats"
 )
 
-func (f *fixture) records() []record {
+func (f *fixture) records() []stats.Record {
 	f.t.Helper()
 	file, err := os.Open(filepath.Join(f.root, ".ploopy", "pass", "stats.jsonl"))
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	defer file.Close()
-	var out []record
+	var out []stats.Record
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		var r record
+		var r stats.Record
 		if err := json.Unmarshal(scanner.Bytes(), &r); err != nil {
 			f.t.Fatal(err)
 		}
@@ -71,26 +73,26 @@ func TestAUnitRecordsWhatEveryAttemptCost(t *testing.T) {
 		case "session":
 			verdicts = append(verdicts, r.Unit+" "+r.Verdict)
 			if r.Agent != "fake fake-model high" {
-				t.Fatalf("session record %+v", r)
+				t.Fatalf("session stats.Record %+v", r)
 			}
 		case "run":
 			runs++
 			if r.Verdict != "done" || r.CostUSD != 0.875 {
-				t.Fatalf("run record %+v", r)
+				t.Fatalf("run stats.Record %+v", r)
 			}
 		}
 	}
 	want := []string{"1.1 failed", "1.1 landed", "1.2 landed"}
 	if len(verdicts) != len(want) {
-		t.Fatalf("session records %v, want %v", verdicts, want)
+		t.Fatalf("session stats.Records %v, want %v", verdicts, want)
 	}
 	for i := range want {
 		if verdicts[i] != want[i] {
-			t.Fatalf("session records %v, want %v", verdicts, want)
+			t.Fatalf("session stats.Records %v, want %v", verdicts, want)
 		}
 	}
 	if runs != 1 {
-		t.Fatalf("%d run records", runs)
+		t.Fatalf("%d run stats.Records", runs)
 	}
 }
 
@@ -142,13 +144,36 @@ func TestEveryToolCallIsTimed(t *testing.T) {
 	if result := f.run(); result.Status != "done" {
 		t.Fatalf("run %+v", result)
 	}
-	var tools []record
+	var tools []stats.Record
 	for _, r := range f.records() {
 		if r.Kind == "tool" {
 			tools = append(tools, r)
 		}
 	}
 	if len(tools) != 1 || tools[0].Command != "just test" || tools[0].Seconds != 90 || tools[0].Unit != "1.1" {
-		t.Fatalf("tool records %+v", tools)
+		t.Fatalf("tool stats.Records %+v", tools)
+	}
+}
+
+// The last unit's state commit carries the report; the ones before it do not.
+func TestThePlansReportIsStampedWhenItCompletes(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Do: commits("one.go", "first"), Outcome: spending(0.5, 100, 10)},
+		fake.Step{Do: commits("two.go", "second"), Outcome: spending(0.25, 50, 5)},
+	)
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+
+	last := f.git("log", "-1", "--format=%B")
+	if !strings.HasPrefix(last, "plans: record PASS progress\n\nploopy report: PASS\n") ||
+		!strings.Contains(last, "2 of 2 landed") || !strings.Contains(last, "$0.75") {
+		t.Fatalf("the last state commit is:\n%s", last)
+	}
+	if earlier := f.git("log", "-1", "--skip=2", "--format=%B"); strings.Contains(earlier, stats.Heading) {
+		t.Fatalf("an earlier state commit carries a report:\n%s", earlier)
+	}
+	if found := f.git("log", "--grep", "^"+stats.Heading, "--format=%s"); strings.TrimSpace(found) != "plans: record PASS progress" {
+		t.Fatalf("git log --grep found %q", found)
 	}
 }

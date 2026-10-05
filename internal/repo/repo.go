@@ -304,6 +304,12 @@ func (r *Repo) Contains(ctx context.Context, base string) bool {
 	return cmd.Run() == nil
 }
 
+// CommitEmpty records a commit that changes nothing, for its message.
+func (r *Repo) CommitEmpty(ctx context.Context, message string) error {
+	_, err := r.git(ctx, "commit", "-q", "--allow-empty", "--only", "-m", message)
+	return err
+}
+
 // CommitOnly commits one path and nothing else.
 func (r *Repo) CommitOnly(ctx context.Context, path, message string) error {
 	if _, err := r.git(ctx, "add", "--", path); err != nil {

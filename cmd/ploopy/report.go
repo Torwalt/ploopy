@@ -15,6 +15,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/state"
+	"github.com/Torwalt/ploopy/internal/stats"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
 
@@ -64,6 +65,50 @@ func showCopy(e *env, c catalog.Copy) {
 		fmt.Printf("running unit %s · %s\n", c.Live.Unit, c.Live.Wanted.Describe())
 	}
 	ui.NewReporter(os.Stdout, os.Stderr).Summary(c.Plan, c.State, nil)
+}
+
+func newReport(e *env) *cobra.Command {
+	var stamp bool
+	cmd := &cobra.Command{
+		Use:   "report [PLAN]",
+		Short: "What a plan took: time, checks, slowest units and commands, cost",
+		Long: "What a plan took, read from its state file and, while its checkout\n" +
+			"keeps it, its stats log. The run that lands a plan's last unit stamps\n" +
+			"this into that unit's state commit; find past ones with\n" +
+			"`git log --grep '^" + stats.Heading + "'`.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			c, err := e.planArg(ctx, args, "Report on which plan?", false)
+			if err != nil {
+				return err
+			}
+			text := reportOf(c)
+			fmt.Print(text)
+			if !stamp {
+				return nil
+			}
+			if c.Root == "" {
+				return fmt.Errorf("%s is not checked out anywhere; check it out to stamp its report", c.Branch)
+			}
+			if err := repo.New(c.Root, nil).CommitEmpty(ctx, strings.TrimRight(text, "\n")); err != nil {
+				return err
+			}
+			fmt.Printf("\nstamped into a commit on %s\n", c.Branch)
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&stamp, "commit", false, "also stamp the report into an empty commit on the plan's branch")
+	return cmd
+}
+
+// reportOf renders a plan's report, with the stats log its checkout keeps.
+func reportOf(c catalog.Copy) string {
+	var records []stats.Record
+	if c.Root != "" {
+		records, _ = stats.Load(stats.Dir(c.Root, c.Plan.Name()))
+	}
+	return stats.Report(c.Plan, c.State, records, nil)
 }
 
 func newShow(e *env) *cobra.Command {

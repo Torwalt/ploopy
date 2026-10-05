@@ -9,9 +9,9 @@ import (
 	"time"
 
 	"github.com/Torwalt/ploopy/internal/harness"
-	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/state"
+	"github.com/Torwalt/ploopy/internal/stats"
 )
 
 const twoStages = `# Pass
@@ -54,7 +54,7 @@ func TestTheSummaryTotalsUnitsStagesAndThePlan(t *testing.T) {
 		"1.2": {Status: state.Blocked, Outcome: "blocked", Attempts: 2, ElapsedS: 1294, CostUSD: 0.5,
 			Harness: "claude", Reason: "the premise is wrong"},
 	}}
-	stats := &loop.Stats{Started: time.Unix(0, 0), Ended: time.Unix(3600+600, 0), Sessions: 3, CostUSD: 0.75}
+	stats := &stats.Run{Started: time.Unix(0, 0), Ended: time.Unix(3600+600, 0), Sessions: 3, CostUSD: 0.75}
 
 	var out bytes.Buffer
 	NewReporter(&out, &out).Summary(p, s, stats)

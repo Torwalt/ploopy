@@ -43,6 +43,17 @@ func (e *env) find(ctx context.Context, name string) (catalog.Copy, error) {
 	return catalog.Copy{Plan: p, State: s, Branch: branch, Root: e.root, Here: true}, nil
 }
 
+// planArg is the plan a command was given, or the one the author picks.
+func (e *env) planArg(ctx context.Context, args []string, title string, open bool) (catalog.Copy, error) {
+	if len(args) > 0 {
+		return e.find(ctx, args[0])
+	}
+	if !ui.Interactive() {
+		return catalog.Copy{}, fmt.Errorf("name the plan")
+	}
+	return e.pick(ctx, title, open)
+}
+
 // pick asks for a plan. With open, finished plans are left out.
 func (e *env) pick(ctx context.Context, title string, open bool) (catalog.Copy, error) {
 	entries, err := e.plans(ctx)
