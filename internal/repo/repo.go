@@ -7,9 +7,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // WorkDir is ploopy's own directory inside the repository: prompts, session
@@ -38,8 +40,18 @@ func Root(ctx context.Context, dir string) (string, error) {
 }
 
 func run(ctx context.Context, dir string, args ...string) (string, error) {
+	return runWith(ctx, dir, nil, args...)
+}
+
+func runWith(ctx context.Context, dir string, env []string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
+	// A credential helper or ssh left behind by a killed git must not hold the
+	// output open forever.
+	cmd.WaitDelay = 5 * time.Second
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -299,4 +311,82 @@ func (r *Repo) CommitOnly(ctx context.Context, path, message string) error {
 	}
 	_, err := r.git(ctx, "commit", "-q", "-m", message, "--", path)
 	return err
+}
+
+// Push sends the branch checked out here to its remote, and says where it went.
+// A branch whose upstream has its own name goes there; any other goes to origin,
+// or to the only remote, and the upstream is set. It never forces, and never
+// pushes the default branch. Nothing may prompt: nobody is there to answer.
+func (r *Repo) Push(ctx context.Context) (string, error) {
+	branch, err := r.Branch(ctx)
+	if err != nil {
+		return "", err
+	}
+	if branch == "" {
+		return "", errors.New("a detached head has no branch to push")
+	}
+	if name, err := r.DefaultBranch(ctx); err == nil && name == branch {
+		return "", fmt.Errorf("not pushing %s, the default branch", branch)
+	}
+
+	remote := r.config(ctx, "branch."+branch+".remote")
+	upstream := strings.TrimPrefix(r.config(ctx, "branch."+branch+".merge"), "refs/heads/")
+	track := remote == "" || remote == "." || upstream != branch
+	if track {
+		if remote, err = r.pushRemote(ctx, branch); err != nil {
+			return "", err
+		}
+	}
+
+	args := []string{"push", "--quiet"}
+	if track {
+		args = append(args, "--set-upstream")
+	}
+	args = append(args, remote, "refs/heads/"+branch+":refs/heads/"+branch)
+	if _, err := runWith(ctx, r.Root, []string{"GIT_TERMINAL_PROMPT=0"}, args...); err != nil {
+		if ctx.Err() != nil {
+			return "", fmt.Errorf("pushing %s to %s timed out", branch, remote)
+		}
+		return "", err
+	}
+	where := branch + " to " + remote
+	if track {
+		where += ", upstream set"
+	}
+	return where, nil
+}
+
+// pushRemote is where a branch without a matching upstream goes.
+func (r *Repo) pushRemote(ctx context.Context, branch string) (string, error) {
+	for _, key := range []string{"branch." + branch + ".pushRemote", "remote.pushDefault"} {
+		if remote := r.config(ctx, key); remote != "" {
+			return remote, nil
+		}
+	}
+	out, err := r.git(ctx, "remote")
+	if err != nil {
+		return "", err
+	}
+	remotes := strings.Fields(out)
+	for _, remote := range remotes {
+		if remote == "origin" {
+			return remote, nil
+		}
+	}
+	switch len(remotes) {
+	case 0:
+		return "", errors.New("the repository has no remote to push to")
+	case 1:
+		return remotes[0], nil
+	}
+	return "", fmt.Errorf("no origin among %s; set remote.pushDefault", strings.Join(remotes, ", "))
+}
+
+// config is one git setting, or empty when it is unset.
+func (r *Repo) config(ctx context.Context, key string) string {
+	out, err := r.git(ctx, "config", "--get", key)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }

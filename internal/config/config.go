@@ -24,6 +24,7 @@ type Config struct {
 	AuthorPaths []string `toml:"author_paths"` // the author's files, never the session's dirt
 	Skill       string   `toml:"skill"`        // overrides the bundled plan-unit skill
 	StateCommit string   `toml:"state_commit"` // message template for the progress commit
+	Push        bool     `toml:"push"`         // push the branch when a run ends
 }
 
 // Default is what a repository without a settings file gets.

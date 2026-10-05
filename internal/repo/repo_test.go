@@ -311,3 +311,85 @@ func containsString(values []string, want string) bool {
 	}
 	return false
 }
+
+// remote gives a repository an origin to push to, and returns the bare one.
+func remote(t *testing.T, root string) string {
+	t.Helper()
+	bare := t.TempDir()
+	git(t, bare, "init", "-q", "--bare")
+	git(t, root, "remote", "add", "origin", bare)
+	return bare
+}
+
+func TestPushCreatesTheBranchAndSetsItsUpstream(t *testing.T) {
+	root := newRepo(t)
+	bare := remote(t, root)
+	git(t, root, "branch", "master")
+	git(t, root, "switch", "-q", "-c", "feature")
+	write(t, root, "a.txt", "a\n")
+	commit(t, root, "a")
+	r := New(root, nil)
+	ctx := context.Background()
+
+	where, err := r.Push(ctx)
+	if err != nil || where != "feature to origin, upstream set" {
+		t.Fatalf("push %q, %v", where, err)
+	}
+	if upstream := strings.TrimSpace(git(t, root, "rev-parse", "--abbrev-ref", "feature@{upstream}")); upstream != "origin/feature" {
+		t.Fatalf("upstream %q", upstream)
+	}
+
+	write(t, root, "b.txt", "b\n")
+	commit(t, root, "b")
+	if where, err := r.Push(ctx); err != nil || where != "feature to origin" {
+		t.Fatalf("second push %q, %v", where, err)
+	}
+	head := strings.TrimSpace(git(t, root, "rev-parse", "HEAD"))
+	if pushed := strings.TrimSpace(git(t, bare, "rev-parse", "refs/heads/feature")); pushed != head {
+		t.Fatalf("origin has %s, want %s", pushed, head)
+	}
+}
+
+// A branch made from origin's master tracks master; pushing it must not.
+func TestPushNeverSendsABranchToAnUpstreamOfAnotherName(t *testing.T) {
+	root := newRepo(t)
+	bare := remote(t, root)
+	git(t, root, "push", "-q", "origin", "work:master")
+	git(t, root, "fetch", "-q", "origin")
+	git(t, root, "switch", "-q", "-c", "feature", "--track", "origin/master")
+	write(t, root, "a.txt", "a\n")
+	commit(t, root, "a")
+
+	if _, err := New(root, nil).Push(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if master := strings.TrimSpace(git(t, bare, "rev-parse", "refs/heads/master")); master == strings.TrimSpace(git(t, root, "rev-parse", "HEAD")) {
+		t.Fatal("the branch was pushed onto master")
+	}
+	if upstream := strings.TrimSpace(git(t, root, "rev-parse", "--abbrev-ref", "feature@{upstream}")); upstream != "origin/feature" {
+		t.Fatalf("upstream %q", upstream)
+	}
+}
+
+func TestPushRefusesTheDefaultBranchAndADetachedHead(t *testing.T) {
+	root := newRepo(t)
+	remote(t, root)
+	git(t, root, "branch", "-m", "master")
+	r := New(root, nil)
+	ctx := context.Background()
+
+	if _, err := r.Push(ctx); err == nil || !strings.Contains(err.Error(), "default branch") {
+		t.Fatalf("pushing master: %v", err)
+	}
+	git(t, root, "switch", "-q", "--detach")
+	if _, err := r.Push(ctx); err == nil || !strings.Contains(err.Error(), "detached") {
+		t.Fatalf("pushing a detached head: %v", err)
+	}
+}
+
+func TestPushWithoutARemoteSaysSo(t *testing.T) {
+	root := newRepo(t)
+	if _, err := New(root, nil).Push(context.Background()); err == nil || !strings.Contains(err.Error(), "no remote") {
+		t.Fatalf("push %v", err)
+	}
+}

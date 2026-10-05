@@ -25,13 +25,13 @@ func TestDefaultsWithoutAFile(t *testing.T) {
 
 func TestAFileOverridesTheDefaults(t *testing.T) {
 	root := t.TempDir()
-	write(t, root, File, "plans = \"tasks\"\nverify = \"make lint\"\nauthor_paths = [\"NOTES.md\"]\n")
+	write(t, root, File, "plans = \"tasks\"\nverify = \"make lint\"\nauthor_paths = [\"NOTES.md\"]\npush = true\n")
 
 	cfg, err := Load(root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Plans != "tasks" || cfg.Verify != "make lint" {
+	if cfg.Plans != "tasks" || cfg.Verify != "make lint" || !cfg.Push {
 		t.Fatalf("config %+v", cfg)
 	}
 	if len(cfg.AuthorPaths) != 1 || cfg.AuthorPaths[0] != "NOTES.md" {

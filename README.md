@@ -52,6 +52,15 @@ opencode is driven through `--format json`, so tool calls, token use, cost
 and session identity come from its events. Its outcome is still read from the
 final text, and a usage limit from its wording.
 
+## Pushing
+
+`--push`, or `push = true` in `.ploopy.toml`, pushes the branch once the run
+ends, before any end action, whatever the run's result. A branch without an
+upstream of its own name goes to origin with `--set-upstream`. ploopy never
+forces, never pushes the default branch, and never waits for a prompt: a push
+that fails or takes over two minutes is reported and the run carries on to its
+end action. Sessions still may not push.
+
 ## A secondary agent
 
 `--secondary opencode` (with `--secondary-model` and `--secondary-effort`)
@@ -112,6 +121,7 @@ Optional `.ploopy.toml` at the repository root:
     author_paths = ["NOTES.md"]
     skill = ".agents/skills/plan-unit/SKILL.md"
     state_commit = "plans: record %s progress"
+    push = true
 
 `verify` runs once before the first unit and after every unit; without it,
 nothing is checked. `setup` readies a fresh worktree before that first check,

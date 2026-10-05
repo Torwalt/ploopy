@@ -41,6 +41,7 @@ type runFlags struct {
 	worktree     bool
 	dryRun       bool
 	finish       string
+	push         bool
 	budget       float64
 	secondary    string
 	secondaryMod string
@@ -59,7 +60,7 @@ func newRun(e *env) *cobra.Command {
 			"With nothing passed, ploopy asks for what it needs. Every choice is\n" +
 			"also a flag, for a run nobody is watching.",
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error { return runPlan(cmd.Context(), e, &f) },
+		RunE: func(cmd *cobra.Command, _ []string) error { return runPlan(cmd, e, &f) },
 	}
 
 	flags := cmd.Flags()
@@ -87,6 +88,7 @@ func newRun(e *env) *cobra.Command {
 		"run in a worktree of the current branch; this checkout moves to the default branch")
 	flags.BoolVar(&f.dryRun, "dry-run", false, "print the first session's prompt and stop")
 	flags.StringVar(&f.finish, "finish", "", "when the run ends: none, suspend or poweroff")
+	flags.BoolVar(&f.push, "push", false, "push the branch when the run ends, before the end action")
 	flags.Float64Var(&f.budget, "budget", 0, "spending cap per session, in dollars")
 	flags.StringVar(&f.secondary, "secondary", "",
 		"harness that takes over when the agent hits a usage limit, or none")
@@ -98,7 +100,11 @@ func newRun(e *env) *cobra.Command {
 	return cmd
 }
 
-func runPlan(ctx context.Context, e *env, f *runFlags) error {
+func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
+	ctx := cmd.Context()
+	if !cmd.Flags().Changed("push") {
+		f.push = e.cfg.Push
+	}
 	p, err := choosePlan(e, f)
 	if err != nil {
 		return err
@@ -200,9 +206,9 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 		return err
 	}
 
-	report.Say("%s with %s%s at %s effort%s%s%s", p.Path, chosen.harness.Name(),
+	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, chosen.harness.Name(),
 		modelSuffix(chosen.model), chosen.effort, secondarySuffix(secondary),
-		peakSuffix(waitOffPeak), finishSuffix(finish))
+		peakSuffix(waitOffPeak), pushSuffix(f.push), finishSuffix(finish))
 
 	release := ui.Inhibit(ctx, "ploopy is running "+p.Path)
 	result := runner.Run(ctx)
@@ -216,12 +222,40 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 		report.Say("the worktree stays at %s; once %s is done with: git worktree remove %s && git switch %s",
 			moved.path, moved.branch, moved.path, moved.branch)
 	}
+	if f.push {
+		pushBranch(ctx, root, runner, report)
+	}
 	endAction(ctx, runner, report, finish, f.grace)
 	if result.Status != "done" {
 		return fmt.Errorf("%s", result.Message)
 	}
 	return nil
 }
+
+// pushBranch sends the branch to its remote once the run is over, whatever
+// the run's result: what landed before a block is still good. A push that fails
+// is reported and changes nothing else.
+func pushBranch(ctx context.Context, root string, runner *loop.Loop, report *ui.Reporter) {
+	if ctx.Err() != nil {
+		report.Say("the run was cancelled; not pushing")
+		runner.Note("push", "skipped: the run was cancelled")
+		return
+	}
+	pushCtx, cancel := context.WithTimeout(context.Background(), pushTimeout)
+	defer cancel()
+	where, err := repo.New(root, nil).Push(pushCtx)
+	if err != nil {
+		report.Fail("push failed: %v", err)
+		runner.Note("push", "failed: "+err.Error())
+		return
+	}
+	report.Say("pushed %s", where)
+	runner.Note("push", where)
+}
+
+// pushTimeout bounds a push nobody is watching, so a stuck remote cannot hold
+// off the end action.
+const pushTimeout = 2 * time.Minute
 
 // endAction powers off or suspends after a countdown, and records what came of
 // it. A run the author cancelled does nothing more: whoever stopped it is
@@ -299,6 +333,13 @@ func peakSuffix(waitOffPeak bool) string {
 		return ""
 	}
 	return ", off-peak only"
+}
+
+func pushSuffix(push bool) string {
+	if !push {
+		return ""
+	}
+	return ", pushed at the end"
 }
 
 func finishSuffix(finish ui.Finish) string {
