@@ -40,6 +40,17 @@ matter already says is not asked. Every answer is also a flag, for a run
 nobody is watching: `ploopy run --help`. Arguments after `--` go to the
 harness.
 
+## Where a plan's progress lives
+
+A plan runs on its own branch, often in a worktree, so the checkout you stand
+in may know nothing of it. `ploopy status` and the plan picker look at every
+checkout of the repository, at every local branch not yet merged into the
+default one, and at the runs going on, and show each plan as the copy with the
+newest progress has it, with where that is. Picking a plan that lives on
+another branch runs it there: in its worktree, or in a new one beside this
+checkout, which stays where it is. A branch merged into the default one is done
+with and left out, so a closed plan does not come back.
+
 ## Harnesses
 
 | | effort | peak hours |

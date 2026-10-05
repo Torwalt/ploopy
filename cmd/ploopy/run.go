@@ -10,10 +10,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Torwalt/ploopy/internal/catalog"
+	"github.com/Torwalt/ploopy/internal/config"
 	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/loop"
-	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/ui"
@@ -109,38 +110,41 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 			return err
 		}
 	}
-	p, err := choosePlan(e, f)
+	c, err := choosePlan(ctx, e, f)
 	if err != nil {
 		return err
 	}
-	if errs := lintReport(e, p, os.Stderr, false); len(errs) > 0 {
+	if c.Live != nil {
+		if !ui.Interactive() {
+			return fmt.Errorf("%s is already running in %s; change it with `ploopy adjust`", c.Plan.Path, c.Live.Root)
+		}
+		fmt.Printf("%s is already running in %s.\n", c.Plan.Path, c.Live.Root)
+		return adjustInteractively(e, *c.Live)
+	}
+	t, err := prepareTarget(ctx, e, f, c)
+	if err != nil {
+		return err
+	}
+	p, cfg := c.Plan, t.cfg
+	if errs := lintReport(e, t.root, p, os.Stderr, false); len(errs) > 0 {
 		return fmt.Errorf("%s does not lint; fix it before running it", p.Path)
 	}
-	moved, err := chooseWorktree(ctx, e, f)
-	if err != nil {
-		return err
-	}
-	if moved != nil {
-		if err := moved.check(ctx, e, p, f.allowDirty); err != nil {
-			return err
-		}
-	}
 
-	chosen, err := chooseSettings(ctx, cmd, e, p, f)
+	chosen, err := chooseSettings(ctx, cmd, e, p, f, t.branch)
 	if err != nil {
 		return err
 	}
 
-	skill, err := e.skill()
+	skill, err := skillAt(t.root, cfg)
 	if err != nil {
 		return err
 	}
 	verify, test := f.verify, f.testCmd
 	if verify == "" {
-		verify = e.cfg.Verify
+		verify = cfg.Verify
 	}
 	if test == "" {
-		test = e.cfg.Test
+		test = cfg.Test
 	}
 	if f.tests && test == "" {
 		return fmt.Errorf("--test needs a test command: set `test` in .ploopy.toml or pass --test-cmd")
@@ -160,12 +164,12 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		Backoff:      f.backoff,
 		Tests:        testsOverride(f),
 		Context:      strings.Fields(f.context),
-		BaseContext:  e.cfg.Context,
+		BaseContext:  cfg.Context,
 		Skill:        skill,
 		VerifyCmd:    verify,
 		TestCmd:      test,
-		AuthorPaths:  e.cfg.AuthorPaths,
-		StateCommit:  e.cfg.StateCommit,
+		AuthorPaths:  cfg.AuthorPaths,
+		StateCommit:  cfg.StateCommit,
 		Notify:       f.notify,
 		AllowDirty:   f.allowDirty,
 		HarnessArgs:  e.extra,
@@ -177,21 +181,27 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 	report := ui.NewReporter(os.Stdout, os.Stderr)
 	report.Quiet = f.quiet
 	if f.dryRun {
-		runner, err := loop.New(e.root, opts, report)
+		runner, err := loop.New(t.root, opts, report)
 		if err != nil {
 			return err
 		}
-		return dryRun(e, runner, p, f)
+		return dryRun(runner, c, f)
 	}
 
-	root := e.root
+	root, moved := t.root, t.moved
 	if moved != nil {
-		if err := repo.New(e.root, nil).HandOff(ctx, moved.branch, moved.onto, moved.path); err != nil {
+		if err := e.repo().HandOff(ctx, moved.branch, moved.onto, moved.path); err != nil {
 			return err
 		}
 		report.Say("%s is on %s now; %s runs in %s", e.root, moved.onto, moved.branch, moved.path)
 		root = moved.path
-		opts.SetupCmd = e.cfg.Setup
+		t.fresh = true
+	}
+	if !c.Here {
+		report.Say("%s runs in %s, where %s is checked out", p.Path, root, t.branch)
+	}
+	if t.fresh {
+		opts.SetupCmd = cfg.Setup
 	}
 	branch, _ := repo.New(root, nil).Branch(ctx)
 	steer := announce(control.Status{
@@ -289,12 +299,9 @@ func endAction(ctx context.Context, runner *loop.Loop, report *ui.Reporter, fini
 	}
 }
 
-func dryRun(e *env, runner *loop.Loop, p *plan.Plan, f *runFlags) error {
-	s, err := e.state(p)
-	if err != nil {
-		return err
-	}
-	unit := state.Resume(p, s)
+func dryRun(runner *loop.Loop, c catalog.Copy, f *runFlags) error {
+	p := c.Plan
+	unit := state.Resume(p, c.State)
 	if f.from != "" {
 		unit = p.Unit(f.from)
 	}
@@ -359,43 +366,62 @@ func finishSuffix(finish ui.Finish) string {
 	return ", then " + string(finish)
 }
 
-// choosePlan takes the plan from the flag, or offers the open ones.
-func choosePlan(e *env, f *runFlags) (*plan.Plan, error) {
+// choosePlan takes the plan from the flag, or offers the open ones, each
+// where its progress lives.
+func choosePlan(ctx context.Context, e *env, f *runFlags) (catalog.Copy, error) {
 	if f.planName != "" {
-		return e.resolve(f.planName)
+		return e.find(ctx, f.planName)
 	}
+	return e.pick(ctx, "Which plan?", !f.all)
+}
 
-	plans, err := e.discover()
-	if err != nil {
-		return nil, err
-	}
-	var choices []ui.Choice
-	byPath := map[string]*plan.Plan{}
-	for _, p := range plans {
-		s, err := e.state(p)
+// target is where a run happens: this checkout, a worktree the plan already
+// runs in, or a new worktree for the branch that holds the plan.
+type target struct {
+	root   string
+	cfg    config.Config
+	branch string
+	moved  *handoff // this checkout's branch, handed over to a worktree
+	fresh  bool     // the worktree is new and wants the setup command
+}
+
+func prepareTarget(ctx context.Context, e *env, f *runFlags, c catalog.Copy) (target, error) {
+	switch {
+	case c.Here:
+		moved, err := chooseWorktree(ctx, e, f)
 		if err != nil {
-			return nil, err
+			return target{}, err
 		}
-		done, total := progressOf(p, s)
-		if done == total && !f.all {
-			continue
+		if moved != nil {
+			if err := moved.check(ctx, e, c.Plan, f.allowDirty); err != nil {
+				return target{}, err
+			}
 		}
-		label := fmt.Sprintf("%-44s %2d/%-2d", p.Path, done, total)
-		if next := state.Resume(p, s); next != nil {
-			label += "  next " + next.ID + " " + next.Title
+		return target{root: e.root, cfg: e.cfg, branch: c.Branch, moved: moved}, nil
+	case c.Root != "":
+		cfg, err := config.Load(c.Root)
+		if err != nil {
+			return target{}, err
 		}
-		choices = append(choices, ui.Choice{Label: label, Value: p.Path})
-		byPath[p.Path] = p
-	}
-	if len(choices) == 0 {
-		return nil, fmt.Errorf("no open plan under %s; --all offers finished ones", e.cfg.Plans)
+		return target{root: c.Root, cfg: cfg, branch: c.Branch}, nil
 	}
 
-	picked, err := ui.Pick("Which plan?", "plan", choices)
-	if err != nil {
-		return nil, err
+	// Only a branch holds it: check that branch out beside this checkout. A
+	// later `ploopy` finds the plan there, whether or not this run starts.
+	path := worktreePath(e.root, c.Branch)
+	if _, err := os.Stat(path); err == nil {
+		return target{}, fmt.Errorf("%s already exists but does not hold %s; remove it, or check %s out there",
+			path, c.Branch, c.Branch)
 	}
-	return byPath[picked], nil
+	if err := e.repo().AddWorktree(ctx, path, c.Branch); err != nil {
+		return target{}, err
+	}
+	fmt.Printf("%s holds %s; checked it out in %s for the run\n", c.Branch, c.Plan.Path, path)
+	cfg, err := config.Load(path)
+	if err != nil {
+		return target{}, err
+	}
+	return target{root: path, cfg: cfg, branch: c.Branch, fresh: true}, nil
 }
 
 // peakHours renders the windows in local time, today's offset applied. The

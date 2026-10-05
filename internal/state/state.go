@@ -74,15 +74,20 @@ func PathFor(planPath string) string {
 
 // Load reads a state file. A missing file is empty progress, not an error.
 func Load(path string) (*State, error) {
-	s := &State{Path: path, Units: map[string]*Entry{}}
 	raw, err := os.ReadFile(path)
 	if os.IsNotExist(err) {
-		return s, nil
+		return &State{Path: path, Units: map[string]*Entry{}}, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	return Parse(raw, path)
+}
 
+// Parse reads a state file's contents, such as one taken from a commit. Path
+// is where it lives, for messages and for Save.
+func Parse(raw []byte, path string) (*State, error) {
+	s := &State{Path: path, Units: map[string]*Entry{}}
 	var parsed file
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil, fmt.Errorf("%s is not valid JSON: %w", path, err)

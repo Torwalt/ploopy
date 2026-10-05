@@ -156,15 +156,18 @@ func (e *env) state(p *plan.Plan) (*state.State, error) {
 	return state.Load(filepath.Join(e.root, state.PathFor(p.Path)))
 }
 
-// skill is the plan-unit skill every session is given: the one the settings
-// name, else the repository's own, else the one the binary ships with.
-func (e *env) skill() (string, error) {
+// repo is the checkout ploopy was started in.
+func (e *env) repo() *repo.Repo { return repo.New(e.root, e.cfg.AuthorPaths) }
+
+// skillAt is the plan-unit skill every session is given: the one the settings
+// name, else the checkout's own, else the one the binary ships with.
+func skillAt(root string, cfg config.Config) (string, error) {
 	path := ""
 	switch {
-	case e.cfg.Skill != "":
-		path = filepath.Join(e.root, e.cfg.Skill)
+	case cfg.Skill != "":
+		path = filepath.Join(root, cfg.Skill)
 	default:
-		own := filepath.Join(e.root, config.RepoSkill)
+		own := filepath.Join(root, config.RepoSkill)
 		if info, err := os.Stat(own); err == nil && info.Mode().IsRegular() {
 			path = own
 		}
@@ -177,14 +180,4 @@ func (e *env) skill() (string, error) {
 		return "", fmt.Errorf("no plan-unit skill at %s", path)
 	}
 	return string(text), nil
-}
-
-func progressOf(p *plan.Plan, s *state.State) (int, int) {
-	done := 0
-	for _, u := range p.Units {
-		if status := s.Status(u.ID); status == state.Landed || status == state.Skipped {
-			done++
-		}
-	}
-	return done, len(p.Units)
 }

@@ -53,7 +53,7 @@ type chosenRun struct {
 // chooseSettings takes what the flags and the plan's front matter say, then
 // asks for the rest on one page, prefilled from the last run. When there was
 // a last run, starting like it is one keypress.
-func chooseSettings(ctx context.Context, cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (chosenRun, error) {
+func chooseSettings(ctx context.Context, cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags, branch string) (chosenRun, error) {
 	s, g, err := givenSettings(cmd, e, p, f)
 	if err != nil {
 		return chosenRun{}, err
@@ -62,7 +62,7 @@ func chooseSettings(ctx context.Context, cmd *cobra.Command, e *env, p *plan.Pla
 		return unattended(e, s)
 	}
 	// A branch that cannot be pushed is not asked about.
-	if repo.New(e.root, nil).CanPush(ctx) != nil {
+	if e.repo().CanPush(ctx, branch) != nil {
 		g.push = true
 	}
 

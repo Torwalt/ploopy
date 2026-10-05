@@ -393,3 +393,64 @@ func TestPushWithoutARemoteSaysSo(t *testing.T) {
 		t.Fatalf("push %v", err)
 	}
 }
+
+func TestWorktreesListsEveryCheckout(t *testing.T) {
+	root := newRepo(t)
+	other := filepath.Join(t.TempDir(), "side")
+	git(t, root, "worktree", "add", "-q", "-b", "side", other)
+
+	trees, err := New(root, nil).Worktrees(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(trees) != 2 || trees[0].Branch != "work" || trees[1].Branch != "side" {
+		t.Fatalf("worktrees %+v", trees)
+	}
+}
+
+func TestUnmergedLeavesOutWhatTheDefaultBranchHas(t *testing.T) {
+	root := newRepo(t)
+	git(t, root, "branch", "merged")
+	git(t, root, "switch", "-q", "-c", "ahead")
+	write(t, root, "a.txt", "a\n")
+	commit(t, root, "a")
+	git(t, root, "switch", "-q", "work")
+
+	refs, err := New(root, nil).Unmerged(context.Background(), "work")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != 1 || refs[0].Branch != "ahead" {
+		t.Fatalf("unmerged %+v", refs)
+	}
+}
+
+func TestFilesAtReadsADirectoryAtManyCommits(t *testing.T) {
+	root := newRepo(t)
+	write(t, root, "docs/plans/A.md", "# A\n")
+	write(t, root, "docs/plans/A.state.json", "{}\n")
+	write(t, root, "docs/plans/notes.txt", "skip\n")
+	commit(t, root, "plans")
+	first := strings.TrimSpace(git(t, root, "rev-parse", "HEAD"))
+	write(t, root, "docs/plans/A.state.json", "{\"units\":{}}\n")
+	commit(t, root, "progress")
+	second := strings.TrimSpace(git(t, root, "rev-parse", "HEAD"))
+	bare := strings.TrimSpace(git(t, root, "rev-parse", "HEAD~2"))
+
+	keep := func(name string) bool { return strings.HasSuffix(name, ".md") || strings.HasSuffix(name, ".json") }
+	files, err := New(root, nil).FilesAt(context.Background(), []string{first, second, bare}, "docs/plans", keep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(files[first]["docs/plans/A.state.json"]) != "{}\n" ||
+		string(files[second]["docs/plans/A.state.json"]) != "{\"units\":{}}\n" ||
+		string(files[second]["docs/plans/A.md"]) != "# A\n" {
+		t.Fatalf("files %q", files)
+	}
+	if _, ok := files[first]["docs/plans/notes.txt"]; ok {
+		t.Fatal("a file keep refused was read")
+	}
+	if _, ok := files[bare]; ok {
+		t.Fatal("a commit without the directory has files")
+	}
+}

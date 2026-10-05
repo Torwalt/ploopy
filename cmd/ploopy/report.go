@@ -1,14 +1,17 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/Torwalt/ploopy/internal/catalog"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/state"
@@ -18,51 +21,49 @@ import (
 func newStatus(e *env) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status [PLAN]",
-		Short: "Progress of every plan, or of one plan's units",
+		Short: "Progress of every plan, wherever it runs, or of one plan's units",
 		Args:  cobra.MaximumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
-				return statusAll(e)
+				return statusAll(cmd.Context(), e)
 			}
-			return statusOne(e, args[0])
+			return statusOne(cmd.Context(), e, args[0])
 		},
 	}
 }
 
-func statusAll(e *env) error {
-	plans, err := e.discover()
+func statusAll(ctx context.Context, e *env) error {
+	entries, err := e.plans(ctx)
 	if err != nil {
 		return err
 	}
-	for _, p := range plans {
-		s, err := e.state(p)
-		if err != nil {
-			return err
-		}
-		done, total := progressOf(p, s)
-		tail := "complete"
-		if next := state.Resume(p, s); next != nil {
-			tail = "next " + next.ID + " " + next.Title
-		}
-		if totals := ui.Totals(s); totals != "" {
-			tail += "  (" + totals + ")"
-		}
-		fmt.Printf("%-48s %2d/%-2d  %s\n", p.Path, done, total, tail)
+	if len(entries) == 0 {
+		fmt.Printf("no plan under %s on any branch\n", e.cfg.Plans)
+	}
+	for _, entry := range entries {
+		fmt.Println(e.label(entry.Best))
 	}
 	return nil
 }
 
-func statusOne(e *env, name string) error {
-	p, err := e.resolve(name)
+func statusOne(ctx context.Context, e *env, name string) error {
+	c, err := e.find(ctx, name)
 	if err != nil {
 		return err
 	}
-	s, err := e.state(p)
-	if err != nil {
-		return err
-	}
-	ui.NewReporter(os.Stdout, os.Stderr).Summary(p, s, nil)
+	showCopy(e, c)
 	return nil
+}
+
+// showCopy prints a plan's units as the copy that has its progress holds them.
+func showCopy(e *env, c catalog.Copy) {
+	if !c.Here {
+		fmt.Printf("%s is on %s\n", c.Plan.Path, c.Where(e.root))
+	}
+	if c.Live != nil {
+		fmt.Printf("running unit %s · %s\n", c.Live.Unit, c.Live.Wanted.Describe())
+	}
+	ui.NewReporter(os.Stdout, os.Stderr).Summary(c.Plan, c.State, nil)
 }
 
 func newShow(e *env) *cobra.Command {
@@ -114,7 +115,7 @@ func newLint(e *env) *cobra.Command {
 
 			failed := false
 			for _, p := range targets {
-				errs := lintReport(e, p, os.Stdout, true)
+				errs := lintReport(e, e.root, p, os.Stdout, true)
 				failed = failed || len(errs) > 0
 				if len(errs) == 0 {
 					fmt.Printf("%s: %d units, ok\n", p.Path, len(p.Units))
@@ -129,11 +130,11 @@ func newLint(e *env) *cobra.Command {
 }
 
 // lintReport prints what is wrong with a plan and returns its errors.
-func lintReport(e *env, p *plan.Plan, out io.Writer, showWarnings bool) []string {
+func lintReport(e *env, root string, p *plan.Plan, out io.Writer, showWarnings bool) []string {
 	var errs, warnings []string
 	settled := map[string]bool{}
 
-	s, err := e.state(p)
+	s, err := state.Load(filepath.Join(root, state.PathFor(p.Path)))
 	if err != nil {
 		errs = append(errs, err.Error())
 	} else {
@@ -148,7 +149,7 @@ func lintReport(e *env, p *plan.Plan, out io.Writer, showWarnings bool) []string
 		}
 	}
 
-	found, foundWarnings := plan.Lint(p, e.root, e.harnesses, settled)
+	found, foundWarnings := plan.Lint(p, root, e.harnesses, settled)
 	errs = append(found, errs...)
 	warnings = append(foundWarnings, warnings...)
 

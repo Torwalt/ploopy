@@ -142,6 +142,12 @@ func (p *Plan) WorkOrder(u Unit) string {
 // the repository root. It is named in front matter, or found beside a plan
 // whose name ends in _EXECUTION.
 func (p *Plan) Authority(root string) string {
+	return p.AuthorityAmong(func(path string) bool { return isFile(filepath.Join(root, path)) })
+}
+
+// AuthorityAmong is Authority for a tree that is not on disk: exists says
+// whether a repository path is a file in it.
+func (p *Plan) AuthorityAmong(exists func(path string) bool) string {
 	if named := p.Settings["authority"]; named != "" {
 		return named
 	}
@@ -150,7 +156,7 @@ func (p *Plan) Authority(root string) string {
 		return ""
 	}
 	sibling := filepath.Join(filepath.Dir(p.Path), strings.TrimSuffix(name, "_EXECUTION")+".md")
-	if isFile(filepath.Join(root, sibling)) {
+	if exists(sibling) {
 		return sibling
 	}
 	return ""
@@ -367,23 +373,27 @@ func Discover(root, directory string) ([]*Plan, error) {
 		if err != nil {
 			return nil, err
 		}
-		if len(p.Units) > 0 {
-			plans = append(plans, p)
-		}
+		plans = append(plans, p)
 	}
+	return Runnable(plans, func(path string) bool { return isFile(filepath.Join(root, path)) }), nil
+}
+
+// Runnable keeps the plans that have units and that no other plan names as
+// its authority. exists says whether a repository path is a file.
+func Runnable(plans []*Plan, exists func(path string) bool) []*Plan {
 	authorities := map[string]bool{}
 	for _, p := range plans {
-		if authority := p.Authority(root); authority != "" {
+		if authority := p.AuthorityAmong(exists); authority != "" {
 			authorities[authority] = true
 		}
 	}
 	var out []*Plan
 	for _, p := range plans {
-		if !authorities[p.Path] {
+		if len(p.Units) > 0 && !authorities[p.Path] {
 			out = append(out, p)
 		}
 	}
-	return out, nil
+	return out
 }
 
 func sortStrings(values []string) {

@@ -13,7 +13,7 @@ import (
 // showPrompt renders what a session would be given. It needs a harness only
 // for the shape of the options, so the first one will do.
 func showPrompt(cmd *cobra.Command, e *env, p *plan.Plan, u plan.Unit) error {
-	skill, err := e.skill()
+	skill, err := skillAt(e.root, e.cfg)
 	if err != nil {
 		return err
 	}
