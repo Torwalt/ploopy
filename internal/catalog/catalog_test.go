@@ -164,3 +164,38 @@ func TestWithNoProgressAnywhereThisCheckoutIsShown(t *testing.T) {
 		t.Fatalf("entries %+v", entries)
 	}
 }
+
+// A branch forked before a plan was closed still holds the plan; it is closed
+// all the same.
+func TestAPlanClosedOnOneBranchStaysClosedOnItsForks(t *testing.T) {
+	root := repository(t)
+	git(t, root, "switch", "-q", "-c", "feature")
+	write(t, root, "docs/plans/OTHER.md", strings.Replace(pass, "# Pass", "# Other", 1))
+	write(t, root, "docs/plans/OTHER.state.json", progress("1.1", "1.2"))
+	commitAll(t, root, "other plan")
+	git(t, root, "branch", "fork")
+	git(t, root, "rm", "-q", "docs/plans/OTHER.md", "docs/plans/OTHER.state.json")
+	commitAll(t, root, "close the other plan")
+	git(t, root, "switch", "-q", "master")
+
+	for _, entry := range find(t, root) {
+		if entry.Path() == "docs/plans/OTHER.md" {
+			t.Fatalf("a closed plan came back from a fork: %+v", entry.Best)
+		}
+	}
+
+	// Made again after it was closed, it is a new plan.
+	git(t, root, "switch", "-q", "feature")
+	write(t, root, "docs/plans/OTHER.md", strings.Replace(pass, "# Pass", "# Other", 1))
+	commitAll(t, root, "the other plan again")
+	git(t, root, "switch", "-q", "master")
+	found := false
+	for _, entry := range find(t, root) {
+		if entry.Path() == "docs/plans/OTHER.md" && entry.Best.Branch == "feature" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("a plan made again after it was closed was left out")
+	}
+}

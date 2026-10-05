@@ -24,6 +24,7 @@ type Config struct {
 	AuthorPaths []string `toml:"author_paths"` // the author's files, never the session's dirt
 	Skill       string   `toml:"skill"`        // overrides the bundled plan-unit skill
 	StateCommit string   `toml:"state_commit"` // message template for the progress commit
+	CloseCommit string   `toml:"close_commit"` // message template for the commit that closes a plan
 	Push        bool     `toml:"push"`         // push the branch when a run ends
 }
 
@@ -33,6 +34,7 @@ func Default() Config {
 		Plans:       "docs/plans",
 		Context:     []string{"AGENTS.md"},
 		StateCommit: "plans: record %s progress",
+		CloseCommit: "plans: close %s",
 	}
 }
 
@@ -63,6 +65,9 @@ func Load(root string) (Config, error) {
 	}
 	if cfg.Plans == "" {
 		cfg.Plans = Default().Plans
+	}
+	if cfg.CloseCommit == "" {
+		cfg.CloseCommit = Default().CloseCommit
 	}
 	if cfg.StateCommit == "" {
 		cfg.StateCommit = Default().StateCommit

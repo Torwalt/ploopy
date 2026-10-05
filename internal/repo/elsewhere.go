@@ -201,3 +201,39 @@ func unique(values []string) []string {
 	}
 	return out
 }
+
+// Deletions maps each path under dir that a commit on a local branch deleted
+// to the commits that deleted it.
+func (r *Repo) Deletions(ctx context.Context, dir string) (map[string][]string, error) {
+	out, err := r.git(ctx, "log", "--branches", "--diff-filter=D", "--format=%x00%H", "--name-only", "--", dir)
+	if err != nil {
+		return nil, err
+	}
+	deleted := map[string][]string{}
+	for _, record := range strings.Split(out, "\x00")[1:] {
+		lines := strings.Split(strings.TrimSpace(record), "\n")
+		for _, path := range lines[1:] {
+			if path = strings.TrimSpace(path); path != "" {
+				deleted[path] = append(deleted[path], lines[0])
+			}
+		}
+	}
+	return deleted, nil
+}
+
+// LastTouch is the newest commit reachable from rev that changed any of
+// paths, or empty when none did.
+func (r *Repo) LastTouch(ctx context.Context, rev string, paths ...string) string {
+	out, err := r.git(ctx, append([]string{"log", "-1", "--format=%H", rev, "--"}, paths...)...)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// IsAncestor reports whether commit a is an ancestor of commit b.
+func (r *Repo) IsAncestor(ctx context.Context, a, b string) bool {
+	cmd := exec.CommandContext(ctx, "git", "merge-base", "--is-ancestor", a, b)
+	cmd.Dir = r.Root
+	return cmd.Run() == nil
+}

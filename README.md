@@ -27,6 +27,7 @@ inputs.ploopy.url = "github:Torwalt/ploopy";
     ploopy run                        run a plan's open units
     ploopy status [PLAN]              every plan, or one plan's units, and what they took
     ploopy report [PLAN]              what a plan took, slowest units and commands, cost
+    ploopy close [PLAN]               delete a finished plan and its state, report in the commit
     ploopy show [PLAN] [1.2]          a unit's work order, or with --prompt the whole prompt
     ploopy replay [PLAN] [1.2]        what that unit's session did
     ploopy mark [PLAN] [1.2] [STATUS] record a status by hand
@@ -55,7 +56,9 @@ default one, and at the runs going on, and show each plan as the copy with the
 newest progress has it, with where that is. Picking a plan that lives on
 another branch runs it there: in its worktree, or in a new one beside this
 checkout, which stays where it is. A branch merged into the default one is done
-with and left out, so a closed plan does not come back.
+with and left out, and so is a branch that forked before a plan was deleted, so
+a closed plan does not come back. A plan made again after its deletion is a new
+one.
 
 ## Harnesses
 
@@ -148,6 +151,13 @@ unit's state commit, so it outlives the plan, its state file and the worktree:
 `git log --grep '^ploopy report: '` finds every one. `ploopy report PLAN
 --commit` stamps one by hand, into an empty commit.
 
+`ploopy close PLAN` ends a plan: it deletes the plan and its state file in one
+commit, on the branch and in the checkout that hold them, with the report as
+the commit's body. Nothing else that is staged goes into that commit, so the
+rest of the clean-up stays yours. A plan with units still open is closed only
+when you confirm, or with `--force`. The subject is `close_commit` in
+`.ploopy.toml`, `plans: close %s` by default.
+
 A unit's own numbers, every attempt included, are in `<PLAN>.state.json`;
 `ploopy status PLAN` shows them unit by unit. Every session, check, wait and
 tool call is appended to `.ploopy/<plan>/stats.jsonl`, one JSON object a line.
@@ -166,6 +176,7 @@ Optional `.ploopy.toml` at the repository root:
     author_paths = ["NOTES.md"]
     skill = ".agents/skills/plan-unit/SKILL.md"
     state_commit = "plans: record %s progress"
+    close_commit = "plans: close %s"
     push = true
 
 `verify` runs once before the first unit and after every unit; without it,

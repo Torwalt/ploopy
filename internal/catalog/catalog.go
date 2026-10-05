@@ -108,7 +108,42 @@ func Find(ctx context.Context, root, plansDir string) ([]Entry, error) {
 	}
 	copies = append(copies, onBranches...)
 	markLive(copies)
-	return group(copies), nil
+	return group(withoutClosed(ctx, r, plansDir, copies)), nil
+}
+
+// withoutClosed leaves out the copies of a plan that was since deleted: a
+// branch forked before the plan was closed still holds it, but what it holds
+// is an ancestor of the deletion. A run going on is never left out, and a plan
+// made again after its deletion is a new one.
+func withoutClosed(ctx context.Context, r *repo.Repo, plansDir string, copies []Copy) []Copy {
+	deletions, err := r.Deletions(ctx, plansDir)
+	if err != nil || len(deletions) == 0 {
+		return copies
+	}
+	var out []Copy
+	for _, c := range copies {
+		if c.Live == nil && c.Branch != "" && closed(ctx, r, c, deletions[c.Plan.Path]) {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+func closed(ctx context.Context, r *repo.Repo, c Copy, deletions []string) bool {
+	if len(deletions) == 0 {
+		return false
+	}
+	last := r.LastTouch(ctx, c.Branch, c.Plan.Path, state.PathFor(c.Plan.Path))
+	if last == "" {
+		return false
+	}
+	for _, deletion := range deletions {
+		if r.IsAncestor(ctx, last, deletion) {
+			return true
+		}
+	}
+	return false
 }
 
 // branchCopies reads the plans of every branch not checked out anywhere and

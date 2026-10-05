@@ -454,3 +454,26 @@ func TestFilesAtReadsADirectoryAtManyCommits(t *testing.T) {
 		t.Fatal("a commit without the directory has files")
 	}
 }
+
+func TestRemoveAndCommitLeavesOtherStagedWorkAlone(t *testing.T) {
+	root := newRepo(t)
+	write(t, root, "docs/plans/A.md", "# A\n")
+	write(t, root, "docs/plans/A.state.json", "{}\n")
+	commit(t, root, "plan")
+	write(t, root, "NOTES.md", "staged\n")
+	git(t, root, "add", "NOTES.md")
+
+	err := New(root, nil).RemoveAndCommit(context.Background(),
+		[]string{"docs/plans/A.md", "docs/plans/A.state.json"}, "plans: close A\n\nthe report")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files := git(t, root, "show", "--name-status", "--format=%B", "HEAD"); !strings.Contains(files, "plans: close A\n\nthe report") ||
+		!strings.Contains(files, "D\tdocs/plans/A.md") || !strings.Contains(files, "D\tdocs/plans/A.state.json") ||
+		strings.Contains(files, "NOTES.md") {
+		t.Fatalf("the close commit is:\n%s", files)
+	}
+	if staged := git(t, root, "diff", "--cached", "--name-only"); strings.TrimSpace(staged) != "NOTES.md" {
+		t.Fatalf("staged after the close: %q", staged)
+	}
+}

@@ -84,6 +84,7 @@ func chooseCommand() (string, error) {
 		ui.Choice{Label: "run a plan", Value: "run"},
 		ui.Choice{Label: "status of every plan", Value: "status"},
 		ui.Choice{Label: "report on a plan: time, checks, cost", Value: "report"},
+		ui.Choice{Label: "close a finished plan: delete it and its state, report in the commit", Value: "close"},
 		ui.Choice{Label: "show a unit's work order", Value: "show"},
 		ui.Choice{Label: "replay a unit's session", Value: "replay"},
 		ui.Choice{Label: "mark a unit by hand", Value: "mark"},
@@ -149,6 +150,7 @@ func newRoot(e *env) *cobra.Command {
 		newMark(e),
 		newReplay(e),
 		newReport(e),
+		newClose(e),
 		newAdjust(e),
 		guardCommand(),
 	)

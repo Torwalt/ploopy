@@ -310,6 +310,16 @@ func (r *Repo) CommitEmpty(ctx context.Context, message string) error {
 	return err
 }
 
+// RemoveAndCommit deletes paths and commits their deletion and nothing else:
+// whatever else is staged stays staged.
+func (r *Repo) RemoveAndCommit(ctx context.Context, paths []string, message string) error {
+	if _, err := r.git(ctx, append([]string{"rm", "-q", "--"}, paths...)...); err != nil {
+		return err
+	}
+	_, err := r.git(ctx, append([]string{"commit", "-q", "-m", message, "--"}, paths...)...)
+	return err
+}
+
 // CommitOnly commits one path and nothing else.
 func (r *Repo) CommitOnly(ctx context.Context, path, message string) error {
 	if _, err := r.git(ctx, "add", "--", path); err != nil {
