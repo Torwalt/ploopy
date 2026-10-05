@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
@@ -102,6 +103,12 @@ func newRun(e *env) *cobra.Command {
 
 func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 	ctx := cmd.Context()
+	// `ploopy` alone, with a run going on, may be meant for that run.
+	if cmd.Flags().NFlag() == 0 && len(e.extra) == 0 && ui.Interactive() {
+		if adjusted, err := offerAdjust(e); adjusted || err != nil {
+			return err
+		}
+	}
 	if !cmd.Flags().Changed("push") {
 		f.push = e.cfg.Push
 	}
@@ -201,7 +208,19 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		root = moved.path
 		opts.SetupCmd = e.cfg.Setup
 	}
-	runner, err := loop.New(root, opts, report)
+	branch, _ := repo.New(root, nil).Branch(ctx)
+	steer := announce(control.Status{
+		Root: root, Plan: p.Path, Branch: branch,
+		Agent: loop.Agent{Harness: chosen.harness, Model: chosen.model, Effort: chosen.effort}.Label(),
+		Settings: control.Settings{
+			Finish: string(finish), Peak: peakName(waitOffPeak), Push: &f.push,
+			Secondary: toControlAgent(secondary),
+		},
+	}, e.harnesses, report)
+	defer steer.close()
+	opts.Steering = steer.loopSteering()
+
+	runner, err := loop.New(root, opts, tracked{Reporter: report, steer: steer})
 	if err != nil {
 		return err
 	}
@@ -209,6 +228,9 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, chosen.harness.Name(),
 		modelSuffix(chosen.model), chosen.effort, secondarySuffix(secondary),
 		peakSuffix(waitOffPeak), pushSuffix(f.push), finishSuffix(finish))
+	if steer.run != nil {
+		report.Say("change what happens next from another terminal with `ploopy adjust`")
+	}
 
 	release := ui.Inhibit(ctx, "ploopy is running "+p.Path)
 	result := runner.Run(ctx)
@@ -222,10 +244,11 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		report.Say("the worktree stays at %s; once %s is done with: git worktree remove %s && git switch %s",
 			moved.path, moved.branch, moved.path, moved.branch)
 	}
-	if f.push {
+	wanted := steer.wanted()
+	if wanted.Pushes() {
 		pushBranch(ctx, root, runner, report)
 	}
-	endAction(ctx, runner, report, finish, f.grace)
+	endAction(ctx, runner, report, ui.Finish(wanted.Finish), f.grace)
 	if result.Status != "done" {
 		return fmt.Errorf("%s", result.Message)
 	}
@@ -457,34 +480,13 @@ func chooseHarness(e *env, p *plan.Plan, f *runFlags) (harnessChoice, error) {
 	return harnessChoice{harness: chosen, model: model, effort: effort}, nil
 }
 
-// secondaryFromFlags is the agent that takes over on a usage limit. A model
-// left out is the harness's default; an effort left out is the primary's, when
-// the secondary has it.
+// secondaryFromFlags is the agent that takes over on a usage limit. An effort
+// left out is the primary's, when the secondary has it.
 func secondaryFromFlags(e *env, f *runFlags, primary harnessChoice) (*loop.Agent, error) {
 	if f.secondary == "" || f.secondary == "none" {
 		return nil, nil
 	}
-	h := e.harnesses.Get(f.secondary)
-	if h == nil {
-		return nil, fmt.Errorf("--secondary must be one of %s or none, not %s",
-			strings.Join(e.harnesses.Names(), ", "), f.secondary)
-	}
-	model := f.secondaryMod
-	if model == "" {
-		model = h.Models()[0]
-	}
-	effort := f.secondaryEff
-	if effort == "" {
-		effort = h.Efforts()[0]
-		if contains(h.Efforts(), primary.effort) {
-			effort = primary.effort
-		}
-	}
-	if !contains(h.Efforts(), effort) {
-		return nil, fmt.Errorf("--secondary-effort for %s must be one of %s",
-			h.Name(), strings.Join(h.Efforts(), ", "))
-	}
-	return &loop.Agent{Harness: h, Model: model, Effort: effort}, nil
+	return resolveAgent(e.harnesses, "--secondary", f.secondary, f.secondaryMod, f.secondaryEff, primary.effort)
 }
 
 // peakHarness is the harness whose peak hours the run may meet: the primary's,

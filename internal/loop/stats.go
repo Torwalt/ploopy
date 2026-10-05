@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"github.com/Torwalt/ploopy/internal/harness"
@@ -112,14 +113,36 @@ func (l *Loop) account(u plan.Unit, stem string, agent Agent, info sessionInfo, 
 	l.log(r)
 }
 
-// pause waits, and books the wait against the run.
-func (l *Loop) pause(ctx context.Context, why string, d time.Duration) error {
+// pause waits, and books the wait against the run. A change the author makes
+// meanwhile ends it early, and woken says so: the caller looks again.
+func (l *Loop) pause(ctx context.Context, why string, d time.Duration) (woken bool, err error) {
 	started := l.opts.Now()
-	err := l.opts.Sleep(ctx, d)
+	waitCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	var woke atomic.Bool
+	if l.opts.Steering != nil {
+		changed := l.opts.Steering.Changed()
+		go func() {
+			select {
+			case <-changed:
+				woke.Store(true)
+				cancel()
+			case <-waitCtx.Done():
+			}
+		}()
+	}
+
+	err = l.opts.Sleep(waitCtx, d)
 	took := l.opts.Now().Sub(started)
 	l.stats.Waited += took
 	l.log(record{Kind: "wait", Unit: l.unit, Started: started, Seconds: took.Seconds(), Reason: why})
-	return err
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	if woke.Load() {
+		return true, nil
+	}
+	return false, err
 }
 
 // timedCheck runs a repository command and books the time it took.

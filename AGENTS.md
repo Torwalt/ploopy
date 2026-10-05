@@ -34,7 +34,8 @@ session's self-report where the repository can be asked instead.
 - `internal/state` — `<PLAN>.state.json` beside the plan. The format is frozen;
   new fields are additive and omitted when empty.
 - `internal/repo` — git process integration: head, dirt, commits since a base,
-  ancestry, single-path commits, branches and worktree hand-off. Must not
+  ancestry, single-path commits, branches, worktree hand-off and the push at
+  the end of a run. Must not
   import `loop` or `harness`.
 - `internal/harness` — the `Harness`/`Session`/`Event` contract, the marker and
   limit parsers, the child-process runner, and the adapters under
@@ -42,6 +43,9 @@ session's self-report where the repository can be asked instead.
 - `internal/guard` — which git commands an unattended session may not run.
   Reads the invocation, not the string it was written as.
 - `internal/config` — `.ploopy.toml`.
+- `internal/control` — the runtime registry `ploopy adjust` reaches a running
+  run through: one status file and one change file per process. Must not
+  import `loop` or `harness`.
 - `internal/loop` — sequencing, judgement, retry and wait policy, the prompt.
   Depends on everything above; knows no adapter by name.
 - `internal/ui` — the selection form, the run renderer, the end actions.

@@ -78,9 +78,30 @@ type Options struct {
 	// WaitOffPeak holds a unit due to start in the harness's peak hours until
 	// they end. The author decides it before the run; nothing is asked during it.
 	WaitOffPeak bool
-	Now         func() time.Time
-	Sleep       func(ctx context.Context, d time.Duration) error
+
+	// Steering is what the author changes while the run goes on. Without it,
+	// the run keeps what it started with.
+	Steering Steering
+	Now      func() time.Time
+	Sleep    func(ctx context.Context, d time.Duration) error
 }
+
+// Steer is what the author has the run do now.
+type Steer struct {
+	WaitOffPeak bool
+	Secondary   *Agent
+	Stop        bool // stop once the current unit is done
+}
+
+// Steering answers what the author wants now. Changed fires when that may
+// have changed, so a wait can end early and look again.
+type Steering interface {
+	Steer() Steer
+	Changed() <-chan struct{}
+}
+
+// errStopped is a run the author asked to stop.
+var errStopped = errors.New("stopped as asked")
 
 // Defaults fills in what a run does not set.
 func (o *Options) Defaults() {
@@ -344,12 +365,25 @@ func (l *Loop) Run(ctx context.Context) Result {
 	for unit != nil {
 		l.backToPrimary()
 		if err := l.peakGate(ctx); err != nil {
+			if errors.Is(err, errStopped) {
+				l.report.Say("stopping before %s, as asked", unit.ID)
+				return l.finish("stopped before " + unit.ID + " as asked")
+			}
 			return l.failRun(err.Error())
 		}
 		if err := l.runUnit(ctx, *unit); err != nil {
+			if errors.Is(err, errStopped) {
+				l.report.Say("stopping during %s, as asked; it stays open", unit.ID)
+				return l.finish("stopped during " + unit.ID + " as asked")
+			}
 			return l.failRun(fmt.Sprintf("%s. Resume with: ploopy run --plan %s", err, l.opts.PlanPath))
 		}
 		completed++
+
+		if l.steer().Stop {
+			l.report.Say("stopping after %s, as asked", unit.ID)
+			return l.finish("stopped after " + unit.ID + " as asked")
+		}
 
 		if l.opts.Until != "" && unit.ID == l.opts.Until {
 			l.report.Say("reached --until %s", unit.ID)
@@ -386,7 +420,15 @@ func (l *Loop) primary() Agent {
 	return Agent{Harness: l.opts.Harness, Model: l.opts.Model, Effort: l.opts.Effort}
 }
 
-func (l *Loop) secondary() *Agent { return l.opts.Secondary }
+func (l *Loop) secondary() *Agent { return l.steer().Secondary }
+
+// steer is what the author wants now.
+func (l *Loop) steer() Steer {
+	if l.opts.Steering == nil {
+		return Steer{WaitOffPeak: l.opts.WaitOffPeak, Secondary: l.opts.Secondary}
+	}
+	return l.opts.Steering.Steer()
+}
 
 // toSecondary hands the run to the secondary agent when the primary hits a
 // usage limit, instead of waiting the limit out.
@@ -504,6 +546,9 @@ func (l *Loop) preflight(ctx context.Context) error {
 func (l *Loop) peakGate(ctx context.Context) error {
 	// Windows that meet at midnight are waited out together.
 	for {
+		if l.steer().Stop {
+			return errStopped
+		}
 		agent := l.agent()
 		windows := agent.Harness.PeakWindows()
 		if len(windows) == 0 {
@@ -516,7 +561,7 @@ func (l *Loop) peakGate(ctx context.Context) error {
 		}
 		local := until.In(now.Location())
 
-		if !l.opts.WaitOffPeak {
+		if !l.steer().WaitOffPeak {
 			if !until.Equal(l.peakSaid) {
 				l.peakSaid = until
 				l.report.Say("%s is in peak hours until %s; running anyway",
@@ -533,7 +578,7 @@ func (l *Loop) peakGate(ctx context.Context) error {
 		l.record("peak", "waiting for off-peak until "+wake.Format(time.RFC3339))
 		l.report.Say("%s bills double until %s; waiting until %s",
 			agent.Harness.Name(), local.Format("15:04"), wake.In(now.Location()).Format("15:04"))
-		if err := l.pause(ctx, "peak", wake.Sub(now)); err != nil {
+		if _, err := l.pause(ctx, "peak", wake.Sub(now)); err != nil {
 			return err
 		}
 		l.backToPrimary()
@@ -660,7 +705,7 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 				if waits > l.opts.LimitWaits {
 					return fmt.Errorf("unit %s: still at a usage limit after %d waits", u.ID, l.opts.LimitWaits)
 				}
-				if err := l.waitOutLimit(ctx, outcome.RateLimit); err != nil {
+				if err := l.waitOutLimit(ctx, agent, outcome.RateLimit); err != nil {
 					return err
 				}
 				continue
@@ -676,7 +721,7 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 					return fmt.Errorf("unit %s: %d sessions in a row ended without touching the "+
 						"repository (last exit %d)", u.ID, transient, outcome.Exit)
 				}
-				if err := l.pause(ctx, "backoff", l.opts.Backoff); err != nil {
+				if _, err := l.pause(ctx, "backoff", l.opts.Backoff); err != nil {
 					return err
 				}
 				continue
@@ -817,8 +862,9 @@ const cutOffMidUnit = "A usage limit cut the previous session off mid-unit. The 
 
 // waitOutLimit waits for a usage limit to lift. When the secondary is the one
 // limited and the primary comes back first, the wait ends there and the run
-// goes back to the primary.
-func (l *Loop) waitOutLimit(ctx context.Context, limit *harness.RateLimit) error {
+// goes back to the primary. A secondary named during the wait takes over at
+// once, and a stop asked for ends the wait.
+func (l *Loop) waitOutLimit(ctx context.Context, agent Agent, limit *harness.RateLimit) error {
 	now := l.opts.Now()
 	wait := l.opts.LimitWait
 	if !limit.ResetAt.IsZero() && limit.ResetAt.After(now) {
@@ -831,8 +877,23 @@ func (l *Loop) waitOutLimit(ctx context.Context, limit *harness.RateLimit) error
 	l.record("limit", "usage limit; waiting until "+until.Format(time.RFC3339))
 	l.report.Say("usage limit reached; waiting until %s and starting the session again",
 		until.Format("15:04"))
-	if err := l.pause(ctx, "limit", wait); err != nil {
-		return err
+	for {
+		woken, err := l.pause(ctx, "limit", until.Sub(now))
+		if err != nil {
+			return err
+		}
+		if !woken {
+			break
+		}
+		if l.steer().Stop {
+			return errStopped
+		}
+		if l.toSecondary(agent, limit) {
+			return nil
+		}
+		if now = l.opts.Now(); !now.Before(until) {
+			break
+		}
 	}
 	if l.onSecondary && !l.opts.Now().Before(l.primaryFree) {
 		l.backToPrimary()

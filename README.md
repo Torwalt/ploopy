@@ -29,6 +29,7 @@ inputs.ploopy.url = "github:Torwalt/ploopy";
     ploopy show PLAN 1.2 [--prompt]   a unit's work order, or the whole prompt
     ploopy mark PLAN 1.2 skipped      record a status by hand
     ploopy replay PLAN 1.2            what that unit's session did
+    ploopy adjust                     change what a running run does next
 
 With nothing passed, ploopy asks for the plan, where it runs, the harness, the
 model, the effort, what a unit due in peak hours does and what to do when the
@@ -97,6 +98,20 @@ that `c` or Ctrl-C cancels. Keys typed into the terminal during the run are
 discarded, and nothing else cancels it. A run cancelled with Ctrl-C, or whose
 terminal closes, takes no end action. For as long as it runs, idle suspend is
 inhibited, so a lid or an idle timer cannot end the night early.
+
+## Changing a running run
+
+`ploopy adjust`, from any terminal, changes what a run that is already going
+does next: its end action, whether it pushes, whether it stops once the current
+unit is done, the agent that takes over on a usage limit, and what a unit due
+in peak hours does. With nothing passed it asks; every answer is also a flag
+(`ploopy adjust --finish poweroff`, `--stop`, `--push`, `--secondary claude`).
+`ploopy` alone, while a run goes on, offers the same.
+
+A run announces itself under `$XDG_RUNTIME_DIR/ploopy/` and looks for changes
+every two seconds; it says in its feed when it sees one. A stop or a new
+secondary ends a usage-limit wait at once, and running through peak hours ends
+a wait for off-peak. Nothing here reaches the state file or git.
 
 ## What a run took
 
