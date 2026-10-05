@@ -114,8 +114,8 @@ func TestTheSessionIsStartedTheWayAnUnattendedRunNeeds(t *testing.T) {
 	start(t, harness.Spec{
 		Prompt: "do the unit", Model: "sonnet", Effort: "high",
 		SessionID: "abc", Title: "ploopy PASS 1.1",
-		MaxBudgetUSD: 5, FallbackModels: []string{"opus", "sonnet"},
-		Deny: []string{"WebFetch"},
+		MaxBudgetUSD: 5,
+		Deny:         []string{"WebFetch"},
 	})
 
 	raw, err := os.ReadFile(argsFile)
@@ -130,7 +130,7 @@ func TestTheSessionIsStartedTheWayAnUnattendedRunNeeds(t *testing.T) {
 		"-p", "--output-format stream-json", "--verbose",
 		"--permission-mode bypassPermissions",
 		"--model sonnet", "--effort high", "--session-id abc",
-		"--fallback-model opus,sonnet", "--max-budget-usd 5",
+		"--max-budget-usd 5",
 		"--disallowedTools WebFetch",
 	} {
 		if !strings.Contains(joined, want) {

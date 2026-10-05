@@ -101,18 +101,17 @@ type Outcome struct {
 
 // Spec is one session to start.
 type Spec struct {
-	Prompt         string
-	Model          string
-	Effort         string
-	Title          string
-	SessionID      string
-	Dir            string
-	Deny           []string
-	Extra          []string
-	Timeout        time.Duration
-	MaxBudgetUSD   float64
-	FallbackModels []string
-	LogPath        string // the raw transcript, written verbatim
+	Prompt       string
+	Model        string
+	Effort       string
+	Title        string
+	SessionID    string
+	Dir          string
+	Deny         []string
+	Extra        []string
+	Timeout      time.Duration
+	MaxBudgetUSD float64
+	LogPath      string // the raw transcript, written verbatim
 }
 
 // Session is one running agent.

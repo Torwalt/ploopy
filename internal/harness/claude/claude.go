@@ -55,9 +55,6 @@ func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session
 	if spec.Title != "" {
 		argv = append(argv, "--name", spec.Title)
 	}
-	if len(spec.FallbackModels) > 0 {
-		argv = append(argv, "--fallback-model", strings.Join(spec.FallbackModels, ","))
-	}
 	if spec.MaxBudgetUSD > 0 {
 		argv = append(argv, "--max-budget-usd", fmt.Sprintf("%g", spec.MaxBudgetUSD))
 	}

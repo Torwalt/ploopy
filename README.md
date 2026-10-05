@@ -52,6 +52,15 @@ opencode is driven through `--format json`, so tool calls, token use, cost
 and session identity come from its events. Its outcome is still read from the
 final text, and a usage limit from its wording.
 
+## A secondary agent
+
+`--secondary opencode` (with `--secondary-model` and `--secondary-effort`)
+names an agent that takes over when the primary hits a usage limit, instead of
+the run waiting the limit out. A session cut off mid-unit hands its commits on,
+and the secondary is told to continue from them. The run goes back to the
+primary at the first unit after the limit resets. When both are limited, the
+run waits for whichever comes back first.
+
 ## Worktrees
 
 On a branch other than the default, ploopy asks whether to run here or in a
@@ -125,7 +134,8 @@ The agent is never believed. A unit landed when, and only when:
 5. `verify` passes, and `test` too when the unit asks for it.
 
 Anything else is a failed attempt, retried with the reason in the next prompt.
-A usage limit is waited out rather than retried.
+A usage limit is waited out, or handed to the secondary agent, rather than
+retried.
 
 `BLOCKED` is the one claim the repository cannot answer, so it is not taken on
 trust. The unit goes to a fresh session that is told the claim and asked to

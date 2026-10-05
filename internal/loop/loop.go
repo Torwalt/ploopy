@@ -65,11 +65,15 @@ type Options struct {
 	AuthorPaths []string
 	StateCommit string
 
-	Notify         string
-	AllowDirty     bool
-	HarnessArgs    []string
-	MaxBudgetUSD   float64
-	FallbackModels []string
+	Notify       string
+	AllowDirty   bool
+	HarnessArgs  []string
+	MaxBudgetUSD float64
+
+	// Secondary takes over when the primary agent hits a usage limit, instead
+	// of the run waiting it out. The run goes back to the primary at the first
+	// unit after the limit resets.
+	Secondary *Agent
 
 	// WaitOffPeak holds a unit due to start in the harness's peak hours until
 	// they end. The author decides it before the run; nothing is asked during it.
@@ -137,6 +141,9 @@ type Loop struct {
 	progress  *progress
 	unit      string
 	peakSaid  time.Time // the peak window already reported as run through
+
+	onSecondary bool
+	primaryFree time.Time // when the usage limit that moved the run to the secondary resets
 
 	runID   string
 	stats   Stats
@@ -335,6 +342,7 @@ func (l *Loop) Run(ctx context.Context) Result {
 
 	completed := 0
 	for unit != nil {
+		l.backToPrimary()
 		if err := l.peakGate(ctx); err != nil {
 			return l.failRun(err.Error())
 		}
@@ -368,7 +376,50 @@ func (l *Loop) Run(ctx context.Context) Result {
 
 // agent is who runs the next session.
 func (l *Loop) agent() Agent {
+	if secondary := l.secondary(); l.onSecondary && secondary != nil {
+		return *secondary
+	}
+	return l.primary()
+}
+
+func (l *Loop) primary() Agent {
 	return Agent{Harness: l.opts.Harness, Model: l.opts.Model, Effort: l.opts.Effort}
+}
+
+func (l *Loop) secondary() *Agent { return l.opts.Secondary }
+
+// toSecondary hands the run to the secondary agent when the primary hits a
+// usage limit, instead of waiting the limit out.
+func (l *Loop) toSecondary(agent Agent, limit *harness.RateLimit) bool {
+	secondary := l.secondary()
+	if l.onSecondary || secondary == nil {
+		return false
+	}
+	now := l.opts.Now()
+	l.primaryFree = limit.ResetAt
+	if !l.primaryFree.After(now) {
+		l.primaryFree = now.Add(l.opts.LimitWait)
+	}
+	l.onSecondary = true
+	l.record("switch", fmt.Sprintf("%s hit a usage limit; %s until %s",
+		agent.Label(), secondary.Label(), l.primaryFree.Format(time.RFC3339)))
+	l.report.Say("%s hit its usage limit; continuing with %s until it resets at %s",
+		agent.Harness.Name(), secondary.Label(), l.primaryFree.In(now.Location()).Format("15:04"))
+	return true
+}
+
+// backToPrimary returns the run to its primary agent once the limit that
+// moved it has reset, or once there is no secondary left to stay on.
+func (l *Loop) backToPrimary() {
+	if !l.onSecondary {
+		return
+	}
+	if l.secondary() != nil && l.opts.Now().Before(l.primaryFree) {
+		return
+	}
+	l.onSecondary = false
+	l.record("switch", "back to "+l.primary().Label())
+	l.report.Say("back to %s", l.primary().Label())
 }
 
 func (l *Loop) firstUnit(p *plan.Plan, s *state.State) *plan.Unit {
@@ -451,12 +502,13 @@ func (l *Loop) preflight(ctx context.Context) error {
 // peakGate holds a unit due to start in hours the harness bills double, when
 // the author chose to wait. It never interrupts a unit already running.
 func (l *Loop) peakGate(ctx context.Context) error {
-	windows := l.opts.Harness.PeakWindows()
-	if len(windows) == 0 {
-		return nil
-	}
 	// Windows that meet at midnight are waited out together.
 	for {
+		agent := l.agent()
+		windows := agent.Harness.PeakWindows()
+		if len(windows) == 0 {
+			return nil
+		}
 		now := l.opts.Now()
 		inPeak, until := harness.Peak(windows, now)
 		if !inPeak {
@@ -468,17 +520,23 @@ func (l *Loop) peakGate(ctx context.Context) error {
 			if !until.Equal(l.peakSaid) {
 				l.peakSaid = until
 				l.report.Say("%s is in peak hours until %s; running anyway",
-					l.opts.Harness.Name(), local.Format("15:04"))
+					agent.Harness.Name(), local.Format("15:04"))
 			}
 			return nil
 		}
 
-		l.record("peak", "waiting for off-peak until "+local.Format(time.RFC3339))
-		l.report.Say("%s bills double until %s; waiting for off-peak",
-			l.opts.Harness.Name(), local.Format("15:04"))
-		if err := l.pause(ctx, "peak", until.Sub(now)); err != nil {
+		// On the secondary, the primary may come back before the peak ends.
+		wake := until
+		if l.onSecondary && l.primaryFree.After(now) && l.primaryFree.Before(until) {
+			wake = l.primaryFree
+		}
+		l.record("peak", "waiting for off-peak until "+wake.Format(time.RFC3339))
+		l.report.Say("%s bills double until %s; waiting until %s",
+			agent.Harness.Name(), local.Format("15:04"), wake.In(now.Location()).Format("15:04"))
+		if err := l.pause(ctx, "peak", wake.Sub(now)); err != nil {
 			return err
 		}
+		l.backToPrimary()
 	}
 }
 
@@ -588,11 +646,21 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 			}
 			if outcome.RateLimit != nil {
 				l.account(u, stem, agent, info, outcome, "limit", outcome.RateLimit.Reason)
+				if changed {
+					failure = cutOffMidUnit
+					l.progress.Failure = failure
+					if err := l.progress.save(); err != nil {
+						return err
+					}
+				}
+				if l.toSecondary(agent, outcome.RateLimit) {
+					continue
+				}
 				waits++
 				if waits > l.opts.LimitWaits {
 					return fmt.Errorf("unit %s: still at a usage limit after %d waits", u.ID, l.opts.LimitWaits)
 				}
-				if err := l.waitOutLimit(ctx, outcome.RateLimit, changed); err != nil {
+				if err := l.waitOutLimit(ctx, outcome.RateLimit); err != nil {
 					return err
 				}
 				continue
@@ -673,18 +741,17 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 // tail for the handover fallback.
 func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agent, prompt, stem, logPath string) (harness.Outcome, string, sessionInfo, error) {
 	spec := harness.Spec{
-		Prompt:         prompt,
-		Model:          agent.Model,
-		Effort:         agent.Effort,
-		Title:          fmt.Sprintf("ploopy %s %s", p.Name(), u.ID),
-		SessionID:      uuid.NewString(),
-		Dir:            l.root,
-		Deny:           deniedTools,
-		Extra:          l.opts.HarnessArgs,
-		Timeout:        l.opts.Timeout,
-		MaxBudgetUSD:   l.opts.MaxBudgetUSD,
-		FallbackModels: l.opts.FallbackModels,
-		LogPath:        logPath,
+		Prompt:       prompt,
+		Model:        agent.Model,
+		Effort:       agent.Effort,
+		Title:        fmt.Sprintf("ploopy %s %s", p.Name(), u.ID),
+		SessionID:    uuid.NewString(),
+		Dir:          l.root,
+		Deny:         deniedTools,
+		Extra:        l.opts.HarnessArgs,
+		Timeout:      l.opts.Timeout,
+		MaxBudgetUSD: l.opts.MaxBudgetUSD,
+		LogPath:      logPath,
 	}
 
 	info := sessionInfo{Started: l.opts.Now()}
@@ -744,24 +811,33 @@ func (l *Loop) touched(ctx context.Context, head string, dirt []string) (bool, e
 	return strings.Join(current, "\n") != strings.Join(dirt, "\n"), nil
 }
 
-func (l *Loop) waitOutLimit(ctx context.Context, limit *harness.RateLimit, changed bool) error {
+// cutOffMidUnit is what the session after a usage limit is told.
+const cutOffMidUnit = "A usage limit cut the previous session off mid-unit. The repository " +
+	"is as it left it, and its commits count toward this unit. Continue from there."
+
+// waitOutLimit waits for a usage limit to lift. When the secondary is the one
+// limited and the primary comes back first, the wait ends there and the run
+// goes back to the primary.
+func (l *Loop) waitOutLimit(ctx context.Context, limit *harness.RateLimit) error {
 	now := l.opts.Now()
 	wait := l.opts.LimitWait
 	if !limit.ResetAt.IsZero() && limit.ResetAt.After(now) {
 		wait = limit.ResetAt.Sub(now)
 	}
-	if changed {
-		l.progress.Failure = "A usage limit cut the previous session off mid-unit. The repository " +
-			"is as it left it, and its commits count toward this unit. Continue from there."
-		if err := l.progress.save(); err != nil {
-			return err
-		}
+	if l.onSecondary && l.primaryFree.After(now) && l.primaryFree.Before(now.Add(wait)) {
+		wait = l.primaryFree.Sub(now)
 	}
 	until := now.Add(wait)
 	l.record("limit", "usage limit; waiting until "+until.Format(time.RFC3339))
 	l.report.Say("usage limit reached; waiting until %s and starting the session again",
 		until.Format("15:04"))
-	return l.pause(ctx, "limit", wait)
+	if err := l.pause(ctx, "limit", wait); err != nil {
+		return err
+	}
+	if l.onSecondary && !l.opts.Now().Before(l.primaryFree) {
+		l.backToPrimary()
+	}
+	return nil
 }
 
 // handover is what the next session is told, from the file the session wrote

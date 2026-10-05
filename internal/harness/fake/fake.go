@@ -23,6 +23,7 @@ type Step struct {
 type Harness struct {
 	Steps   []Step
 	Windows []harness.Window
+	Named   string // the name it answers to; "fake" when empty
 
 	mu      sync.Mutex
 	started int
@@ -34,7 +35,12 @@ type Harness struct {
 func New(steps ...Step) *Harness { return &Harness{Steps: steps} }
 
 // Name is what a plan's front matter would call this harness.
-func (*Harness) Name() string { return "fake" }
+func (h *Harness) Name() string {
+	if h.Named != "" {
+		return h.Named
+	}
+	return "fake"
+}
 
 // Efforts offered.
 func (*Harness) Efforts() []string { return []string{"high"} }

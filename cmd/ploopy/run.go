@@ -42,7 +42,9 @@ type runFlags struct {
 	dryRun       bool
 	finish       string
 	budget       float64
-	fallback     string
+	secondary    string
+	secondaryMod string
+	secondaryEff string
 	peak         string
 	quiet        bool
 	grace        time.Duration
@@ -86,7 +88,10 @@ func newRun(e *env) *cobra.Command {
 	flags.BoolVar(&f.dryRun, "dry-run", false, "print the first session's prompt and stop")
 	flags.StringVar(&f.finish, "finish", "", "when the run ends: none, suspend or poweroff")
 	flags.Float64Var(&f.budget, "budget", 0, "spending cap per session, in dollars")
-	flags.StringVar(&f.fallback, "fallback", "", "comma-separated models to fall back to")
+	flags.StringVar(&f.secondary, "secondary", "",
+		"harness that takes over when the agent hits a usage limit, or none")
+	flags.StringVar(&f.secondaryMod, "secondary-model", "", "model for the secondary harness")
+	flags.StringVar(&f.secondaryEff, "secondary-effort", "", "effort for the secondary harness")
 	flags.StringVar(&f.peak, "peak", "", "a unit due in the harness's peak hours: wait or run")
 	flags.BoolVar(&f.quiet, "quiet", false, "report decisions only, without the session feed")
 	flags.DurationVar(&f.grace, "grace", time.Minute, "countdown before the end action")
@@ -115,7 +120,11 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 	if err != nil {
 		return err
 	}
-	waitOffPeak, err := choosePeak(chosen.harness, f)
+	secondary, err := secondaryFromFlags(e, f, chosen)
+	if err != nil {
+		return err
+	}
+	waitOffPeak, err := choosePeak(peakHarness(chosen.harness, secondary), f)
 	if err != nil {
 		return err
 	}
@@ -140,31 +149,31 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 	}
 
 	opts := loop.Options{
-		PlanPath:       p.Path,
-		Harness:        chosen.harness,
-		Model:          chosen.model,
-		Effort:         chosen.effort,
-		Start:          f.from,
-		Until:          f.until,
-		MaxUnits:       f.units,
-		Retries:        f.retries,
-		BlockRetries:   f.blockRetries,
-		Timeout:        f.timeout,
-		Backoff:        f.backoff,
-		Tests:          testsOverride(f),
-		Context:        strings.Fields(f.context),
-		BaseContext:    e.cfg.Context,
-		Skill:          skill,
-		VerifyCmd:      verify,
-		TestCmd:        test,
-		AuthorPaths:    e.cfg.AuthorPaths,
-		StateCommit:    e.cfg.StateCommit,
-		Notify:         f.notify,
-		AllowDirty:     f.allowDirty,
-		HarnessArgs:    e.extra,
-		MaxBudgetUSD:   f.budget,
-		FallbackModels: splitList(f.fallback),
-		WaitOffPeak:    waitOffPeak,
+		PlanPath:     p.Path,
+		Harness:      chosen.harness,
+		Model:        chosen.model,
+		Effort:       chosen.effort,
+		Start:        f.from,
+		Until:        f.until,
+		MaxUnits:     f.units,
+		Retries:      f.retries,
+		BlockRetries: f.blockRetries,
+		Timeout:      f.timeout,
+		Backoff:      f.backoff,
+		Tests:        testsOverride(f),
+		Context:      strings.Fields(f.context),
+		BaseContext:  e.cfg.Context,
+		Skill:        skill,
+		VerifyCmd:    verify,
+		TestCmd:      test,
+		AuthorPaths:  e.cfg.AuthorPaths,
+		StateCommit:  e.cfg.StateCommit,
+		Notify:       f.notify,
+		AllowDirty:   f.allowDirty,
+		HarnessArgs:  e.extra,
+		MaxBudgetUSD: f.budget,
+		Secondary:    secondary,
+		WaitOffPeak:  waitOffPeak,
 	}
 
 	report := ui.NewReporter(os.Stdout, os.Stderr)
@@ -191,8 +200,9 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 		return err
 	}
 
-	report.Say("%s with %s%s at %s effort%s%s", p.Path, chosen.harness.Name(),
-		modelSuffix(chosen.model), chosen.effort, peakSuffix(waitOffPeak), finishSuffix(finish))
+	report.Say("%s with %s%s at %s effort%s%s%s", p.Path, chosen.harness.Name(),
+		modelSuffix(chosen.model), chosen.effort, secondarySuffix(secondary),
+		peakSuffix(waitOffPeak), finishSuffix(finish))
 
 	release := ui.Inhibit(ctx, "ploopy is running "+p.Path)
 	result := runner.Run(ctx)
@@ -270,21 +280,18 @@ func testsOverride(f *runFlags) *bool {
 	return nil
 }
 
-func splitList(value string) []string {
-	var out []string
-	for _, part := range strings.Split(value, ",") {
-		if trimmed := strings.TrimSpace(part); trimmed != "" {
-			out = append(out, trimmed)
-		}
-	}
-	return out
-}
-
 func modelSuffix(model string) string {
 	if model == "" {
 		return ""
 	}
 	return " (" + model + ")"
+}
+
+func secondarySuffix(secondary *loop.Agent) string {
+	if secondary == nil {
+		return ""
+	}
+	return ", then " + secondary.Label() + " on a usage limit"
 }
 
 func peakSuffix(waitOffPeak bool) string {
@@ -407,6 +414,45 @@ func chooseHarness(e *env, p *plan.Plan, f *runFlags) (harnessChoice, error) {
 			chosen.Name(), strings.Join(chosen.Efforts(), ", "))
 	}
 	return harnessChoice{harness: chosen, model: model, effort: effort}, nil
+}
+
+// secondaryFromFlags is the agent that takes over on a usage limit. A model
+// left out is the harness's default; an effort left out is the primary's, when
+// the secondary has it.
+func secondaryFromFlags(e *env, f *runFlags, primary harnessChoice) (*loop.Agent, error) {
+	if f.secondary == "" || f.secondary == "none" {
+		return nil, nil
+	}
+	h := e.harnesses.Get(f.secondary)
+	if h == nil {
+		return nil, fmt.Errorf("--secondary must be one of %s or none, not %s",
+			strings.Join(e.harnesses.Names(), ", "), f.secondary)
+	}
+	model := f.secondaryMod
+	if model == "" {
+		model = h.Models()[0]
+	}
+	effort := f.secondaryEff
+	if effort == "" {
+		effort = h.Efforts()[0]
+		if contains(h.Efforts(), primary.effort) {
+			effort = primary.effort
+		}
+	}
+	if !contains(h.Efforts(), effort) {
+		return nil, fmt.Errorf("--secondary-effort for %s must be one of %s",
+			h.Name(), strings.Join(h.Efforts(), ", "))
+	}
+	return &loop.Agent{Harness: h, Model: model, Effort: effort}, nil
+}
+
+// peakHarness is the harness whose peak hours the run may meet: the primary's,
+// else the secondary's.
+func peakHarness(primary harness.Harness, secondary *loop.Agent) harness.Harness {
+	if len(primary.PeakWindows()) == 0 && secondary != nil {
+		return secondary.Harness
+	}
+	return primary
 }
 
 // choosePeak settles, before the run, what a unit due to start in the
