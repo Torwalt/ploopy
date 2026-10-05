@@ -24,7 +24,7 @@ inputs.ploopy.url = "github:Torwalt/ploopy";
 ## Use
 
     ploopy                            ask what to run, and run it
-    ploopy status                     every plan and where it stands
+    ploopy status [PLAN]              every plan, or one plan's units, and what they took
     ploopy lint [PLAN]                check plans parse the way the loop needs
     ploopy show PLAN 1.2 [--prompt]   a unit's work order, or the whole prompt
     ploopy mark PLAN 1.2 skipped      record a status by hand
@@ -79,6 +79,17 @@ that `c` or Ctrl-C cancels. Keys typed into the terminal during the run are
 discarded, and nothing else cancels it. A run cancelled with Ctrl-C, or whose
 terminal closes, takes no end action. For as long as it runs, idle suspend is
 inhibited, so a lid or an idle timer cannot end the night early.
+
+## What a run took
+
+When a run ends, before any end action, ploopy prints the plan unit by unit
+and stage by stage: wall clock, time in `verify` and `test`, attempts, tokens
+read and written, and cost. A unit's numbers cover every session it took,
+failed attempts included, and are recorded in `<PLAN>.state.json`.
+`ploopy status PLAN` prints the same table at any time.
+
+Every session, check and wait is also appended to `.ploopy/<plan>/stats.jsonl`,
+one JSON object a line, for whatever else you want to ask of it.
 
 ## Per-repository settings
 

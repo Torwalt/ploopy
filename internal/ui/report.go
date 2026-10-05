@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -19,8 +20,10 @@ import (
 )
 
 // Reporter renders a run. It is deliberately not a full-screen program:
-// scrollback stays readable, and so does output redirected to a file.
+// scrollback stays readable, and so does output redirected to a file. It is
+// safe to use from more than one goroutine.
 type Reporter struct {
+	mu    sync.Mutex
 	out   io.Writer
 	err   io.Writer
 	Quiet bool // no event feed, only decisions
@@ -66,16 +69,22 @@ func colourful(out io.Writer) bool {
 
 // Say reports a decision the loop made.
 func (r *Reporter) Say(format string, args ...any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	fmt.Fprintf(r.out, "\n%s %s\n", r.tag.Render("[ploopy]"), fmt.Sprintf(format, args...))
 }
 
 // Fail reports why the run stopped.
 func (r *Reporter) Fail(format string, args ...any) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	fmt.Fprintf(r.err, "\n%s\n", r.bad.Render("[ploopy] "+fmt.Sprintf(format, args...)))
 }
 
 // UnitStart opens a unit's session.
 func (r *Reporter) UnitStart(u plan.Unit, attempt int, logPath string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.started = time.Now()
 	r.cost, r.tokens = 0, 0
 	fmt.Fprintf(r.out, "\n%s %s\n", r.unit.Render("▌ "+u.ID+"  "+u.Title),
@@ -84,6 +93,8 @@ func (r *Reporter) UnitStart(u plan.Unit, attempt int, logPath string) {
 
 // Event renders one step of a session.
 func (r *Reporter) Event(e harness.Event) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	switch e.Kind {
 	case harness.EventUsage:
 		// Both are running totals, so the last one seen is the answer.
@@ -119,6 +130,8 @@ func (r *Reporter) Event(e harness.Event) {
 
 // UnitDone closes a unit with its verdict.
 func (r *Reporter) UnitDone(u plan.Unit, v loop.Verdict) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	elapsed := time.Since(r.started).Round(time.Second)
 	for _, commit := range v.Commits {
 		fmt.Fprintf(r.out, "    %s\n", commit.Short())

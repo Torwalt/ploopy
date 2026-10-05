@@ -34,7 +34,7 @@ const checkTailLines = 40
 // judge decides from the repository whether a unit landed. The order of these
 // checks is the contract; a session's own account of itself only ever opens
 // the question.
-func (l *Loop) judge(ctx context.Context, p *plan.Plan, u plan.Unit, base string, outcome harness.Outcome, stem string) Verdict {
+func (l *Loop) judge(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agent, base string, outcome harness.Outcome, stem string) Verdict {
 	if outcome.Marker == harness.Blocked {
 		return l.blocked(ctx, outcome, base)
 	}
@@ -60,7 +60,7 @@ func (l *Loop) judge(ctx context.Context, p *plan.Plan, u plan.Unit, base string
 	if outcome.Marker == harness.None {
 		return Verdict{Kind: Failed, Reason: fmt.Sprintf(
 			"the final message did not end with DONE, NOTHING-TO-DO or BLOCKED (%s exited %d)",
-			l.opts.Harness.Name(), outcome.Exit)}
+			agent.Harness.Name(), outcome.Exit)}
 	}
 
 	commits, err := l.repo.Commits(ctx, base)
@@ -80,7 +80,7 @@ func (l *Loop) judge(ctx context.Context, p *plan.Plan, u plan.Unit, base string
 	var notes []string
 	if outcome.Exit != 0 {
 		notes = append(notes, fmt.Sprintf("%s exited %d after reporting %s",
-			l.opts.Harness.Name(), outcome.Exit, outcome.Marker))
+			agent.Harness.Name(), outcome.Exit, outcome.Marker))
 	}
 
 	failure := l.check(ctx, "verify", l.opts.VerifyCmd, stem, &notes)
@@ -131,7 +131,7 @@ func (l *Loop) check(ctx context.Context, name, command, stem string, notes *[]s
 			suffix = "-rerun"
 		}
 		logPath = filepath.Join(l.logs, stem+"."+name+suffix)
-		if l.runCheck(ctx, command, logPath) == nil {
+		if l.timedCheck(ctx, name, command, logPath) == nil {
 			if attempt == 2 {
 				*notes = append(*notes, fmt.Sprintf("`%s` failed once and passed on a rerun", command))
 			}

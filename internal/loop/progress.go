@@ -28,6 +28,7 @@ type progress struct {
 	Failure   string         `json:"failure,omitempty"`
 	Session   *sessionRecord `json:"session,omitempty"`
 	LeftDirty bool           `json:"left_dirty,omitempty"`
+	Spent     spent          `json:"spent"`
 }
 
 func loadProgress(path string) *progress {
@@ -55,7 +56,12 @@ func (p *progress) save() error {
 	return os.WriteFile(p.path, append(body, '\n'), 0o644)
 }
 
+// reset starts a unit's record. What a unit already took carries over when the
+// same unit is picked up again.
 func (p *progress) reset(unit, base, failure string, session *sessionRecord) error {
+	if p.Unit != unit {
+		p.Spent = spent{}
+	}
 	p.Unit, p.Base, p.Failure, p.Session, p.LeftDirty = unit, base, failure, session, false
 	return p.save()
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/state"
+	"github.com/Torwalt/ploopy/internal/ui"
 )
 
 func newStatus(e *env) *cobra.Command {
@@ -43,6 +44,9 @@ func statusAll(e *env) error {
 		if next := state.Resume(p, s); next != nil {
 			tail = "next " + next.ID + " " + next.Title
 		}
+		if totals := ui.Totals(s); totals != "" {
+			tail += "  (" + totals + ")"
+		}
 		fmt.Printf("%-48s %2d/%-2d  %s\n", p.Path, done, total, tail)
 	}
 	return nil
@@ -57,21 +61,7 @@ func statusOne(e *env, name string) error {
 	if err != nil {
 		return err
 	}
-	for _, u := range p.Units {
-		status := s.Status(u.ID)
-		detail := ""
-		if entry := s.Entry(u.ID); entry != nil {
-			switch {
-			case status == state.Blocked:
-				detail = "  " + entry.Reason
-			case len(entry.Commits) == 1:
-				detail = "  (1 commit)"
-			case len(entry.Commits) > 1:
-				detail = fmt.Sprintf("  (%d commits)", len(entry.Commits))
-			}
-		}
-		fmt.Printf("%5s  %-8s %s%s\n", u.ID, status, u.Title, detail)
-	}
+	ui.NewReporter(os.Stdout, os.Stderr).Summary(p, s, nil)
 	return nil
 }
 

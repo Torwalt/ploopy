@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -196,6 +197,10 @@ func runPlan(ctx context.Context, e *env, f *runFlags) error {
 	release := ui.Inhibit(ctx, "ploopy is running "+p.Path)
 	result := runner.Run(ctx)
 	release()
+
+	if s, err := state.Load(filepath.Join(root, state.PathFor(p.Path))); err == nil {
+		report.Summary(p, s, &result.Stats)
+	}
 
 	if moved != nil {
 		report.Say("the worktree stays at %s; once %s is done with: git worktree remove %s && git switch %s",

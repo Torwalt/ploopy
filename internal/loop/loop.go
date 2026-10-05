@@ -121,6 +121,7 @@ func sleep(ctx context.Context, d time.Duration) error {
 type Result struct {
 	Status  string // "done" or "failed"
 	Message string
+	Stats   Stats
 }
 
 // Loop is one run of one plan.
@@ -136,6 +137,11 @@ type Loop struct {
 	progress  *progress
 	unit      string
 	peakSaid  time.Time // the peak window already reported as run through
+
+	runID   string
+	stats   Stats
+	mark    time.Time                // when the current unit's clock last moved
+	checked map[string]time.Duration // verify and test time since the last session
 }
 
 // New prepares a run. The plan itself is read again before every unit.
@@ -283,16 +289,18 @@ func (l *Loop) failRun(message string) Result {
 	l.record("failed", message)
 	l.notify("failed", message)
 	l.report.Fail("%s", message)
-	return Result{Status: "failed", Message: message}
+	return Result{Status: "failed", Message: message, Stats: l.ended("failed")}
 }
 
 func (l *Loop) finish(message string) Result {
 	l.notify("done", message)
-	return Result{Status: "done", Message: message}
+	return Result{Status: "done", Message: message, Stats: l.ended("done")}
 }
 
 // Run walks the plan's open units.
 func (l *Loop) Run(ctx context.Context) Result {
+	l.stats = Stats{Started: l.opts.Now()}
+	l.runID = l.stats.Started.Format(time.RFC3339)
 	if err := l.prepareWorkDir(); err != nil {
 		return l.failRun(err.Error())
 	}
@@ -358,6 +366,11 @@ func (l *Loop) Run(ctx context.Context) Result {
 	return l.finish(p.Path + " is complete")
 }
 
+// agent is who runs the next session.
+func (l *Loop) agent() Agent {
+	return Agent{Harness: l.opts.Harness, Model: l.opts.Model, Effort: l.opts.Effort}
+}
+
 func (l *Loop) firstUnit(p *plan.Plan, s *state.State) *plan.Unit {
 	if l.opts.Start == "" {
 		return state.Resume(p, s)
@@ -400,7 +413,7 @@ func (l *Loop) setup(ctx context.Context) error {
 	}
 	l.report.Say("setup: `%s`", l.opts.SetupCmd)
 	logPath := filepath.Join(l.logs, "setup")
-	if err := l.runCheck(ctx, l.opts.SetupCmd, logPath); err != nil {
+	if err := l.timedCheck(ctx, "setup", l.opts.SetupCmd, logPath); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -425,7 +438,7 @@ func (l *Loop) preflight(ctx context.Context) error {
 	}
 	l.report.Say("preflight: `%s`", l.opts.VerifyCmd)
 	logPath := filepath.Join(l.logs, "preflight.verify")
-	if err := l.runCheck(ctx, l.opts.VerifyCmd, logPath); err != nil {
+	if err := l.timedCheck(ctx, "preflight", l.opts.VerifyCmd, logPath); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -463,7 +476,7 @@ func (l *Loop) peakGate(ctx context.Context) error {
 		l.record("peak", "waiting for off-peak until "+local.Format(time.RFC3339))
 		l.report.Say("%s bills double until %s; waiting for off-peak",
 			l.opts.Harness.Name(), local.Format("15:04"))
-		if err := l.opts.Sleep(ctx, until.Sub(now)); err != nil {
+		if err := l.pause(ctx, "peak", until.Sub(now)); err != nil {
 			return err
 		}
 	}
@@ -489,6 +502,8 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 	}
 	u := *current
 	l.unit = u.ID
+	l.mark = l.opts.Now()
+	l.checked = map[string]time.Duration{}
 
 	resumed := l.progress.forUnit(u.ID)
 	base := ""
@@ -523,6 +538,8 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 
 		var outcome harness.Outcome
 		var stem, tail string
+		var info sessionInfo
+		agent := l.agent()
 
 		if replay != nil {
 			outcome, stem, tail = replay.Outcome, replay.Stem, replay.Tail
@@ -555,7 +572,7 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 				return err
 			}
 
-			outcome, tail, err = l.session(ctx, p, u, prompt, stem, logPath)
+			outcome, tail, info, err = l.session(ctx, p, u, agent, prompt, stem, logPath)
 			if err != nil {
 				return err
 			}
@@ -566,9 +583,11 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 			}
 
 			if outcome.Exhausted != "" {
+				l.account(u, stem, agent, info, outcome, "exhausted", outcome.Exhausted)
 				return errors.New(outcome.Exhausted)
 			}
 			if outcome.RateLimit != nil {
+				l.account(u, stem, agent, info, outcome, "limit", outcome.RateLimit.Reason)
 				waits++
 				if waits > l.opts.LimitWaits {
 					return fmt.Errorf("unit %s: still at a usage limit after %d waits", u.ID, l.opts.LimitWaits)
@@ -579,16 +598,17 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 				continue
 			}
 			if outcome.Exit != 0 && !outcome.TimedOut && !changed {
+				l.account(u, stem, agent, info, outcome, "transient", fmt.Sprintf("exited %d", outcome.Exit))
 				transient++
 				l.record("transient", fmt.Sprintf("%s exited %d without touching the repository",
-					l.opts.Harness.Name(), outcome.Exit))
+					agent.Harness.Name(), outcome.Exit))
 				l.report.Say("session exited %d and changed nothing; treating it as transient (%d of %d)",
 					outcome.Exit, transient, l.opts.TransientLimit)
 				if transient >= l.opts.TransientLimit {
 					return fmt.Errorf("unit %s: %d sessions in a row ended without touching the "+
 						"repository (last exit %d)", u.ID, transient, outcome.Exit)
 				}
-				if err := l.opts.Sleep(ctx, l.opts.Backoff); err != nil {
+				if err := l.pause(ctx, "backoff", l.opts.Backoff); err != nil {
 					return err
 				}
 				continue
@@ -607,7 +627,8 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 
 		// A cancelled run still judges and records the session it was running.
 		judgeCtx := context.WithoutCancel(ctx)
-		verdict := l.judge(judgeCtx, p, u, base, outcome, stem)
+		verdict := l.judge(judgeCtx, p, u, agent, base, outcome, stem)
+		l.account(u, stem, agent, info, outcome, verdict.Kind, verdict.Reason)
 
 		if verdict.Kind == Blocked {
 			if blocks < l.opts.BlockRetries {
@@ -627,7 +648,7 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 			}
 		}
 
-		settled, err := l.settle(judgeCtx, p, u, verdict, base, attempt+blocks, outcome, tail)
+		settled, err := l.settle(judgeCtx, p, u, agent, verdict, base, attempt+blocks, outcome, tail)
 		if err != nil {
 			return err
 		}
@@ -650,11 +671,11 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 
 // session runs one agent and streams what it does to the reporter, keeping the
 // tail for the handover fallback.
-func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, prompt, stem, logPath string) (harness.Outcome, string, error) {
+func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agent, prompt, stem, logPath string) (harness.Outcome, string, sessionInfo, error) {
 	spec := harness.Spec{
 		Prompt:         prompt,
-		Model:          l.opts.Model,
-		Effort:         l.opts.Effort,
+		Model:          agent.Model,
+		Effort:         agent.Effort,
 		Title:          fmt.Sprintf("ploopy %s %s", p.Name(), u.ID),
 		SessionID:      uuid.NewString(),
 		Dir:            l.root,
@@ -666,14 +687,18 @@ func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, prompt, s
 		LogPath:        logPath,
 	}
 
-	session, err := l.opts.Harness.Start(ctx, spec)
+	info := sessionInfo{Started: l.opts.Now()}
+	session, err := agent.Harness.Start(ctx, spec)
 	if err != nil {
-		return harness.Outcome{}, "", err
+		return harness.Outcome{}, "", info, err
 	}
 
 	var tail []string
 	for event := range session.Events() {
 		l.report.Event(event)
+		if event.Kind == harness.EventToolUse {
+			info.Tools++
+		}
 		if event.Kind == harness.EventText || event.Kind == harness.EventRaw {
 			tail = append(tail, event.Text)
 			if len(tail) > sessionTailLines {
@@ -682,10 +707,11 @@ func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, prompt, s
 		}
 	}
 	outcome, err := session.Wait()
+	info.Took = l.opts.Now().Sub(info.Started)
 	if outcome.SessionID == "" {
 		outcome.SessionID = spec.SessionID
 	}
-	return outcome, strings.Join(tail, "\n"), err
+	return outcome, strings.Join(tail, "\n"), info, err
 }
 
 // deniedTools is the harness-level deny list. The PreToolUse guard is what
@@ -735,7 +761,7 @@ func (l *Loop) waitOutLimit(ctx context.Context, limit *harness.RateLimit, chang
 	l.record("limit", "usage limit; waiting until "+until.Format(time.RFC3339))
 	l.report.Say("usage limit reached; waiting until %s and starting the session again",
 		until.Format("15:04"))
-	return l.opts.Sleep(ctx, wait)
+	return l.pause(ctx, "limit", wait)
 }
 
 // handover is what the next session is told, from the file the session wrote
@@ -752,7 +778,7 @@ func (l *Loop) handover(u plan.Unit, tail string, notes *[]string) string {
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-func (l *Loop) entry(verdict Verdict, base string, attempts int, handover string, outcome harness.Outcome) *state.Entry {
+func (l *Loop) entry(agent Agent, verdict Verdict, base string, attempts int, handover string, outcome harness.Outcome) *state.Entry {
 	status := state.Landed
 	if verdict.Kind != Landed {
 		status = state.Blocked
@@ -762,19 +788,17 @@ func (l *Loop) entry(verdict Verdict, base string, attempts int, handover string
 		commits = append(commits, commit.Hash+" "+commit.Subject)
 	}
 
-	agent := []string{l.opts.Harness.Name()}
-	if l.opts.Model != "" {
-		agent = append(agent, l.opts.Model)
-	}
-	if l.opts.Effort != "" {
-		agent = append(agent, l.opts.Effort)
+	spent := l.progress.Spent
+	var tokens *harness.Tokens
+	if spent.Tokens != (harness.Tokens{}) {
+		tokens = &spent.Tokens
 	}
 
 	return &state.Entry{
 		Status:    status,
 		Outcome:   strings.ToLower(string(verdict.Marker)),
 		Date:      l.opts.Now().Format(time.RFC3339),
-		Agent:     strings.Join(agent, " "),
+		Agent:     agent.Label(),
 		Base:      base,
 		Commits:   commits,
 		Attempts:  attempts,
@@ -782,8 +806,12 @@ func (l *Loop) entry(verdict Verdict, base string, attempts int, handover string
 		Notes:     verdict.Notes,
 		Handover:  handover,
 		SessionID: outcome.SessionID,
-		CostUSD:   outcome.CostUSD,
-		Harness:   l.opts.Harness.Name(),
+		CostUSD:   spent.CostUSD,
+		Harness:   agent.Harness.Name(),
+		ElapsedS:  seconds(spent.Elapsed),
+		SessionS:  seconds(spent.Session),
+		CheckS:    seconds(spent.Checks),
+		Tokens:    tokens,
 	}
 }
 
@@ -800,7 +828,7 @@ func (l *Loop) commitState(ctx context.Context, p *plan.Plan, s *state.State) er
 
 // settle records a verdict that ends the unit. It returns true when the unit
 // is done with, and an error when the run must stop.
-func (l *Loop) settle(ctx context.Context, p *plan.Plan, u plan.Unit, verdict Verdict, base string, attempt int, outcome harness.Outcome, tail string) (bool, error) {
+func (l *Loop) settle(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agent, verdict Verdict, base string, attempt int, outcome harness.Outcome, tail string) (bool, error) {
 	if verdict.Kind == Failed {
 		return false, nil
 	}
@@ -815,7 +843,7 @@ func (l *Loop) settle(ctx context.Context, p *plan.Plan, u plan.Unit, verdict Ve
 
 	if verdict.Kind == Blocked {
 		verdict.Notes = append(verdict.Notes, notes...)
-		s.Set(u.ID, l.entry(verdict, base, attempt+1, handover, outcome))
+		s.Set(u.ID, l.entry(agent, verdict, base, attempt+1, handover, outcome))
 		if err := l.commitState(ctx, p, s); err != nil {
 			return false, err
 		}
@@ -828,7 +856,7 @@ func (l *Loop) settle(ctx context.Context, p *plan.Plan, u plan.Unit, verdict Ve
 	}
 
 	verdict.Notes = append(verdict.Notes, notes...)
-	s.Set(u.ID, l.entry(verdict, base, attempt+1, handover, outcome))
+	s.Set(u.ID, l.entry(agent, verdict, base, attempt+1, handover, outcome))
 	if err := l.commitState(ctx, p, s); err != nil {
 		return false, err
 	}

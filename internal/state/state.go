@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/plan"
 )
 
@@ -43,8 +44,14 @@ type Entry struct {
 	Handover string   `json:"handover,omitempty"`
 
 	SessionID string  `json:"session_id,omitempty"`
-	CostUSD   float64 `json:"cost_usd,omitempty"`
+	CostUSD   float64 `json:"cost_usd,omitempty"` // every session of the unit, failed ones too
 	Harness   string  `json:"harness,omitempty"`
+
+	// What the unit took, retries and checks included.
+	ElapsedS int             `json:"elapsed_s,omitempty"`
+	SessionS int             `json:"session_s,omitempty"`
+	CheckS   int             `json:"check_s,omitempty"`
+	Tokens   *harness.Tokens `json:"tokens,omitempty"`
 }
 
 type file struct {
