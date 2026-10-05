@@ -169,31 +169,6 @@ func changeFromFlags(cmd *cobra.Command, e *env, f *adjustFlags) (control.Settin
 	return change, nil
 }
 
-// offerAdjust asks, when runs are going on, whether to change one of them
-// rather than start another. It reports whether the author chose to adjust.
-func offerAdjust(e *env) (bool, error) {
-	lives, err := control.List()
-	if err != nil || len(lives) == 0 {
-		return false, nil
-	}
-	choices := make([]ui.Choice, 0, len(lives)+1)
-	for _, live := range lives {
-		choices = append(choices, ui.Choice{Label: "change " + runLabel(live), Value: strconv.Itoa(live.PID)})
-	}
-	choices = append(choices, ui.Choice{Label: "start a new run", Value: "new"})
-	picked, err := ui.Pick("A run is going on. What now?", "plan", choices)
-	if err != nil || picked == "new" {
-		return false, err
-	}
-	pid, _ := strconv.Atoi(picked)
-	for _, live := range lives {
-		if live.PID == pid {
-			return true, adjustInteractively(e, live)
-		}
-	}
-	return true, fmt.Errorf("the run with pid %d has ended", pid)
-}
-
 func adjustInteractively(e *env, live control.Live) error {
 	wanted := live.Wanted
 	setting, err := ui.Pick(live.Name()+": change what?", "finish", []ui.Choice{

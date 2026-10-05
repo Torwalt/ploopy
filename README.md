@@ -23,23 +23,28 @@ inputs.ploopy.url = "github:Torwalt/ploopy";
 
 ## Use
 
-    ploopy                            ask what to run, and run it
+    ploopy                            ask what to do, then ask for the rest
+    ploopy run                        run a plan's open units
     ploopy status [PLAN]              every plan, or one plan's units, and what they took
     ploopy report [PLAN]              what a plan took, slowest units and commands, cost
+    ploopy show [PLAN] [1.2]          a unit's work order, or with --prompt the whole prompt
+    ploopy replay [PLAN] [1.2]        what that unit's session did
+    ploopy mark [PLAN] [1.2] [STATUS] record a status by hand
     ploopy lint [PLAN]                check plans parse the way the loop needs
-    ploopy show PLAN 1.2 [--prompt]   a unit's work order, or the whole prompt
-    ploopy mark PLAN 1.2 skipped      record a status by hand
-    ploopy replay PLAN 1.2            what that unit's session did
     ploopy adjust                     change what a running run does next
 
-With nothing passed, ploopy asks for the plan and where it runs, then puts the
-rest on one page: the harness, model and effort, the agent that takes over on
-a usage limit, what a unit due in peak hours does, whether to push, and what to
-do when the run ends. The page starts from the last run in this repository,
-and starting exactly like it is one keypress. What a flag or the plan's front
-matter already says is not asked. Every answer is also a flag, for a run
-nobody is watching: `ploopy run --help`. Arguments after `--` go to the
-harness.
+`ploopy` alone asks what to do, a run going on first, so nothing needs
+remembering. Every command then asks for what it was not given: the plan, from
+every branch and worktree, then the unit, then the status. Every answer is
+also an argument or a flag, for a run nobody is watching.
+
+`ploopy run` asks for the plan and where it runs, then puts the rest on one
+page: the harness, model and effort, the agent that takes over on a usage
+limit, what a unit due in peak hours does, whether to push, and what to do when
+the run ends. The page starts from the last run in this repository, and
+starting exactly like it is one keypress. What a flag or the plan's front
+matter already says is not asked. `ploopy run --help` lists the flags.
+Arguments after `--` go to the harness.
 
 ## Where a plan's progress lives
 
@@ -122,7 +127,7 @@ does next: its end action, whether it pushes, whether it stops once the current
 unit is done, the agent that takes over on a usage limit, and what a unit due
 in peak hours does. With nothing passed it asks; every answer is also a flag
 (`ploopy adjust --finish poweroff`, `--stop`, `--push`, `--secondary claude`).
-`ploopy` alone, while a run goes on, offers the same.
+`ploopy` alone, while a run goes on, offers it first.
 
 A run announces itself under `$XDG_RUNTIME_DIR/ploopy/` and looks for changes
 every two seconds; it says in its feed when it sees one. A stop or a new

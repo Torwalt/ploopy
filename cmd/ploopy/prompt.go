@@ -5,6 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Torwalt/ploopy/internal/catalog"
+	"github.com/Torwalt/ploopy/internal/config"
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/ui"
@@ -12,19 +14,28 @@ import (
 
 // showPrompt renders what a session would be given. It needs a harness only
 // for the shape of the options, so the first one will do.
-func showPrompt(cmd *cobra.Command, e *env, p *plan.Plan, u plan.Unit) error {
-	skill, err := skillAt(e.root, e.cfg)
+func showPrompt(cmd *cobra.Command, e *env, c catalog.Copy, u plan.Unit) error {
+	if c.Root == "" {
+		return fmt.Errorf("%s is only on branch %s; check it out to see a whole prompt", c.Plan.Path, c.Branch)
+	}
+	root := c.Root
+	cfg, err := config.Load(root)
 	if err != nil {
 		return err
 	}
-	runner, err := loop.New(e.root, loop.Options{
+	skill, err := skillAt(root, cfg)
+	if err != nil {
+		return err
+	}
+	p := c.Plan
+	runner, err := loop.New(root, loop.Options{
 		PlanPath:    p.Path,
 		Harness:     e.harnesses[0],
 		Skill:       skill,
-		BaseContext: e.cfg.Context,
-		VerifyCmd:   e.cfg.Verify,
-		TestCmd:     e.cfg.Test,
-		AuthorPaths: e.cfg.AuthorPaths,
+		BaseContext: cfg.Context,
+		VerifyCmd:   cfg.Verify,
+		TestCmd:     cfg.Test,
+		AuthorPaths: cfg.AuthorPaths,
 	}, ui.NewReporter(cmd.OutOrStdout(), cmd.ErrOrStderr()))
 	if err != nil {
 		return err

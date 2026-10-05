@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Torwalt/ploopy/internal/catalog"
+	"github.com/Torwalt/ploopy/internal/config"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/state"
@@ -114,23 +115,23 @@ func reportOf(c catalog.Copy) string {
 func newShow(e *env) *cobra.Command {
 	var whole bool
 	cmd := &cobra.Command{
-		Use:   "show PLAN UNIT",
+		Use:   "show [PLAN] [UNIT]",
 		Short: "Print a unit's work order",
-		Args:  cobra.ExactArgs(2),
+		Args:  cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, err := e.resolve(args[0])
+			c, err := e.planArg(cmd.Context(), args, "Show a unit of which plan?", false)
 			if err != nil {
 				return err
 			}
-			u := p.Unit(args[1])
-			if u == nil {
-				return fmt.Errorf("%s has no unit %s", p.Path, args[1])
+			u, err := unitArg(c, args, "Which unit?", nil)
+			if err != nil {
+				return err
 			}
 			if !whole {
-				fmt.Print(p.WorkOrder(*u))
+				fmt.Print(c.Plan.WorkOrder(u))
 				return nil
 			}
-			return showPrompt(cmd, e, p, *u)
+			return showPrompt(cmd, e, c, u)
 		},
 	}
 	cmd.Flags().BoolVar(&whole, "prompt", false, "print the whole session prompt instead")
@@ -211,29 +212,27 @@ func lintReport(e *env, root string, p *plan.Plan, out io.Writer, showWarnings b
 
 func newMark(e *env) *cobra.Command {
 	return &cobra.Command{
-		Use:   "mark PLAN UNIT (landed|blocked|skipped|pending)",
+		Use:   "mark [PLAN] [UNIT] [landed|blocked|skipped|pending]",
 		Short: "Record a unit's status by hand and commit it",
-		Args:  cobra.ExactArgs(3),
+		Args:  cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			p, err := e.resolve(args[0])
+			c, err := e.planArg(cmd.Context(), args, "Mark a unit of which plan?", false)
 			if err != nil {
 				return err
 			}
-			u := p.Unit(args[1])
-			if u == nil {
-				return fmt.Errorf("%s has no unit %s", p.Path, args[1])
+			if c.Root == "" {
+				return fmt.Errorf("%s is not checked out anywhere; check it out to mark its units", c.Branch)
 			}
-			status := args[2]
-			switch status {
-			case state.Landed, state.Blocked, state.Skipped, state.Pending:
-			default:
-				return fmt.Errorf("status must be landed, blocked, skipped or pending, not %s", status)
+			u, err := unitArg(c, args, "Which unit?", nil)
+			if err != nil {
+				return err
+			}
+			status, err := statusArg(args, c.State.Status(u.ID))
+			if err != nil {
+				return err
 			}
 
-			s, err := e.state(p)
-			if err != nil {
-				return err
-			}
+			p, s := c.Plan, c.State
 			if status == state.Pending {
 				s.Clear(u.ID)
 			} else {
@@ -246,9 +245,13 @@ func newMark(e *env) *cobra.Command {
 			if err := s.Save(); err != nil {
 				return err
 			}
-			path := plan.Relative(s.Path, e.root)
-			if err := repo.New(e.root, e.cfg.AuthorPaths).CommitOnly(
-				cmd.Context(), path, fmt.Sprintf(e.cfg.StateCommit, p.Name())); err != nil {
+			cfg, err := config.Load(c.Root)
+			if err != nil {
+				return err
+			}
+			path := plan.Relative(s.Path, c.Root)
+			if err := repo.New(c.Root, cfg.AuthorPaths).CommitOnly(
+				cmd.Context(), path, fmt.Sprintf(cfg.StateCommit, p.Name())); err != nil {
 				return err
 			}
 			fmt.Printf("unit %s marked %s\n", u.ID, status)
@@ -259,24 +262,25 @@ func newMark(e *env) *cobra.Command {
 
 func newReplay(e *env) *cobra.Command {
 	return &cobra.Command{
-		Use:   "replay PLAN UNIT",
+		Use:   "replay [PLAN] [UNIT]",
 		Short: "What a unit's session did, and how to reopen it",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(_ *cobra.Command, args []string) error {
-			p, err := e.resolve(args[0])
+		Args:  cobra.MaximumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := e.planArg(cmd.Context(), args, "Replay a unit of which plan?", false)
 			if err != nil {
 				return err
 			}
-			s, err := e.state(p)
+			recorded := func(u plan.Unit) bool { return c.State.Entry(u.ID) != nil }
+			u, err := unitArg(c, args, "Which unit's session?", recorded)
 			if err != nil {
 				return err
 			}
-			entry := s.Entry(args[1])
+			p, entry := c.Plan, c.State.Entry(u.ID)
 			if entry == nil {
-				return fmt.Errorf("%s has no record of unit %s", p.Path, args[1])
+				return fmt.Errorf("%s has no record of unit %s", p.Path, u.ID)
 			}
 
-			fmt.Printf("unit %s  %s  %s\n", args[1], entry.Status, entry.Date)
+			fmt.Printf("unit %s  %s  %s\n", u.ID, entry.Status, entry.Date)
 			if entry.Agent != "" {
 				fmt.Printf("agent    %s\n", entry.Agent)
 			}
@@ -309,4 +313,50 @@ func newReplay(e *env) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// unitArg is the unit named after the plan, or the one the author picks from
+// those keep allows.
+func unitArg(c catalog.Copy, args []string, title string, keep func(plan.Unit) bool) (plan.Unit, error) {
+	if len(args) > 1 {
+		if u := c.Plan.Unit(args[1]); u != nil {
+			return *u, nil
+		}
+		return plan.Unit{}, fmt.Errorf("%s has no unit %s", c.Plan.Path, args[1])
+	}
+	if !ui.Interactive() {
+		return plan.Unit{}, fmt.Errorf("name the unit")
+	}
+	var choices []ui.Choice
+	for _, u := range c.Plan.Units {
+		if keep == nil || keep(u) {
+			label := fmt.Sprintf("%-5s %-8s %s", u.ID, c.State.Status(u.ID), u.Title)
+			choices = append(choices, ui.Choice{Label: label, Value: u.ID})
+		}
+	}
+	if len(choices) == 0 {
+		return plan.Unit{}, fmt.Errorf("%s has no unit to choose", c.Plan.Path)
+	}
+	picked, err := ui.Pick(title, "unit", choices)
+	if err != nil {
+		return plan.Unit{}, err
+	}
+	return *c.Plan.Unit(picked), nil
+}
+
+// statusArg is the status named after the unit, or the one the author picks.
+func statusArg(args []string, current string) (string, error) {
+	if len(args) > 2 {
+		switch status := args[2]; status {
+		case state.Landed, state.Blocked, state.Skipped, state.Pending:
+			return status, nil
+		default:
+			return "", fmt.Errorf("status must be landed, blocked, skipped or pending, not %s", status)
+		}
+	}
+	if !ui.Interactive() {
+		return "", fmt.Errorf("name the status")
+	}
+	return ui.Pick("It is "+current+". Mark it as?", "status", labelled(
+		[]string{state.Landed, state.Skipped, state.Blocked, state.Pending}))
 }

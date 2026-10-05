@@ -104,12 +104,6 @@ func newRun(e *env) *cobra.Command {
 
 func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 	ctx := cmd.Context()
-	// `ploopy` alone, with a run going on, may be meant for that run.
-	if cmd.Flags().NFlag() == 0 && len(e.extra) == 0 && ui.Interactive() {
-		if adjusted, err := offerAdjust(e); adjusted || err != nil {
-			return err
-		}
-	}
 	c, err := choosePlan(ctx, e, f)
 	if err != nil {
 		return err

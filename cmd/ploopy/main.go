@@ -15,12 +15,14 @@ import (
 
 	ploopy "github.com/Torwalt/ploopy"
 	"github.com/Torwalt/ploopy/internal/config"
+	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/harness/claude"
 	"github.com/Torwalt/ploopy/internal/harness/opencode"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/state"
+	"github.com/Torwalt/ploopy/internal/ui"
 )
 
 // version is stamped at build time.
@@ -43,6 +45,16 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 
+	// `ploopy` alone asks what to do; each command then asks for what it lacks.
+	if len(argv) == 0 && len(extra) == 0 && ui.Interactive() {
+		picked, err := chooseCommand()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ploopy:", err)
+			os.Exit(2)
+		}
+		argv = []string{picked}
+	}
+
 	e := &env{extra: extra}
 	root := newRoot(e)
 	root.SetArgs(withDefaultCommand(root, argv))
@@ -53,6 +65,31 @@ func main() {
 		}
 		os.Exit(2)
 	}
+}
+
+// chooseCommand offers what ploopy can do. A run going on comes first: it is
+// most likely what brought the author here.
+func chooseCommand() (string, error) {
+	var choices []ui.Choice
+	if lives, _ := control.List(); len(lives) > 0 {
+		label := "change a running run"
+		if len(lives) == 1 {
+			label += ": " + runLabel(lives[0])
+		} else {
+			label += fmt.Sprintf(" (%d going on)", len(lives))
+		}
+		choices = append(choices, ui.Choice{Label: label, Value: "adjust"})
+	}
+	choices = append(choices,
+		ui.Choice{Label: "run a plan", Value: "run"},
+		ui.Choice{Label: "status of every plan", Value: "status"},
+		ui.Choice{Label: "report on a plan: time, checks, cost", Value: "report"},
+		ui.Choice{Label: "show a unit's work order", Value: "show"},
+		ui.Choice{Label: "replay a unit's session", Value: "replay"},
+		ui.Choice{Label: "mark a unit by hand", Value: "mark"},
+		ui.Choice{Label: "lint the plans", Value: "lint"},
+	)
+	return ui.Pick("What now?", "help", choices)
 }
 
 // splitExtra takes everything after `--` for the harness.

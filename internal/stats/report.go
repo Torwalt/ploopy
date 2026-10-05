@@ -35,7 +35,7 @@ func Report(p *plan.Plan, s *state.State, records []Record, current *Run) string
 	}
 	if len(records) == 0 {
 		r.line("")
-		r.line("No stats log: runs, waits and tool calls are gone with the checkout's .ploopy/.")
+		r.line("No stats log in the plan's checkout: runs, waits and tool calls are left out.")
 	}
 	return r.text.String()
 }
@@ -270,7 +270,11 @@ func (r *report) stages() {
 		st.cost += ue.entry.CostUSD
 		st.claude = st.claude || ue.entry.Harness == "claude"
 	}
-	if len(stages) < 2 {
+	counted := false
+	for _, st := range stages {
+		counted = counted || st.elapsed > 0 || st.cost > 0
+	}
+	if len(stages) < 2 || !counted {
 		return
 	}
 	r.line("")
