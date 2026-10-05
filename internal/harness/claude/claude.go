@@ -153,9 +153,33 @@ type streamLine struct {
 	Result         string          `json:"result"`
 	NumTurns       int             `json:"num_turns"`
 	TotalCostUSD   float64         `json:"total_cost_usd"`
+	Usage          usage           `json:"usage"`
 	StopReason     string          `json:"stop_reason"`
 	TerminalReason string          `json:"terminal_reason"`
 	APIErrorStatus json.RawMessage `json:"api_error_status"`
+}
+
+// usage is the session's whole consumption. Thinking is part of the output
+// count, so it is taken out of it rather than counted twice.
+type usage struct {
+	Input         int `json:"input_tokens"`
+	Output        int `json:"output_tokens"`
+	CacheRead     int `json:"cache_read_input_tokens"`
+	CacheCreation int `json:"cache_creation_input_tokens"`
+	OutputDetails struct {
+		Thinking int `json:"thinking_tokens"`
+	} `json:"output_tokens_details"`
+}
+
+func (u usage) tokens() harness.Tokens {
+	thinking := min(u.OutputDetails.Thinking, u.Output)
+	return harness.Tokens{
+		Input:      u.Input,
+		Output:     u.Output - thinking,
+		Reasoning:  thinking,
+		CacheRead:  u.CacheRead,
+		CacheWrite: u.CacheCreation,
+	}
 }
 
 type assistantMessage struct {
@@ -209,7 +233,7 @@ func (s *session) assistant(parsed streamLine) {
 			s.events <- harness.Event{
 				Kind: harness.EventToolUse,
 				Tool: block.Name,
-				Text: summarise(block.Input),
+				Text: harness.Summarise(block.Input),
 			}
 		}
 	}
@@ -221,6 +245,7 @@ func (s *session) result(parsed streamLine) {
 	s.outcome.Reason = reason
 	s.outcome.SessionID = parsed.SessionID
 	s.outcome.CostUSD = parsed.TotalCostUSD
+	s.outcome.Tokens = parsed.Usage.tokens()
 	s.outcome.Turns = parsed.NumTurns
 	if parsed.TotalCostUSD > 0 {
 		s.events <- harness.Event{Kind: harness.EventUsage, CostUSD: parsed.TotalCostUSD}
@@ -252,28 +277,6 @@ func firstLine(text string) string {
 		return "the harness reported a usage limit"
 	}
 	return line
-}
-
-// summarise reduces a tool's input to the one value worth watching scroll by.
-func summarise(input json.RawMessage) string {
-	var fields map[string]any
-	if json.Unmarshal(input, &fields) != nil {
-		return ""
-	}
-	for _, key := range []string{"command", "file_path", "path", "pattern", "url", "description"} {
-		if value, ok := fields[key].(string); ok && value != "" {
-			return truncate(value, 120)
-		}
-	}
-	return ""
-}
-
-func truncate(text string, limit int) string {
-	text = strings.TrimSpace(strings.ReplaceAll(text, "\n", " "))
-	if len(text) <= limit {
-		return text
-	}
-	return text[:limit-1] + "…"
 }
 
 // Guard answers a PreToolUse hook: it reads the tool call on stdin and refuses

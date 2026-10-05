@@ -52,7 +52,7 @@ const successStream = `{"type":"system","subtype":"init","session_id":"abc"}
 {"type":"system","subtype":"tokens","estimated_tokens":1200,"session_id":"abc"}
 {"type":"assistant","session_id":"abc","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"go test ./..."}}]}}
 {"type":"assistant","session_id":"abc","message":{"content":[{"type":"text","text":"Implemented the unit.\n\nDONE"}]}}
-{"type":"result","subtype":"success","is_error":false,"result":"Implemented the unit.\n\nDONE","num_turns":4,"duration_ms":1490,"total_cost_usd":1.25,"session_id":"abc"}`
+{"type":"result","subtype":"success","is_error":false,"result":"Implemented the unit.\n\nDONE","num_turns":4,"duration_ms":1490,"total_cost_usd":1.25,"usage":{"input_tokens":10,"cache_creation_input_tokens":22015,"cache_read_input_tokens":300,"output_tokens":45,"output_tokens_details":{"thinking_tokens":37}},"session_id":"abc"}`
 
 // The outcome comes from the structured result, not from scraping a tail.
 func TestTheOutcomeComesFromTheResultEvent(t *testing.T) {
@@ -64,6 +64,11 @@ func TestTheOutcomeComesFromTheResultEvent(t *testing.T) {
 	}
 	if outcome.CostUSD != 1.25 || outcome.Turns != 4 {
 		t.Fatalf("cost %v turns %d", outcome.CostUSD, outcome.Turns)
+	}
+	// Thinking is part of the output count and is not counted twice.
+	want := harness.Tokens{Input: 10, Output: 8, Reasoning: 37, CacheRead: 300, CacheWrite: 22015}
+	if outcome.Tokens != want {
+		t.Fatalf("tokens %+v, want %+v", outcome.Tokens, want)
 	}
 	if outcome.SessionID != "abc" {
 		t.Fatalf("session id %q", outcome.SessionID)

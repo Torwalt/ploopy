@@ -45,10 +45,12 @@ run ends. Every answer is also a flag, for a run nobody is watching:
 Claude Code is driven through `stream-json`, so the outcome, cost and session
 identity come from a structured result. ploopy assigns each session's id, so
 `ploopy replay PLAN 1.2` can hand back a `claude --resume` for the session that
-did the work.
+did the work. Its cost is the API-price equivalent, not what a subscription
+charges.
 
-opencode reports in prose, so it is the degraded path: the outcome is read from
-the last lines of its output.
+opencode is driven through `--format json`, so tool calls, token use, cost
+and session identity come from its events. Its outcome is still read from the
+final text, and a usage limit from its wording.
 
 ## Worktrees
 

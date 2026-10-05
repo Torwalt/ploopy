@@ -259,8 +259,13 @@ func newReplay(e *env) *cobra.Command {
 			if entry.Reason != "" {
 				fmt.Printf("reason   %s\n", entry.Reason)
 			}
-			if entry.SessionID != "" && entry.Harness == "claude" {
-				fmt.Printf("\nreopen with:\n    claude --resume %s\n", entry.SessionID)
+			if entry.SessionID != "" {
+				switch entry.Harness {
+				case "claude":
+					fmt.Printf("\nreopen with:\n    claude --resume %s\n", entry.SessionID)
+				case "opencode":
+					fmt.Printf("\nreopen with:\n    opencode --session %s\n", entry.SessionID)
+				}
 			}
 			if entry.Handover != "" {
 				fmt.Printf("\n%s\n", strings.TrimSpace(entry.Handover))

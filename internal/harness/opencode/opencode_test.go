@@ -25,22 +25,78 @@ func fakeOpencode(t *testing.T, output string) string {
 
 func start(t *testing.T, spec harness.Spec) harness.Outcome {
 	t.Helper()
+	outcome, _ := startWithEvents(t, spec)
+	return outcome
+}
+
+func startWithEvents(t *testing.T, spec harness.Spec) (harness.Outcome, []harness.Event) {
+	t.Helper()
 	spec.Timeout = 30 * time.Second
 	spec.Dir = t.TempDir()
 	session, err := New().Start(context.Background(), spec)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for range session.Events() {
+	var events []harness.Event
+	for event := range session.Events() {
+		events = append(events, event)
 	}
 	outcome, err := session.Wait()
 	if err != nil {
 		t.Fatal(err)
 	}
-	return outcome
+	return outcome, events
 }
 
+// stream is what `opencode run --format json` printed for a session that ran
+// one command and finished, trimmed to the fields that matter.
+const stream = `{"type":"step_start","timestamp":1,"sessionID":"ses_1","part":{"type":"step-start"}}
+{"type":"tool_use","timestamp":2,"sessionID":"ses_1","part":{"type":"tool","tool":"bash","state":{"status":"completed","input":{"command":"go test ./..."},"output":"ok\n"}}}
+{"type":"step_finish","timestamp":3,"sessionID":"ses_1","part":{"type":"step-finish","reason":"tool-calls","tokens":{"total":9702,"input":8000,"output":38,"reasoning":10,"cache":{"write":0,"read":1664}},"cost":0.001}}
+{"type":"step_start","timestamp":4,"sessionID":"ses_1","part":{"type":"step-start"}}
+{"type":"text","timestamp":5,"sessionID":"ses_1","part":{"type":"text","text":"Implemented the unit.\n\nDONE"}}
+{"type":"step_finish","timestamp":6,"sessionID":"ses_1","part":{"type":"step-finish","reason":"stop","tokens":{"total":9720,"input":245,"output":3,"reasoning":0,"cache":{"write":5,"read":9472}},"cost":0.0005}}`
+
 func TestTheMarkerIsReadFromTheText(t *testing.T) {
+	fakeOpencode(t, stream)
+
+	if outcome := start(t, harness.Spec{Prompt: "x"}); outcome.Marker != harness.Done {
+		t.Fatalf("marker %q", outcome.Marker)
+	}
+}
+
+// Every step reports its own use, so the session's is their sum.
+func TestTokensAndCostAreSummedOverSteps(t *testing.T) {
+	fakeOpencode(t, stream)
+
+	outcome, events := startWithEvents(t, harness.Spec{Prompt: "x"})
+	want := harness.Tokens{Input: 8245, Output: 41, Reasoning: 10, CacheRead: 11136, CacheWrite: 5}
+	if outcome.Tokens != want {
+		t.Fatalf("tokens %+v, want %+v", outcome.Tokens, want)
+	}
+	if outcome.CostUSD < 0.00149 || outcome.CostUSD > 0.00151 || outcome.Turns != 2 {
+		t.Fatalf("cost %v turns %d", outcome.CostUSD, outcome.Turns)
+	}
+	if outcome.SessionID != "ses_1" {
+		t.Fatalf("session id %q", outcome.SessionID)
+	}
+
+	var tools int
+	for _, event := range events {
+		if event.Kind == harness.EventToolUse {
+			tools++
+			if event.Tool != "bash" || event.Text != "go test ./..." {
+				t.Fatalf("tool event %+v", event)
+			}
+		}
+	}
+	if tools != 1 {
+		t.Fatalf("%d tool events", tools)
+	}
+}
+
+// Whatever opencode prints outside its event stream is still read.
+func TestOutputOutsideTheEventStreamIsStillRead(t *testing.T) {
 	fakeOpencode(t, "working on it\nall tests pass\nDONE")
 
 	if outcome := start(t, harness.Spec{Prompt: "x"}); outcome.Marker != harness.Done {
@@ -69,7 +125,7 @@ func TestTheSessionIsStartedWithThePlanUnitAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(strings.Split(strings.TrimSpace(string(raw)), "\n"), " ")
-	for _, want := range []string{"run --auto", "--agent plan-unit", "--model deepseek/deepseek-v4-pro", "--variant high", "do the unit"} {
+	for _, want := range []string{"run --format json --auto", "--agent plan-unit", "--model deepseek/deepseek-v4-pro", "--variant high", "do the unit"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("the session was started without %q:\n%s", want, joined)
 		}
@@ -77,7 +133,7 @@ func TestTheSessionIsStartedWithThePlanUnitAgent(t *testing.T) {
 }
 
 func TestAUsageLimitInProseIsRecognised(t *testing.T) {
-	fakeOpencode(t, "you have reached the rate limit for this model")
+	fakeOpencode(t, `{"type":"error","sessionID":"ses_1","error":{"name":"APIError","data":{"message":"you have reached the rate limit for this model"}}}`)
 
 	outcome := start(t, harness.Spec{Prompt: "x"})
 	if outcome.Marker != harness.None {

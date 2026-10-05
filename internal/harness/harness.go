@@ -7,6 +7,7 @@ package harness
 
 import (
 	"context"
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -51,7 +52,37 @@ type RateLimit struct {
 	ResetAt time.Time // zero when the harness gave no time
 }
 
-// Outcome is how a session ended.
+// Tokens is what a session consumed. Reasoning is counted apart from output,
+// and cache reads apart from input, so the fields add up to the total.
+type Tokens struct {
+	Input      int `json:"input,omitempty"`
+	Output     int `json:"output,omitempty"`
+	Reasoning  int `json:"reasoning,omitempty"`
+	CacheRead  int `json:"cache_read,omitempty"`
+	CacheWrite int `json:"cache_write,omitempty"`
+}
+
+// Add sums two counts.
+func (t Tokens) Add(other Tokens) Tokens {
+	return Tokens{
+		Input:      t.Input + other.Input,
+		Output:     t.Output + other.Output,
+		Reasoning:  t.Reasoning + other.Reasoning,
+		CacheRead:  t.CacheRead + other.CacheRead,
+		CacheWrite: t.CacheWrite + other.CacheWrite,
+	}
+}
+
+// Prompt is every token the model read, cached or not.
+func (t Tokens) Prompt() int { return t.Input + t.CacheRead + t.CacheWrite }
+
+// Generated is every token the model wrote, reasoning included.
+func (t Tokens) Generated() int { return t.Output + t.Reasoning }
+
+// Total is everything.
+func (t Tokens) Total() int { return t.Prompt() + t.Generated() }
+
+// Outcome is how a session ended. What an adapter cannot observe stays zero.
 type Outcome struct {
 	Marker    Marker
 	Reason    string
@@ -59,6 +90,7 @@ type Outcome struct {
 	TimedOut  bool
 	SessionID string
 	CostUSD   float64
+	Tokens    Tokens
 	Turns     int
 	RateLimit *RateLimit
 
@@ -180,6 +212,28 @@ const (
 
 // StripANSI removes the escape sequences a harness colours its output with.
 func StripANSI(text string) string { return ansiRe.ReplaceAllString(text, "") }
+
+// Summarise reduces a tool's input to the one value worth watching scroll by.
+func Summarise(input json.RawMessage) string {
+	var fields map[string]any
+	if json.Unmarshal(input, &fields) != nil {
+		return ""
+	}
+	for _, key := range []string{"command", "file_path", "filePath", "path", "pattern", "url", "description"} {
+		if value, ok := fields[key].(string); ok && value != "" {
+			return truncate(value, 120)
+		}
+	}
+	return ""
+}
+
+func truncate(text string, limit int) string {
+	text = strings.TrimSpace(strings.ReplaceAll(text, "\n", " "))
+	if len(text) <= limit {
+		return text
+	}
+	return text[:limit-1] + "…"
+}
 
 func liveLines(text string) []string {
 	var lines []string

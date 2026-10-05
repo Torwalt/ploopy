@@ -1,12 +1,15 @@
 // Package opencode drives opencode running DeepSeek as one unattended session.
 //
-// opencode reports in prose, so this is the degraded path: the outcome is read
-// out of the text and a usage limit out of its wording. It is also the only
-// harness that bills by the hour, so it declares peak windows.
+// Output is read as `--format json`, one event a line, so tool calls, token
+// use, cost and the session's identity come from structured events. The
+// outcome is still read out of the final text, and a usage limit out of its
+// wording. It is also the only harness that bills by the hour, so it declares
+// peak windows.
 package opencode
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -59,7 +62,7 @@ func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session
 			size, MaxArgumentBytes)
 	}
 
-	argv := []string{"opencode", "run", "--auto", "--agent", "plan-unit"}
+	argv := []string{"opencode", "run", "--format", "json", "--auto", "--agent", "plan-unit"}
 	if spec.Model != "" {
 		argv = append(argv, "--model", spec.Model)
 	}
@@ -83,9 +86,41 @@ func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session
 }
 
 type session struct {
-	proc   *harness.Proc
-	events chan harness.Event
-	done   chan struct{}
+	proc    *harness.Proc
+	events  chan harness.Event
+	done    chan struct{}
+	outcome harness.Outcome
+
+	// said is the agent's text and anything printed outside the event stream;
+	// the marker and a usage limit are read from it.
+	said []string
+}
+
+// event is one line of `--format json`. Fields ploopy does not name are
+// ignored, so a new opencode release cannot break it.
+type event struct {
+	Type      string          `json:"type"`
+	SessionID string          `json:"sessionID"`
+	Part      part            `json:"part"`
+	Error     json.RawMessage `json:"error"`
+}
+
+type part struct {
+	Text  string `json:"text"`
+	Tool  string `json:"tool"`
+	State struct {
+		Input json.RawMessage `json:"input"`
+	} `json:"state"`
+	Tokens struct {
+		Input     int `json:"input"`
+		Output    int `json:"output"`
+		Reasoning int `json:"reasoning"`
+		Cache     struct {
+			Read  int `json:"read"`
+			Write int `json:"write"`
+		} `json:"cache"`
+	} `json:"tokens"`
+	Cost float64 `json:"cost"`
 }
 
 func (s *session) Events() <-chan harness.Event { return s.events }
@@ -96,24 +131,88 @@ func (s *session) read() {
 	defer close(s.done)
 	defer close(s.events)
 	for line := range s.proc.Lines() {
-		if text := strings.TrimSpace(harness.StripANSI(line)); text != "" {
+		text := strings.TrimSpace(harness.StripANSI(line))
+		if text == "" {
+			continue
+		}
+		var parsed event
+		if !strings.HasPrefix(text, "{") || json.Unmarshal([]byte(text), &parsed) != nil {
+			s.said = append(s.said, text)
+			s.events <- harness.Event{Kind: harness.EventRaw, Text: text}
+			continue
+		}
+		if parsed.SessionID != "" {
+			s.outcome.SessionID = parsed.SessionID
+		}
+		s.handle(parsed)
+	}
+}
+
+func (s *session) handle(e event) {
+	switch e.Type {
+	case "text":
+		if text := strings.TrimSpace(e.Part.Text); text != "" {
+			s.said = append(s.said, text)
 			s.events <- harness.Event{Kind: harness.EventText, Text: text}
 		}
+	case "tool_use":
+		s.events <- harness.Event{
+			Kind: harness.EventToolUse, Tool: e.Part.Tool, Text: harness.Summarise(e.Part.State.Input),
+		}
+	case "step_finish":
+		// Each step reports its own use; the session's is the sum.
+		tokens := e.Part.Tokens
+		s.outcome.Tokens = s.outcome.Tokens.Add(harness.Tokens{
+			Input: tokens.Input, Output: tokens.Output, Reasoning: tokens.Reasoning,
+			CacheRead: tokens.Cache.Read, CacheWrite: tokens.Cache.Write,
+		})
+		s.outcome.CostUSD += e.Part.Cost
+		s.outcome.Turns++
+		s.events <- harness.Event{
+			Kind: harness.EventUsage, CostUSD: s.outcome.CostUSD, Tokens: s.outcome.Tokens.Total(),
+		}
+	case "error":
+		if message := errorText(e.Error); message != "" {
+			s.said = append(s.said, message)
+			s.events <- harness.Event{Kind: harness.EventNotice, Text: message}
+		}
 	}
+}
+
+// errorText finds the message in an error event, whatever shape the
+// provider's error took.
+func errorText(raw json.RawMessage) string {
+	var shaped struct {
+		Name    string `json:"name"`
+		Message string `json:"message"`
+		Data    struct {
+			Message string `json:"message"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &shaped) == nil {
+		for _, text := range []string{shaped.Data.Message, shaped.Message, shaped.Name} {
+			if strings.TrimSpace(text) != "" {
+				return strings.TrimSpace(text)
+			}
+		}
+	}
+	var plain string
+	if json.Unmarshal(raw, &plain) == nil {
+		return strings.TrimSpace(plain)
+	}
+	return strings.TrimSpace(string(raw))
 }
 
 func (s *session) Wait() (harness.Outcome, error) {
 	<-s.done
 	exit, timedOut := s.proc.Wait()
-	tail := strings.Join(s.proc.Tail(), "\n")
+	said := strings.Join(s.said, "\n")
 
-	marker, reason := harness.ParseMarker(tail)
-	outcome := harness.Outcome{
-		Marker: marker, Reason: reason,
-		Exit: exit, TimedOut: timedOut,
-	}
-	if marker == harness.None {
-		outcome.RateLimit = harness.RateLimitFromText(tail, time.Now())
+	outcome := s.outcome
+	outcome.Marker, outcome.Reason = harness.ParseMarker(said)
+	outcome.Exit, outcome.TimedOut = exit, timedOut
+	if outcome.Marker == harness.None {
+		outcome.RateLimit = harness.RateLimitFromText(said, time.Now())
 	}
 	return outcome, nil
 }
