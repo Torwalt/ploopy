@@ -49,7 +49,7 @@ func TestTheSummaryTotalsUnitsStagesAndThePlan(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := &state.State{Units: map[string]*state.Entry{
-		"1.1": {Status: state.Landed, Outcome: "done", Attempts: 1, ElapsedS: 243, CheckS: 47, CostUSD: 0.25,
+		"1.1": {Status: state.Landed, Outcome: "done", Attempts: 1, ElapsedS: 243, VerifyS: 7, TestS: 40, CostUSD: 0.25,
 			Harness: "opencode", Tokens: &harness.Tokens{Input: 70_000, CacheRead: 1_700_000, Output: 26_000}},
 		"1.2": {Status: state.Blocked, Outcome: "blocked", Attempts: 2, ElapsedS: 1294, CostUSD: 0.5,
 			Harness: "claude", Reason: "the premise is wrong"},

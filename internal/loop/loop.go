@@ -947,7 +947,8 @@ func (l *Loop) entry(agent Agent, verdict Verdict, base string, attempts int, ha
 		Harness:   agent.Harness.Name(),
 		ElapsedS:  seconds(spent.Elapsed),
 		SessionS:  seconds(spent.Session),
-		CheckS:    seconds(spent.Checks),
+		VerifyS:   seconds(spent.Verify),
+		TestS:     seconds(spent.Test),
 		Tokens:    tokens,
 	}
 }

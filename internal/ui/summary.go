@@ -24,7 +24,7 @@ type total struct {
 func (t *total) add(e *state.Entry) {
 	t.units++
 	t.elapsed += e.ElapsedS
-	t.checks += e.CheckS
+	t.checks += e.VerifyS + e.TestS
 	t.attempts += e.Attempts
 	if e.Tokens != nil {
 		t.tokens = t.tokens.Add(*e.Tokens)

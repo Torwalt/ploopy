@@ -56,7 +56,8 @@ type sessionInfo struct {
 type spent struct {
 	Elapsed time.Duration  `json:"elapsed,omitempty"`
 	Session time.Duration  `json:"session,omitempty"`
-	Checks  time.Duration  `json:"checks,omitempty"`
+	Verify  time.Duration  `json:"verify,omitempty"`
+	Test    time.Duration  `json:"test,omitempty"`
 	CostUSD float64        `json:"cost_usd,omitempty"`
 	Tokens  harness.Tokens `json:"tokens"`
 }
@@ -89,7 +90,8 @@ func (l *Loop) account(u plan.Unit, stem string, agent Agent, info sessionInfo, 
 	s.Elapsed += now.Sub(l.mark)
 	l.mark = now
 	s.Session += info.Took
-	s.Checks += verify + test
+	s.Verify += verify
+	s.Test += test
 	s.CostUSD += outcome.CostUSD
 	s.Tokens = s.Tokens.Add(outcome.Tokens)
 	_ = l.progress.save()

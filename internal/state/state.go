@@ -50,7 +50,8 @@ type Entry struct {
 	// What the unit took, retries and checks included.
 	ElapsedS int             `json:"elapsed_s,omitempty"`
 	SessionS int             `json:"session_s,omitempty"`
-	CheckS   int             `json:"check_s,omitempty"`
+	VerifyS  int             `json:"verify_s,omitempty"`
+	TestS    int             `json:"test_s,omitempty"`
 	Tokens   *harness.Tokens `json:"tokens,omitempty"`
 }
 
