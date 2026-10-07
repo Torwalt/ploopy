@@ -104,9 +104,12 @@ out in `../<repo>.worktrees/<branch>`, so you can keep working here while the
 run goes on there. The worktree gets only what is committed, so a dirty tree
 or an uncommitted plan is refused before anything moves.
 
-The worktree stays when the run ends: its `.ploopy/` holds the logs `replay`
-reads. Resume a stopped run by running `ploopy` inside it; once the branch is
-done with, `git worktree remove` it and switch back.
+A run that completes the plan removes the worktree, after the push and before
+any end action. The report is stamped on the branch and the branch stays, so
+`git switch <branch>` picks it up here. A plan still open keeps its worktree,
+and the next run resumes there with its progress and stats log. Only a
+worktree in `../<repo>.worktrees/`, run from another checkout, is removed;
+never one holding uncommitted work, and never by a cancelled run.
 
 ## Overnight
 

@@ -339,6 +339,70 @@ func TestAFailedHandOffPutsTheCheckoutBack(t *testing.T) {
 	}
 }
 
+func TestRemoveWorktreeTakesIgnoredFilesAndEmptyParents(t *testing.T) {
+	root := newRepo(t)
+	git(t, root, "branch", "sco-1/work")
+	top := filepath.Join(t.TempDir(), "repo.worktrees")
+	path := filepath.Join(top, "sco-1", "work")
+	ctx := context.Background()
+	if err := New(root, nil).AddWorktree(ctx, path, "sco-1/work"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, path, ".ploopy/.gitignore", "*\n")
+	write(t, path, ".ploopy/plan/stats.jsonl", "{}\n")
+
+	if err := New(root, nil).RemoveWorktree(ctx, path, top); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(top); !os.IsNotExist(err) {
+		t.Fatalf("%s is left behind: %v", top, err)
+	}
+	if strings.Contains(git(t, root, "worktree", "list"), path) {
+		t.Fatal("git still lists the worktree")
+	}
+	git(t, root, "rev-parse", "--verify", "sco-1/work")
+}
+
+func TestRemoveWorktreeRefusesUncommittedWork(t *testing.T) {
+	root := newRepo(t)
+	git(t, root, "branch", "feature")
+	top := filepath.Join(t.TempDir(), "repo.worktrees")
+	path := filepath.Join(top, "feature")
+	ctx := context.Background()
+	if err := New(root, nil).AddWorktree(ctx, path, "feature"); err != nil {
+		t.Fatal(err)
+	}
+	write(t, path, "half-done.txt", "x\n")
+
+	if err := New(root, nil).RemoveWorktree(ctx, path, top); err == nil {
+		t.Fatal("a worktree with untracked files was removed")
+	}
+	if _, err := os.Stat(filepath.Join(path, "half-done.txt")); err != nil {
+		t.Fatal("the uncommitted file is gone")
+	}
+}
+
+func TestRemoveWorktreeKeepsAParentWithOtherWorktrees(t *testing.T) {
+	root := newRepo(t)
+	git(t, root, "branch", "sco-1/a")
+	git(t, root, "branch", "sco-1/b")
+	top := filepath.Join(t.TempDir(), "repo.worktrees")
+	ctx := context.Background()
+	r := New(root, nil)
+	for _, branch := range []string{"sco-1/a", "sco-1/b"} {
+		if err := r.AddWorktree(ctx, filepath.Join(top, branch), branch); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := r.RemoveWorktree(ctx, filepath.Join(top, "sco-1", "a"), top); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(top, "sco-1", "b", "README.md")); err != nil {
+		t.Fatal("the other worktree went too")
+	}
+}
+
 func containsString(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

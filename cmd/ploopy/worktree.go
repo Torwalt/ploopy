@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/ui"
@@ -21,10 +22,34 @@ type handoff struct {
 	path   string
 }
 
-// worktreePath is beside the repository, not inside it, so tools that walk
+// worktreesDir is beside the repository, not inside it, so tools that walk
 // the main checkout never find a second copy of it.
+func worktreesDir(root string) string {
+	return filepath.Join(filepath.Dir(root), filepath.Base(root)+".worktrees")
+}
+
 func worktreePath(root, branch string) string {
-	return filepath.Join(filepath.Dir(root), filepath.Base(root)+".worktrees", branch)
+	return filepath.Join(worktreesDir(root), branch)
+}
+
+// leaveWorktree removes ploopy's worktree once the plan is complete: the
+// report is stamped and nothing in it is read again. An open plan keeps it,
+// so the next run resumes there with its progress and stats log.
+func leaveWorktree(ctx context.Context, e *env, root, branch string, complete bool,
+	runner *loop.Loop, report *ui.Reporter) {
+	switch {
+	case ctx.Err() != nil:
+		report.Say("the run was cancelled; the worktree stays at %s", root)
+	case !complete:
+		report.Say("the worktree stays at %s; the next run resumes there", root)
+	default:
+		if err := e.repo().RemoveWorktree(ctx, root, worktreesDir(e.root)); err != nil {
+			report.Fail("the worktree stays at %s: %v", root, err)
+			runner.Note("worktree", "kept: "+err.Error())
+			return
+		}
+		report.Say("removed the worktree at %s; `git switch %s` picks the branch up here", root, branch)
+	}
 }
 
 // chooseWorktree takes the flag, or asks when the run can move. Only a branch

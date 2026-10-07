@@ -225,8 +225,10 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 	result := runner.Run(ctx)
 	release()
 
+	complete := false
 	if s, err := state.Load(filepath.Join(root, state.PathFor(p.Path))); err == nil {
-		if loop.Complete(p, s) {
+		complete = loop.Complete(p, s)
+		if complete {
 			fmt.Println()
 			fmt.Print(reportOf(catalog.Copy{Plan: p, State: s, Root: root}))
 		} else {
@@ -234,13 +236,14 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		}
 	}
 
-	if moved != nil {
-		report.Say("the worktree stays at %s; once %s is done with: git worktree remove %s && git switch %s",
-			moved.path, moved.branch, moved.path, moved.branch)
-	}
 	wanted := steer.wanted()
 	if wanted.Pushes() {
 		pushBranch(ctx, root, runner, report)
+	}
+	// Only a worktree at ploopy's own path is removed: one the author made is
+	// theirs, and a run started inside a worktree has its shell there.
+	if branch != "" && root == worktreePath(e.root, branch) {
+		leaveWorktree(ctx, e, root, branch, complete, runner, report)
 	}
 	endAction(ctx, runner, report, ui.Finish(wanted.Finish), f.grace)
 	if result.Status != "done" {

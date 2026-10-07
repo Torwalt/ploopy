@@ -395,6 +395,22 @@ func (r *Repo) AddWorktree(ctx context.Context, path, branch string) error {
 	return err
 }
 
+// RemoveWorktree deletes the worktree at path, then each directory between it
+// and top, top included, that it leaves empty. git refuses a worktree with
+// untracked or modified files; ignored ones go with it.
+func (r *Repo) RemoveWorktree(ctx context.Context, path, top string) error {
+	if _, err := r.git(ctx, "worktree", "remove", path); err != nil {
+		return err
+	}
+	sep := string(filepath.Separator)
+	for dir := filepath.Dir(path); strings.HasPrefix(dir+sep, top+sep); dir = filepath.Dir(dir) {
+		if os.Remove(dir) != nil {
+			break
+		}
+	}
+	return nil
+}
+
 // CommonDir is the repository's own git directory, shared by all its
 // worktrees.
 func (r *Repo) CommonDir(ctx context.Context) (string, error) {
