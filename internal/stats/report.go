@@ -164,7 +164,7 @@ func (r *report) outcome() {
 
 	if sessions > 0 {
 		line := []string{fmt.Sprintf("%d", sessions)}
-		for _, verdict := range []string{"landed", "failed", "blocked", "limit", "transient", "exhausted"} {
+		for _, verdict := range []string{"landed", "failed", "blocked", "limit", "transient", "exhausted", "interrupted"} {
 			if verdicts[verdict] > 0 {
 				line = append(line, fmt.Sprintf("%d %s", verdicts[verdict], verdict))
 			}

@@ -65,8 +65,9 @@ session's self-report where the repository can be asked instead.
 - Keep the dependency set small: cobra, BurntSushi/toml, charmbracelet
   (huh, lipgloss), google/uuid. No viper, no logging framework.
 - `context.Context` for every child process; process groups so a kill takes the
-  whole tree. Signals cancel, and a cancelled run still judges and records the
-  session it was running.
+  whole tree. Signals cancel, and a cancelled run still records the session it
+  was running: one that finished is judged, and one the stop cut off is recorded
+  as interrupted, spends no attempt, and leaves its work to the next run.
 - Prefer simple, explicit code; no speculative abstractions. Comments explain
   *why*, not *what* — sparse and terse, one fact per sentence, no narration.
 - Commits: a short subject stating the change, an optional body of at most

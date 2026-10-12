@@ -649,6 +649,69 @@ func TestASessionInterruptedBeforeJudgingIsJudgedOnResume(t *testing.T) {
 	_ = progressPath
 }
 
+// runUntilStopped runs the loop with a context the first session cancels, the
+// way a signal would.
+func (f *fixture) runUntilStopped(ctx context.Context) Result {
+	f.t.Helper()
+	runner, err := New(f.root, f.opts, &silent{})
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	return runner.Run(ctx)
+}
+
+func TestAStopMidSessionHandsItsWorkToTheNextRun(t *testing.T) {
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	f := setup(t, twoUnits,
+		fake.Step{Do: func(dir string) error {
+			stop()
+			return leaves("half.go")(dir)
+		}, Outcome: harness.Outcome{Exit: -1}},
+		fake.Step{Do: commits("one.go", "first"), Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	f.opts.Retries = 0
+
+	if result := f.runUntilStopped(ctx); result.Status != "failed" {
+		t.Fatalf("stopped run %+v", result)
+	}
+	if entry := f.state().Entry("1.1"); entry != nil {
+		t.Fatalf("a stop was recorded as an attempt: %+v", entry)
+	}
+	p := loadProgress(filepath.Join(f.root, ".ploopy/pass/progress.json"))
+	if !p.LeftDirty || p.Failure != stoppedMidUnit {
+		t.Fatalf("the stop was not recorded: left dirty %v, failure %q", p.LeftDirty, p.Failure)
+	}
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("a rerun after a stop needed --allow-dirty: %+v", result)
+	}
+	if !strings.Contains(f.h.Prompts[1], stoppedMidUnit) {
+		t.Fatal("the next session was not told the run had been stopped")
+	}
+	if entry := f.state().Entry("1.1"); entry == nil || entry.Status != state.Landed || entry.Attempts != 1 {
+		t.Fatalf("the unit did not land on its first attempt: %+v", entry)
+	}
+	if strings.TrimSpace(f.git("status", "--porcelain")) != "" {
+		t.Fatal("the stopped session's work was not carried into the unit's commit")
+	}
+}
+
+func TestASessionThatFinishedAsTheRunStoppedIsStillJudged(t *testing.T) {
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	f := setup(t, twoUnits, fake.Step{Do: func(dir string) error {
+		stop()
+		return commits("one.go", "first")(dir)
+	}, Outcome: done()})
+
+	f.runUntilStopped(ctx)
+	if f.state().Status("1.1") != state.Landed {
+		t.Fatal("a session that ended DONE was not judged because the run was stopped")
+	}
+}
+
 func TestAReadingDocumentThatNoLongerExistsIsLeftOut(t *testing.T) {
 	text := strings.Replace(twoUnits, "test: no", "test: no\ncontext: AGENTS.md gone.md", 1)
 	f := setup(t, text,

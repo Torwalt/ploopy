@@ -677,13 +677,23 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 			}
 
 			outcome, tail, info, err = l.session(ctx, p, u, agent, prompt, stem, logPath)
+			if err != nil && ctx.Err() == nil {
+				return err
+			}
+
+			// The signal that stops the run must not also stop it recording the
+			// session it cut off.
+			after := context.WithoutCancel(ctx)
+			changed, err := l.touched(after, sessionHead, sessionDirt)
 			if err != nil {
 				return err
 			}
 
-			changed, err := l.touched(ctx, sessionHead, sessionDirt)
-			if err != nil {
-				return err
+			if ctx.Err() != nil && outcome.Marker == harness.None {
+				if err := l.interrupted(after, u, stem, agent, info, outcome, changed); err != nil {
+					return err
+				}
+				return ctx.Err()
 			}
 
 			if outcome.Exhausted != "" {
@@ -729,7 +739,7 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 			}
 			transient = 0
 
-			head, err := l.repo.Head(ctx)
+			head, err := l.repo.Head(after)
 			if err != nil {
 				return err
 			}
@@ -867,6 +877,30 @@ func (l *Loop) touched(ctx context.Context, head string, dirt []string) (bool, e
 // cutOffMidUnit is what the session after a usage limit is told.
 const cutOffMidUnit = "A usage limit cut the previous session off mid-unit. The repository " +
 	"is as it left it, and its commits count toward this unit. Continue from there."
+
+// stoppedMidUnit is what the session after a stopped run is told.
+const stoppedMidUnit = "The run was stopped while the previous session worked on this unit. " +
+	"The repository is as it left it, and its commits count toward this unit. Continue from there."
+
+// interrupted records a session the run's own stop cut off. It spends no
+// attempt: the next run hands what it left to a fresh session.
+func (l *Loop) interrupted(ctx context.Context, u plan.Unit, stem string, agent Agent, info sessionInfo, outcome harness.Outcome, changed bool) error {
+	l.account(u, stem, agent, info, outcome, "interrupted", "the run was stopped mid-session")
+	dirt, err := l.repo.DirtLines(ctx)
+	if err != nil {
+		return err
+	}
+	if changed {
+		l.progress.Failure = stoppedMidUnit
+	}
+	l.progress.Session, l.progress.LeftDirty = nil, len(dirt) > 0
+	if err := l.progress.save(); err != nil {
+		return err
+	}
+	l.record("interrupted", "stopped mid-session; the next run continues from the tree as it is")
+	l.report.Say("stopped mid-session; the next run continues from the tree as it is")
+	return nil
+}
 
 // waitOutLimit waits for a usage limit to lift. When the secondary is the one
 // limited and the primary comes back first, the wait ends there and the run
