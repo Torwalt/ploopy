@@ -49,6 +49,11 @@ will carry out the fixes. Spend your effort deciding.
    design when it encodes the wrong rule rather than mistyping the right one.
    Between gap and design, choose design: asking the author costs less than
    undoing a wrong fix.
+
+   Before you class anything as design, establish when the cited path runs:
+   read the guards of its callers and the code that chooses that branch. A
+   question built on a path that runs more often, or less often, than it really
+   does sends the author to decide the wrong thing.
 4. **Write the fix plan** for the slips and gaps, when any hold.
 5. **Write the section for the author** at the end of the review plan.
 6. **Lint and commit.** `ploopy lint <fix plan>` until it reports no errors. Then
