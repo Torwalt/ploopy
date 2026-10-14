@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -90,15 +88,24 @@ func chooseTriage(ctx context.Context, cmd *cobra.Command, e *env, f *reviewFlag
 
 // askTriage puts everything the flags did not give on one page.
 func askTriage(e *env, t *review.Triage, given map[string]bool) error {
+	return askAgent(e, "Who weighs the findings?", "Spending cap for the triage session", t, map[string]bool{
+		"agent": given["triage-agent"], "model": given["triage-model"],
+		"effort": given["triage-effort"], "budget": given["triage-budget"],
+	})
+}
+
+// askAgent asks for the agent, model, effort and spending cap of one session
+// that decides, leaving out what given already holds.
+func askAgent(e *env, title, budgetTitle string, t *review.Triage, given map[string]bool) error {
 	budget := strconv.FormatFloat(t.Budget, 'f', -1, 64)
 	firstAgent, firstModel := t.Agent, t.Model
 	var fields []ui.Field
-	if !given["triage-agent"] {
+	if !given["agent"] {
 		fields = append(fields, ui.Field{Title: "Agent", Value: &t.Agent, Choices: func() []ui.Choice {
 			return labelled(e.harnesses.Names())
 		}})
 	}
-	if !given["triage-model"] {
+	if !given["model"] {
 		fields = append(fields, ui.Field{Title: "Model", Value: &t.Model, Binding: &t.Agent, Choices: func() []ui.Choice {
 			models := triageModels(e, t.Agent)
 			if t.Agent == firstAgent && firstModel != "" && !contains(models, firstModel) {
@@ -107,22 +114,22 @@ func askTriage(e *env, t *review.Triage, given map[string]bool) error {
 			return labelled(models)
 		}})
 	}
-	if !given["triage-effort"] {
+	if !given["effort"] {
 		fields = append(fields, ui.Field{Title: "Effort", Value: &t.Effort, Binding: &t.Agent, Choices: func() []ui.Choice {
 			return labelled(e.harnesses.Get(t.Agent).Efforts())
 		}})
 	}
-	if !given["triage-budget"] {
-		fields = append(fields, ui.Field{Title: "Spending cap for the triage session", Value: &budget,
+	if !given["budget"] {
+		fields = append(fields, ui.Field{Title: budgetTitle, Value: &budget,
 			Choices: func() []ui.Choice { return budgetOptions(budget) }})
 	}
-	if err := ui.Form("Who weighs the findings?", fields); err != nil {
+	if err := ui.Form(title, fields); err != nil {
 		return err
 	}
-	if !given["triage-budget"] {
+	if !given["budget"] {
 		value, err := strconv.ParseFloat(budget, 64)
 		if err != nil {
-			return fmt.Errorf("the triage budget %q is not dollars", budget)
+			return fmt.Errorf("the budget %q is not dollars", budget)
 		}
 		t.Budget = value
 	}
@@ -171,31 +178,9 @@ func lastTriagePath(ctx context.Context, root string) string {
 }
 
 func loadLastTriage(ctx context.Context, root string) *review.Triage {
-	path := lastTriagePath(ctx, root)
-	if path == "" {
-		return nil
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	var t review.Triage
-	if json.Unmarshal(raw, &t) != nil || t.Agent == "" {
-		return nil
-	}
-	return &t
+	return loadAgentChoice(lastTriagePath(ctx, root))
 }
 
 func saveLastTriage(ctx context.Context, root string, t review.Triage) {
-	path := lastTriagePath(ctx, root)
-	if path == "" {
-		return
-	}
-	body, err := json.MarshalIndent(t, "", "  ")
-	if err != nil {
-		return
-	}
-	if os.MkdirAll(filepath.Dir(path), 0o755) == nil {
-		_ = os.WriteFile(path, append(body, '\n'), 0o644)
-	}
+	saveAgentChoice(lastTriagePath(ctx, root), t)
 }

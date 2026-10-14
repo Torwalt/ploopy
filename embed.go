@@ -26,3 +26,10 @@ var PlanReviewSkill string
 //
 //go:embed skills/review-triage/SKILL.md
 var ReviewTriageSkill string
+
+// LandRepairSkill is how a session repairs a conflict or a failing check while
+// a branch is landed. A repository may override it at
+// .agents/skills/land-repair/SKILL.md.
+//
+//go:embed skills/land-repair/SKILL.md
+var LandRepairSkill string

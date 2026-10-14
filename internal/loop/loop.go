@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/Torwalt/ploopy/internal/config"
+	"github.com/Torwalt/ploopy/internal/guard"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
@@ -861,7 +862,7 @@ func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, agent Age
 		Title:        fmt.Sprintf("ploopy %s %s", p.Name(), u.ID),
 		SessionID:    uuid.NewString(),
 		Dir:          l.root,
-		Deny:         deniedTools,
+		Deny:         guard.DeniedTools,
 		Extra:        l.opts.HarnessArgs,
 		Timeout:      l.opts.Timeout,
 		MaxBudgetUSD: budget,
@@ -900,21 +901,6 @@ func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, agent Age
 		outcome.SessionID = spec.SessionID
 	}
 	return outcome, strings.Join(tail, "\n"), info, err
-}
-
-// deniedTools is the harness-level deny list. The PreToolUse guard is what
-// actually holds; this stops the obvious spelling.
-var deniedTools = []string{
-	"Bash(git push*)",
-	"Bash(git reset --hard*)",
-	"Bash(git checkout master*)",
-	"Bash(git switch master*)",
-	"Bash(git checkout main*)",
-	"Bash(git switch main*)",
-	"Bash(git rebase*)",
-	"Bash(git clean*)",
-	"WebFetch",
-	"WebSearch",
 }
 
 func (l *Loop) touched(ctx context.Context, head string, dirt []string) (bool, error) {

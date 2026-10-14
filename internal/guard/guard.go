@@ -16,6 +16,21 @@ var denied = map[string]string{
 	"clean":  "cleaning destroys work the loop cannot recover",
 }
 
+// DeniedTools is the harness-level deny list. The PreToolUse guard is what
+// actually holds; this stops the obvious spelling.
+var DeniedTools = []string{
+	"Bash(git push*)",
+	"Bash(git reset --hard*)",
+	"Bash(git checkout master*)",
+	"Bash(git switch master*)",
+	"Bash(git checkout main*)",
+	"Bash(git switch main*)",
+	"Bash(git rebase*)",
+	"Bash(git clean*)",
+	"WebFetch",
+	"WebSearch",
+}
+
 // Branches a session must not move onto.
 var protected = []string{"master", "main"}
 

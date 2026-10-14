@@ -10,8 +10,31 @@ stops, and records progress in `<PLAN>.state.json` beside the plan.
 2. `ploopy` → run a plan → in a worktree → like last time. Keep working on master.
 3. `ploopy adjust` from any terminal changes what the run does next.
 4. In the morning: `git switch <branch>`, `ploopy review <NAME>`, read what it
-   puts to you, run the fix plan it wrote, `ploopy close` all three. Closing the
-   last plan in ploopy's worktree removes the worktree.
+   puts to you, run the fix plan it wrote.
+5. `ploopy land <branch>` closes all three plans, rebases the branch onto master,
+   runs the checks, and fast-forwards master. Master is yours to push.
+
+## Land
+
+`ploopy land [BRANCH]` refuses a branch that still has open units. Otherwise:
+
+- every plan on the branch is closed, each in a commit carrying its report;
+- the branch is rebased onto the default branch and `verify` and `test` run on
+  the result, each once more before it counts as failed;
+- a conflict, or a check that fails on the rebased branch, goes to a session
+  with the `land-repair` skill. During a conflict the session resolves and
+  stages, and ploopy continues the rebase; after a failing check it adds
+  commits. git and the checks judge it, up to `--attempts` sessions per repair.
+  Who repairs is asked on a page of its own, like the triage, and remembered;
+- the default branch is fast-forwarded where it is checked out. If it moved
+  during the checks, the branch is rebased again;
+- a branch that was pushed before is pushed again with a lease, ploopy's
+  worktree for it is removed and the branch deleted.
+
+A failed repair leaves the default branch as it was: after a conflict the
+rebase is aborted, after a failing check the branch stays rebased so the
+failure can be looked at. Logs go to `.git/ploopy/land/<branch>/`.
+`--no-agent` stops at the first conflict or failure instead.
 
 ## Review
 

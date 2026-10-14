@@ -79,10 +79,11 @@ func Load(root string) (Config, error) {
 // RepoSkill is where a repository may keep its own plan-unit skill.
 const RepoSkill = ".agents/skills/plan-unit/SKILL.md"
 
-// Where a repository may keep its own review skills and checklist.
+// Where a repository may keep its own review and landing skills and checklist.
 const (
 	RepoReviewSkill = ".agents/skills/plan-review/SKILL.md"
 	RepoTriageSkill = ".agents/skills/review-triage/SKILL.md"
+	RepoLandSkill   = ".agents/skills/land-repair/SKILL.md"
 	RepoChecklist   = ".agents/review-checklist.md"
 )
 

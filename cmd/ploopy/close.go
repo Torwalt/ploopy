@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Torwalt/ploopy/internal/catalog"
 	"github.com/Torwalt/ploopy/internal/config"
 	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/state"
@@ -62,14 +63,8 @@ func closePlan(ctx context.Context, e *env, args []string, force, keep bool) err
 	if err != nil {
 		return err
 	}
-	r := repo.New(c.Root, cfg.AuthorPaths)
-	paths := []string{c.Plan.Path}
-	if statePath := state.PathFor(c.Plan.Path); r.Committed(ctx, statePath) {
-		paths = append(paths, statePath)
-	}
-	// The report is read before the files it reads from go.
-	text := strings.TrimRight(reportOf(c), "\n")
-	if err := r.RemoveAndCommit(ctx, paths, fmt.Sprintf(cfg.CloseCommit, c.Plan.Name())+"\n\n"+text); err != nil {
+	text, err := closeCommit(ctx, c, cfg)
+	if err != nil {
 		return err
 	}
 
@@ -78,4 +73,20 @@ func closePlan(ctx context.Context, e *env, args []string, force, keep bool) err
 		closeWorktree(ctx, e, c.Root, c.Branch, cfg, keep)
 	}
 	return nil
+}
+
+// closeCommit deletes a plan and its state file in one commit carrying its
+// report, and returns the report.
+func closeCommit(ctx context.Context, c catalog.Copy, cfg config.Config) (string, error) {
+	r := repo.New(c.Root, cfg.AuthorPaths)
+	paths := []string{c.Plan.Path}
+	if statePath := state.PathFor(c.Plan.Path); r.Committed(ctx, statePath) {
+		paths = append(paths, statePath)
+	}
+	// The report is read before the files it reads from go.
+	text := strings.TrimRight(reportOf(c), "\n")
+	if err := r.RemoveAndCommit(ctx, paths, fmt.Sprintf(cfg.CloseCommit, c.Plan.Name())+"\n\n"+text); err != nil {
+		return "", err
+	}
+	return text, nil
 }
