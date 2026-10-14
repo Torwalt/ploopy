@@ -10,7 +10,8 @@ stops, and records progress in `<PLAN>.state.json` beside the plan.
 2. `ploopy` → run a plan → in a worktree → like last time. Keep working on master.
 3. `ploopy adjust` from any terminal changes what the run does next.
 4. In the morning: `git switch <branch>`, `ploopy review <NAME>`, read what it
-   puts to you, run the fix plan it wrote, `ploopy close` all three.
+   puts to you, run the fix plan it wrote, `ploopy close` all three. Closing the
+   last plan in ploopy's worktree removes the worktree.
 
 ## Review
 

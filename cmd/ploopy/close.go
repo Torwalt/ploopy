@@ -14,22 +14,25 @@ import (
 )
 
 func newClose(e *env) *cobra.Command {
-	var force bool
+	var force, keep bool
 	cmd := &cobra.Command{
 		Use:   "close [PLAN]",
 		Short: "Delete a finished plan and its state file, with its report in the commit",
 		Long: "Delete a finished plan and its state file in one commit, on the branch\n" +
 			"and in the checkout that hold them, with the plan's report as the\n" +
-			"commit's body. Nothing else that is staged goes into that commit. The\n" +
-			"checkout's .ploopy/ is left alone.",
+			"commit's body. Nothing else that is staged goes into that commit.\n\n" +
+			"When the plan was the last one in ploopy's own worktree for its branch,\n" +
+			"and no run is going on there, the worktree goes too, its .ploopy/ with\n" +
+			"it. Any other checkout's .ploopy/ is left alone.",
 		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error { return closePlan(cmd.Context(), e, args, force) },
+		RunE: func(cmd *cobra.Command, args []string) error { return closePlan(cmd.Context(), e, args, force, keep) },
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "close a plan with units still open")
+	cmd.Flags().BoolVar(&keep, "keep-worktree", false, "keep ploopy's worktree even when no plan is left in it")
 	return cmd
 }
 
-func closePlan(ctx context.Context, e *env, args []string, force bool) error {
+func closePlan(ctx context.Context, e *env, args []string, force, keep bool) error {
 	c, err := e.planArg(ctx, args, "Close which plan?", false)
 	if err != nil {
 		return err
@@ -72,7 +75,7 @@ func closePlan(ctx context.Context, e *env, args []string, force bool) error {
 
 	fmt.Printf("%s\n\nclosed %s in a commit on %s\n", text, c.Plan.Path, c.Branch)
 	if !c.Here {
-		fmt.Printf("that is %s; once %s is done with: git worktree remove %s\n", c.Where(e.root), c.Branch, c.Root)
+		closeWorktree(ctx, e, c.Root, c.Branch, cfg, keep)
 	}
 	return nil
 }

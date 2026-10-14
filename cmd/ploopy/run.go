@@ -254,7 +254,7 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 	// Only a worktree at ploopy's own path is removed: one the author made is
 	// theirs, and a run started inside a worktree has its shell there.
 	if branch != "" && root == worktreePath(e.root, branch) {
-		leaveWorktree(ctx, e, root, branch, complete, runner, report)
+		leaveWorktree(ctx, e, root, branch, p.Path, cfg, complete, runner, report)
 	}
 	endAction(ctx, runner, report, ui.Finish(wanted.Finish), f.grace)
 	if result.Status != "done" {

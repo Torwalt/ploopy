@@ -8,9 +8,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Torwalt/ploopy/internal/config"
+	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
+	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
 
@@ -34,14 +37,18 @@ func worktreePath(root, branch string) string {
 
 // leaveWorktree removes ploopy's worktree once the plan is complete: the
 // report is stamped and nothing in it is read again. An open plan keeps it,
-// so the next run resumes there with its progress and stats log.
-func leaveWorktree(ctx context.Context, e *env, root, branch string, complete bool,
+// so the next run resumes there with its progress and stats log, and so does
+// another open plan beside it, such as the fix plan a review just wrote.
+func leaveWorktree(ctx context.Context, e *env, root, branch, planPath string, cfg config.Config, complete bool,
 	runner *loop.Loop, report *ui.Reporter) {
+	open := plansIn(root, cfg, planPath, true)
 	switch {
 	case ctx.Err() != nil:
 		report.Say("the run was cancelled; the worktree stays at %s", root)
 	case !complete:
 		report.Say("the worktree stays at %s; the next run resumes there", root)
+	case len(open) > 0:
+		report.Say("the worktree stays at %s: %s is still open there", root, strings.Join(open, ", "))
 	default:
 		if err := e.repo().RemoveWorktree(ctx, root, worktreesDir(e.root)); err != nil {
 			report.Fail("the worktree stays at %s: %v", root, err)
@@ -50,6 +57,60 @@ func leaveWorktree(ctx context.Context, e *env, root, branch string, complete bo
 		}
 		report.Say("removed the worktree at %s; `git switch %s` picks the branch up here", root, branch)
 	}
+}
+
+// closeWorktree removes ploopy's worktree for a branch once the last plan in
+// it is closed. A worktree the author made is theirs, and one that still holds
+// a plan or a run stays.
+func closeWorktree(ctx context.Context, e *env, root, branch string, cfg config.Config, keep bool) {
+	switch {
+	case root != worktreePath(e.root, branch):
+		fmt.Printf("that is %s; once %s is done with: git worktree remove %s\n", root, branch, root)
+		return
+	case keep:
+		fmt.Printf("the worktree stays at %s, as asked\n", root)
+		return
+	}
+	if left := plansIn(root, cfg, "", false); len(left) > 0 {
+		fmt.Printf("the worktree stays at %s: it still holds %s\n", root, strings.Join(left, ", "))
+		return
+	}
+	if lives, _ := control.List(); len(lives) > 0 {
+		for _, live := range lives {
+			if live.Root == root {
+				fmt.Printf("the worktree stays at %s: %s is running there\n", root, live.Plan)
+				return
+			}
+		}
+	}
+	if err := e.repo().RemoveWorktree(ctx, root, worktreesDir(e.root)); err != nil {
+		fmt.Printf("the worktree stays at %s: %v\n", root, err)
+		return
+	}
+	fmt.Printf("removed the worktree at %s; `git switch %s` picks the branch up here\n", root, branch)
+}
+
+// plansIn lists the plans a checkout holds besides skip; with open, only
+// those with units still open.
+func plansIn(root string, cfg config.Config, skip string, open bool) []string {
+	plans, err := plan.Discover(root, cfg.Plans)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, p := range plans {
+		if p.Path == skip {
+			continue
+		}
+		if open {
+			s, err := state.Load(filepath.Join(root, state.PathFor(p.Path)))
+			if err == nil && loop.Complete(p, s) {
+				continue
+			}
+		}
+		out = append(out, p.Path)
+	}
+	return out
 }
 
 // chooseWorktree takes the flag, or asks when the run can move. Only a branch
