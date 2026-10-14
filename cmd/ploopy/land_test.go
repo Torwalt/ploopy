@@ -75,3 +75,45 @@ func TestLandingABranchCheckedOutNowhereChecksItOutFirst(t *testing.T) {
 		t.Fatal("the worktree land made should be gone again")
 	}
 }
+
+func TestLandingLeavesAPlanItInheritedFromMasterAlone(t *testing.T) {
+	e, tree := worktreeRepo(t, nil)
+	write(t, e.root, "docs/plans/ELSEWHERE.md", finishedPlan)
+	git(t, e.root, "add", "-A")
+	git(t, e.root, "commit", "-q", "-m", "plan elsewhere")
+	git(t, tree, "rebase", "-q", "master")
+	write(t, tree, "work.txt", "work\n")
+	git(t, tree, "add", "-A")
+	git(t, tree, "commit", "-q", "-m", "work")
+	git(t, e.root, "rm", "-q", "docs/plans/ELSEWHERE.md")
+	git(t, e.root, "commit", "-q", "-m", "plans: close ELSEWHERE elsewhere")
+
+	if err := landing(t, e, "pass"); err != nil {
+		t.Fatalf("an inherited plan with no progress must not stop the landing: %v", err)
+	}
+	log := output(t, e.root, "log", "--format=%s", "master")
+	if strings.Count(log, "plans: close ELSEWHERE") != 1 || !strings.Contains(log, "plans: close PASS") {
+		t.Fatalf("only the branch's own plan is closed by the landing:\n%s", log)
+	}
+	if exists(e.root + "/docs/plans/ELSEWHERE.md") {
+		t.Fatal("the rebase should carry master's close of the inherited plan")
+	}
+}
+
+func TestLandingClosesAPlanWrittenOnMasterAndRunOnTheBranch(t *testing.T) {
+	e, tree := worktreeRepo(t, nil)
+	write(t, e.root, "docs/plans/LATER.md", finishedPlan)
+	git(t, e.root, "add", "-A")
+	git(t, e.root, "commit", "-q", "-m", "plan later")
+	git(t, tree, "rebase", "-q", "master")
+	write(t, tree, "docs/plans/LATER.state.json", finishedState)
+	git(t, tree, "add", "-A")
+	git(t, tree, "commit", "-q", "-m", "plans: record LATER progress")
+
+	if err := landing(t, e, "pass"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output(t, e.root, "log", "--format=%s", "master"), "plans: close LATER") {
+		t.Fatal("a plan the branch ran is the branch's, wherever it was written")
+	}
+}

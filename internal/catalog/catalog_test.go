@@ -199,3 +199,25 @@ func TestAPlanClosedOnOneBranchStaysClosedOnItsForks(t *testing.T) {
 		t.Fatal("a plan made again after it was closed was left out")
 	}
 }
+
+func TestACheckoutOnNoBranchIsLeftOut(t *testing.T) {
+	root := repository(t)
+	old := strings.TrimSpace(git(t, root, "rev-parse", "HEAD"))
+	write(t, root, "docs/plans/PASS.state.json", progress("1.1", "1.2"))
+	commitAll(t, root, "progress")
+	git(t, root, "rm", "-q", "docs/plans/PASS.md", "docs/plans/PASS.state.json")
+	commitAll(t, root, "close the plan")
+	build := filepath.Join(t.TempDir(), "build")
+	git(t, root, "worktree", "add", "-q", "--detach", build, old)
+
+	if entries := find(t, root); len(entries) != 0 {
+		t.Fatalf("a build checkout at an old commit brought back %+v", entries[0].Best)
+	}
+	entries, err := Find(context.Background(), build, "docs/plans")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || !entries[0].Best.Here {
+		t.Fatalf("standing in the detached checkout still shows its plan: %+v", entries)
+	}
+}

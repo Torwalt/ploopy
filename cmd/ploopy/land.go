@@ -130,7 +130,7 @@ func landBranch(cmd *cobra.Command, e *env, args []string, f *landFlags) error {
 	if branchRepo.Rebasing(ctx) {
 		return fmt.Errorf("a rebase is already going on in %s; finish or abort it first", root)
 	}
-	if err := closeAll(ctx, root, branch, cfg); err != nil {
+	if err := closeAll(ctx, root, branch, onto, cfg); err != nil {
 		return err
 	}
 	if dirt, err := branchRepo.DirtLines(ctx); err != nil {
@@ -218,16 +218,20 @@ func landTarget(ctx context.Context, e *env, args []string, onto string, trees [
 	return ui.Pick("Land which branch on "+onto+"?", "branch", choices)
 }
 
-// closeAll closes every plan the checkout holds, each in its own commit. A
-// plan with units still open stops the landing before anything is closed.
-func closeAll(ctx context.Context, root, branch string, cfg config.Config) error {
+// closeAll closes every plan of the branch, each in its own commit. A plan
+// with units still open stops the landing before anything is closed.
+func closeAll(ctx context.Context, root, branch, onto string, cfg config.Config) error {
 	plans, err := plan.Discover(root, cfg.Plans)
 	if err != nil {
 		return err
 	}
+	r := repo.New(root, cfg.AuthorPaths)
 	var copies []catalog.Copy
 	var open []string
 	for _, p := range plans {
+		if inherited(ctx, r, p.Path, onto) {
+			continue
+		}
 		s, err := state.Load(filepath.Join(root, state.PathFor(p.Path)))
 		if err != nil {
 			return err
@@ -249,6 +253,14 @@ func closeAll(ctx context.Context, root, branch string, cfg config.Config) error
 		fmt.Printf("closed %s\n", c.Plan.Path)
 	}
 	return nil
+}
+
+// inherited reports whether a plan came with the branch from onto rather than
+// being the branch's: the branch never touched it or its state since, so onto
+// decides it, and the rebase carries what onto did to it.
+func inherited(ctx context.Context, r *repo.Repo, path, onto string) bool {
+	last := r.LastTouch(ctx, "HEAD", path, state.PathFor(path))
+	return last != "" && r.IsAncestor(ctx, last, onto)
 }
 
 // tidyLanded removes what the landed branch needed: ploopy's worktree for it,

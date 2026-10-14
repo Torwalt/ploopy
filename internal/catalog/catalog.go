@@ -108,7 +108,21 @@ func Find(ctx context.Context, root, plansDir string) ([]Entry, error) {
 	}
 	copies = append(copies, onBranches...)
 	markLive(copies)
-	return group(withoutClosed(ctx, r, plansDir, copies)), nil
+	return group(withoutClosed(ctx, r, plansDir, withoutDetached(copies))), nil
+}
+
+// withoutDetached leaves out the checkouts on no branch, which builds and
+// bisects make at old commits: progress belongs to a branch. A run going on
+// in one, or the checkout ploopy was started in, still counts.
+func withoutDetached(copies []Copy) []Copy {
+	var out []Copy
+	for _, c := range copies {
+		if c.Root != "" && c.Branch == "" && c.Live == nil && !c.Here {
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // withoutClosed leaves out the copies of a plan that was since deleted: a
