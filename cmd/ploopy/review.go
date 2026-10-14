@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -39,9 +38,10 @@ func newReview(e *env) *cobra.Command {
 			"a stronger model, weighs every finding: it writes <PLAN>_FIXES.md, an\n" +
 			"ordinary plan for the slips and gaps that hold, and puts what needs a\n" +
 			"decision to the author at the end of the review plan.\n\n" +
-			"The collecting sessions run with the agent the run settings choose, the\n" +
-			"triage with --triage-agent. A review already written runs on from where\n" +
-			"it stopped.",
+			"The collecting sessions run with the agent the run settings choose. Who\n" +
+			"weighs the findings is asked on a page of its own and remembered apart;\n" +
+			"the --triage flags answer it. A review already written runs on from where\n" +
+			"it stopped, and its triage can still be changed until it has run.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error { return reviewPlan(cmd, e, args, &f) },
 	}
@@ -52,11 +52,17 @@ func newReview(e *env) *cobra.Command {
 	flags := cmd.Flags()
 	flags.StringVar(&f.since, "since", "", "review only the landed units from this id on")
 	flags.BoolVar(&f.writeOnly, "write-only", false, "write and commit the review without running it")
-	flags.StringVar(&f.triageAgent, "triage-agent", "claude", "harness that runs the triage")
-	flags.StringVar(&f.triageModel, "triage-model", "opus", "model for the triage")
-	flags.StringVar(&f.triageEffort, "triage-effort", "high", "effort for the triage")
-	flags.Float64Var(&f.triageBudget, "triage-budget", 0, "spending cap for the triage session, in dollars")
+	addTriageFlags(cmd, &f)
 	return cmd
+}
+
+// addTriageFlags is who weighs the findings, as flags.
+func addTriageFlags(cmd *cobra.Command, f *reviewFlags) {
+	flags := cmd.Flags()
+	flags.StringVar(&f.triageAgent, "triage-agent", "", "harness that runs the triage; claude when nothing else says")
+	flags.StringVar(&f.triageModel, "triage-model", "", "model for the triage; opus when nothing else says")
+	flags.StringVar(&f.triageEffort, "triage-effort", "", "effort for the triage")
+	flags.Float64Var(&f.triageBudget, "triage-budget", 0, "spending cap for the triage session in dollars; 0 is none")
 }
 
 func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error {
@@ -91,6 +97,9 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 				"`ploopy close %s` before reviewing %s again", reviewPath, existing.Name(), c.Plan.Name())
 		}
 		fmt.Printf("%s is already written; running it on\n", reviewPath)
+		if err := retriage(cmd, e, root, existing, s, f); err != nil {
+			return err
+		}
 	} else if err := writeReview(cmd, e, root, c.Plan, c.State, f); err != nil {
 		return err
 	}
@@ -111,12 +120,9 @@ func writeReview(cmd *cobra.Command, e *env, root string, reviewed *plan.Plan, s
 	if isFile(filepath.Join(root, fixes)) {
 		return fmt.Errorf("%s from an earlier review still exists; run or close it before reviewing again", fixes)
 	}
-	triage := e.harnesses.Get(f.triageAgent)
-	if triage == nil {
-		return fmt.Errorf("--triage-agent must be one of %s", strings.Join(e.harnesses.Names(), ", "))
-	}
-	if f.triageEffort != "" && !contains(triage.Efforts(), f.triageEffort) {
-		return fmt.Errorf("--triage-effort for %s must be one of %s", triage.Name(), strings.Join(triage.Efforts(), ", "))
+	triage, err := chooseTriage(ctx, cmd, e, f, nil)
+	if err != nil {
+		return err
 	}
 
 	cfg, err := config.Load(root)
@@ -132,12 +138,10 @@ func writeReview(cmd *cobra.Command, e *env, root string, reviewed *plan.Plan, s
 		head = head[:8]
 	}
 	text, err := review.Generate(reviewed, s, review.Options{
-		Date:  time.Now().Format("2006-01-02"),
-		Head:  head,
-		Since: f.since,
-		Triage: review.Triage{
-			Agent: triage.Name(), Model: f.triageModel, Effort: f.triageEffort, Budget: f.triageBudget,
-		},
+		Date:   time.Now().Format("2006-01-02"),
+		Head:   head,
+		Since:  f.since,
+		Triage: triage,
 	})
 	if err != nil {
 		return err
@@ -154,8 +158,50 @@ func writeReview(cmd *cobra.Command, e *env, root string, reviewed *plan.Plan, s
 		return err
 	}
 	written := plan.Parse(text, path)
-	fmt.Printf("wrote %s: %d sessions to collect findings, then the triage with %s%s\n",
-		path, len(written.Units)-1, triage.Name(), modelSuffix(f.triageModel))
+	fmt.Printf("wrote %s: %d sessions to collect findings, then the triage with %s\n",
+		path, len(written.Units)-1, triage.Label())
+	return nil
+}
+
+// retriage offers to change who weighs the findings of a review that is
+// written but whose triage has not run, and commits the change.
+func retriage(cmd *cobra.Command, e *env, root string, p *plan.Plan, s *state.State, f *reviewFlags) error {
+	ctx := cmd.Context()
+	u, current := review.TriageOf(p)
+	if u == nil {
+		return nil
+	}
+	if status := s.Status(u.ID); status == state.Landed || status == state.Skipped {
+		return nil
+	}
+	if live, err := e.find(ctx, p.Path); err == nil && live.Live != nil {
+		return nil
+	}
+	chosen, err := chooseTriage(ctx, cmd, e, f, &current)
+	if err != nil || chosen == current {
+		return err
+	}
+
+	full := filepath.Join(root, p.Path)
+	text, err := os.ReadFile(full)
+	if err != nil {
+		return err
+	}
+	changed, err := review.SetTriage(string(text), chosen)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(full, []byte(changed), 0o644); err != nil {
+		return err
+	}
+	cfg, err := config.Load(root)
+	if err != nil {
+		return err
+	}
+	if err := repo.New(root, cfg.AuthorPaths).CommitOnly(ctx, p.Path, "plans: triage "+p.Name()+" with "+chosen.Agent); err != nil {
+		return err
+	}
+	fmt.Printf("the triage of %s now runs with %s\n", p.Path, chosen.Label())
 	return nil
 }
 

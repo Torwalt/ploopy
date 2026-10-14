@@ -143,3 +143,45 @@ func TestTheReviewWrapsAtEightyColumns(t *testing.T) {
 		}
 	}
 }
+
+func TestTheTriageCanBeChangedInPlace(t *testing.T) {
+	p := plan.Parse(reviewed, "docs/plans/PASS.md")
+	s := progress(map[string]*state.Entry{"1.1": landed("aaa"), "1.3": landed("bbb")})
+	text, err := Generate(p, s, Options{Date: "2026-10-14", Head: "abc", Triage: triage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, got := TriageOf(plan.Parse(text, "R.md")); got != triage {
+		t.Fatalf("triage read back as %+v", got)
+	}
+
+	cheaper := Triage{Agent: "claude", Model: "sonnet", Effort: "medium"}
+	changed, err := SetTriage(text, cheaper)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := plan.Parse(changed, "R.md")
+	if _, got := TriageOf(r); got != cheaper {
+		t.Fatalf("triage changed to %+v", got)
+	}
+	if strings.Contains(changed, "Budget:") {
+		t.Fatal("no cap leaves no `Budget:` line")
+	}
+	if u, _ := TriageOf(r); u.Role() != plan.Triage {
+		t.Fatal("the unit keeps its `Review: triage`")
+	}
+	before := strings.Split(text, "\n")
+	after := strings.Split(changed, "\n")
+	if len(after) != len(before)-1 || strings.Join(before[:len(before)-12], "\n") != strings.Join(after[:len(before)-12], "\n") {
+		t.Fatalf("only the triage's fields change:\n%s", changed)
+	}
+}
+
+func TestTheTriageLabelSaysItsCap(t *testing.T) {
+	if got := triage.Label(); got != "claude opus high · cap $3" {
+		t.Fatal(got)
+	}
+	if got := (Triage{Agent: "claude", Model: "sonnet"}).Label(); got != "claude sonnet · no cap" {
+		t.Fatal(got)
+	}
+}

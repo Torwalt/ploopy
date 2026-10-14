@@ -20,10 +20,87 @@ const AuthorHeading = "## For the author"
 // Triage is the agent that weighs the findings, usually a stronger one than
 // the agents that collect them.
 type Triage struct {
-	Agent  string
-	Model  string
-	Effort string
-	Budget float64 // dollars; 0 leaves the session uncapped
+	Agent  string  `json:"agent"`
+	Model  string  `json:"model,omitempty"`
+	Effort string  `json:"effort,omitempty"`
+	Budget float64 `json:"budget,omitempty"` // dollars; 0 leaves the session uncapped
+}
+
+// fields are the triage unit's lines that name its agent.
+func (t Triage) fields() []string {
+	out := []string{"Agent: " + t.Agent}
+	if t.Model != "" {
+		out = append(out, "Model: "+t.Model)
+	}
+	if t.Effort != "" {
+		out = append(out, "Effort: "+t.Effort)
+	}
+	if t.Budget > 0 {
+		out = append(out, fmt.Sprintf("Budget: %g", t.Budget))
+	}
+	return out
+}
+
+// Label names the triage's agent on one line.
+func (t Triage) Label() string {
+	parts := []string{t.Agent}
+	if t.Model != "" {
+		parts = append(parts, t.Model)
+	}
+	if t.Effort != "" {
+		parts = append(parts, t.Effort)
+	}
+	if t.Budget > 0 {
+		parts = append(parts, fmt.Sprintf("· cap $%g", t.Budget))
+	} else {
+		parts = append(parts, "· no cap")
+	}
+	return strings.Join(parts, " ")
+}
+
+// TriageOf is the triage unit of a review plan and the agent it names.
+func TriageOf(p *plan.Plan) (*plan.Unit, Triage) {
+	for i := range p.Units {
+		if u := p.Units[i]; u.Role() == plan.Triage {
+			return &p.Units[i], Triage{
+				Agent:  strings.TrimSpace(u.Fields["Agent"]),
+				Model:  strings.TrimSpace(u.Fields["Model"]),
+				Effort: strings.TrimSpace(u.Fields["Effort"]),
+				Budget: u.Budget(),
+			}
+		}
+	}
+	return nil, Triage{}
+}
+
+// SetTriage rewrites a review plan's triage unit to run with t, keeping every
+// other line of the document as it was.
+func SetTriage(text string, t Triage) (string, error) {
+	p := plan.Parse(text, "")
+	u, _ := TriageOf(p)
+	if u == nil {
+		return "", fmt.Errorf("the review has no triage unit")
+	}
+	named := map[string]bool{"Agent": true, "Model": true, "Effort": true, "Budget": true}
+	lines := p.Lines
+	var out []string
+	out = append(out, lines[:u.Start+1]...)
+	i := u.Start + 1
+	for ; i < u.End && strings.TrimSpace(lines[i]) == ""; i++ {
+		out = append(out, lines[i])
+	}
+	for ; i < u.End; i++ {
+		name, _, ok := strings.Cut(lines[i], ":")
+		if !ok || strings.TrimSpace(lines[i]) == "" || strings.ContainsAny(name, " *#") {
+			break
+		}
+		if !named[name] {
+			out = append(out, lines[i])
+		}
+	}
+	out = append(out, t.fields()...)
+	out = append(out, lines[i:]...)
+	return strings.Join(out, "\n") + "\n", nil
 }
 
 // Options is one review to write.
@@ -125,15 +202,9 @@ func Generate(p *plan.Plan, s *state.State, o Options) (string, error) {
 	}
 
 	b.WriteString("## Stage 2 — Triage\n\n")
-	fmt.Fprintf(&b, "### 2.1 Weigh the findings\n\nReview: %s\nAgent: %s\n", plan.Triage, o.Triage.Agent)
-	if o.Triage.Model != "" {
-		fmt.Fprintf(&b, "Model: %s\n", o.Triage.Model)
-	}
-	if o.Triage.Effort != "" {
-		fmt.Fprintf(&b, "Effort: %s\n", o.Triage.Effort)
-	}
-	if o.Triage.Budget > 0 {
-		fmt.Fprintf(&b, "Budget: %g\n", o.Triage.Budget)
+	fmt.Fprintf(&b, "### 2.1 Weigh the findings\n\nReview: %s\n", plan.Triage)
+	for _, field := range o.Triage.fields() {
+		b.WriteString(field + "\n")
 	}
 	b.WriteString("\n")
 	para("**Goal:** every finding confirmed or dropped, duplicates merged, each one classed as a " +

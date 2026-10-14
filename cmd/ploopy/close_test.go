@@ -131,3 +131,14 @@ func TestOnlyOpenPlansKeepAFinishedRunsWorktree(t *testing.T) {
 		t.Fatalf("plans left: %v", left)
 	}
 }
+
+func gitOut(t *testing.T, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+	return string(out)
+}

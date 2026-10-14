@@ -22,11 +22,14 @@ runs it like any plan:
   order, handover and commits and writes findings with the `plan-review` skill.
   It changes nothing: a review session that commits stops the run;
 - one more session looks only at the seams between the units;
-- one triage session, `--triage-agent claude --triage-model opus` unless told
-  otherwise, weighs every finding with the `review-triage` skill. It writes
-  `<NAME>_FIXES.md`, an ordinary plan for the slips and gaps that hold, and puts
-  the design questions under *For the author* at the end of the review. It may
-  commit those two files and nothing else.
+- one triage session weighs every finding with the `review-triage` skill. Who
+  runs it is asked on a page of its own — agent, model, effort and a spending
+  cap, Opus at first and then like last time — and the `--triage-*` flags
+  answer it. Until the triage has run, `ploopy review` on the same plan offers
+  to change it. The triage writes `<NAME>_FIXES.md`, an ordinary plan for the
+  slips and gaps that hold, and puts the design questions under *For the
+  author* at the end of the review. It may commit those two files and nothing
+  else.
 
 A repository adds its own review checklist at `.agents/review-checklist.md`, or
 names one with `review_checklist` in `.ploopy.toml`; collecting sessions go
