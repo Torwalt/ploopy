@@ -60,7 +60,7 @@
         ploopy = self.packages.${final.stdenv.hostPlatform.system}.ploopy;
       };
 
-      # The shell can run the loop end to end: both harnesses are here.
+      # The shell can run the loop end to end: all harnesses are here.
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
           packages = with pkgs; [
@@ -73,6 +73,7 @@
             ripgrep
             jq
             opencode
+            codex
             claude-code-nix.packages.${pkgs.stdenv.hostPlatform.system}.claude-code
             nixfmt
           ];

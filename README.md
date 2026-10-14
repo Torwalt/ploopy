@@ -1,6 +1,6 @@
 # ploopy
 
-Runs a plan overnight, one unit per fresh Claude Code or opencode session. The
+Runs a plan overnight, one unit per fresh Claude Code, opencode or Codex session. The
 agent commits; ploopy judges from git whether the unit landed, retries or
 stops, and records progress in `<PLAN>.state.json` beside the plan.
 
@@ -79,3 +79,45 @@ How should it run?
 ```
 
 Every answer is also a flag: `ploopy run --help`.
+
+## Codex
+
+Choose `codex` on the Agent page for runs, reviews, triage or usage-limit
+fallback. It uses the installed Codex CLI and its existing login, config,
+MCP servers and skills. `nix develop` includes the CLI; authenticate with
+`codex login` before running unattended.
+
+For a review entirely with Codex, choose it for both the run and the triage.
+The same choices can be passed as flags:
+
+```sh
+ploopy review PASS --agent codex --effort high --triage-agent codex
+ploopy run --plan PASS --agent codex --effort high
+```
+
+Plans may set `agent: codex`, `model: gpt-6.1-sol` and `effort: high` in
+front matter, or `Agent: codex`, `Model:` and `Effort:` on individual units.
+The model picker offers GPT-6.1 Sol, Astra, Luna, GPT-6 Sol and GPT-5.6 Sol;
+`--model` accepts other model names. Efforts are `low`, `medium`, `high`,
+`xhigh` and `max`. Availability follows your Codex account.
+
+The adapter runs `codex exec --json`, sends the work order on stdin, and
+records text, tool activity, token usage and the actual thread ID. `ploopy
+replay` shows `codex resume <thread-id>` to reopen it. It recognizes usage
+limits for the normal wait/fallback policy. Codex's stream reports no dollar
+cost or spending-cap control: costs stay unknown and a nonzero `--budget`,
+`--triage-budget` or unit `Budget:` is refused before the session starts.
+
+Like the other unattended adapters, Codex runs with approval and sandbox
+bypasses so it can build, test and commit without a terminal. It enables
+hooks, installs ploopy's Bash git-command guard, and bypasses hook trust for
+that invocation; this also runs enabled user/project hooks. Native web search
+is disabled. Extra CLI arguments after `--` can override Codex settings.
+See the official [non-interactive interface](https://learn.chatgpt.com/docs/non-interactive-mode)
+and [hook contract](https://learn.chatgpt.com/docs/hooks).
+
+To write a plan interactively in Codex, copy `skills/plan-writing/` from this
+repository into your project's `.agents/skills/plan-writing/` (or your
+user-level `~/.agents/skills/plan-writing/`), then ask Codex to use
+`$plan-writing`. Planning remains an interactive harness session; ploopy
+executes the resulting committed plan.

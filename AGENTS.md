@@ -8,7 +8,7 @@ committed and is the source of truth; `CLAUDE.md` just imports it.
 ploopy drives a task document one unit per fresh coding-agent session. A
 higher-intelligence agent writes the plan with the `plan-writing` skill; ploopy
 then runs it, handing each unit to a fresh session of a *coding harness*
-(Claude Code, opencode) and deciding from the repository whether the unit
+(Claude Code, opencode, Codex) and deciding from the repository whether the unit
 landed.
 
 ploopy is a **supervisor, never an agent loop**. It owns no model, no context
@@ -39,7 +39,7 @@ session's self-report where the repository can be asked instead.
   import `loop` or `harness`.
 - `internal/harness` — the `Harness`/`Session`/`Event` contract, the marker and
   limit parsers, the child-process runner, and the adapters under
-  `harness/claude` and `harness/opencode`. Must not import `loop`.
+  `harness/claude`, `harness/opencode` and `harness/codex`. Must not import `loop`.
 - `internal/guard` — which git commands an unattended session may not run.
   Reads the invocation, not the string it was written as.
 - `internal/config` — `.ploopy.toml`.
@@ -82,7 +82,7 @@ way a session would, then reports whatever outcome a test asked for. The loop's
 tests drive real git repositories in temporary directories through it, and they
 are the specification of the judge — change one only when the contract changes.
 
-The adapters are tested against a script named `claude` or `opencode` placed on
+The adapters are tested against a script named `claude`, `opencode` or `codex` placed on
 `PATH`, so argument building and output parsing are covered together.
 
 ## Verification
@@ -91,6 +91,6 @@ The adapters are tested against a script named `claude` or `opencode` placed on
 go build -o /dev/null ./...     # compile check without stray binaries
 go vet ./... && gofmt -l .      # vet and formatting
 go test ./...                   # unit tests (temp git repos, fake harnesses)
-nix develop                     # go, claude-code, opencode (direnv auto-loads)
+nix develop                     # go, claude-code, opencode, codex (direnv auto-loads)
 nix flake check                 # sandboxed build + tests
 ```

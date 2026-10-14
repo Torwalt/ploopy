@@ -18,6 +18,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/harness/claude"
+	"github.com/Torwalt/ploopy/internal/harness/codex"
 	"github.com/Torwalt/ploopy/internal/harness/opencode"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
@@ -160,7 +161,7 @@ func newRoot(e *env) *cobra.Command {
 }
 
 // allHarnesses is every harness ploopy can drive, in offer order.
-func allHarnesses() harness.Set { return harness.Set{claude.New(), opencode.New()} }
+func allHarnesses() harness.Set { return harness.Set{claude.New(), opencode.New(), codex.New()} }
 
 // resolve finds a plan by path, by name, or by stem under the plans directory.
 func (e *env) resolve(name string) (*plan.Plan, error) {

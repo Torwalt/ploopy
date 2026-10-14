@@ -305,6 +305,8 @@ func newReplay(e *env) *cobra.Command {
 					fmt.Printf("\nreopen with:\n    claude --resume %s\n", entry.SessionID)
 				case "opencode":
 					fmt.Printf("\nreopen with:\n    opencode --session %s\n", entry.SessionID)
+				case "codex":
+					fmt.Printf("\nreopen with:\n    codex resume %s\n", entry.SessionID)
 				}
 			}
 			if entry.Handover != "" {
