@@ -342,7 +342,7 @@ func (l *Loop) judgeTriage(ctx context.Context, p *plan.Plan, u plan.Unit, agent
 	}
 	if !afterStages(current, review.AuthorHeading) {
 		return Verdict{Kind: Failed, Reason: fmt.Sprintf("%s has no `%s` section after its last stage; "+
-			"add it, even when it only says that nothing needs a decision, and commit it",
+			"add it, even when it only says that no design choice was needed, and commit it",
 			p.Path, review.AuthorHeading)}
 	}
 

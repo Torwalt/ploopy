@@ -77,6 +77,11 @@ func TestAReviewCollectsEachLandedUnitThenTheSeamsThenTriages(t *testing.T) {
 	if !strings.Contains(text, "docs/plans/PASS_FIXES.md") {
 		t.Fatal("the review should name the fix plan its triage writes")
 	}
+	for _, want := range []string{"every finding that holds", "recommended design choices", "alternatives"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the review should describe actionable design recommendations; missing %q", want)
+		}
+	}
 	if errs, _ := plan.Lint(r, t.TempDir(), nil, nil); len(errs) != 1 || !strings.Contains(errs[0], "does not exist") {
 		t.Fatalf("lint, away from the reviewed plan: %v", errs)
 	}
@@ -170,9 +175,8 @@ func TestTheTriageCanBeChangedInPlace(t *testing.T) {
 	if u, _ := TriageOf(r); u.Role() != plan.Triage {
 		t.Fatal("the unit keeps its `Review: triage`")
 	}
-	before := strings.Split(text, "\n")
-	after := strings.Split(changed, "\n")
-	if len(after) != len(before)-1 || strings.Join(before[:len(before)-12], "\n") != strings.Join(after[:len(before)-12], "\n") {
+	want := strings.Replace(text, "Model: opus\nEffort: high\nBudget: 3", "Model: sonnet\nEffort: medium", 1)
+	if changed != want {
 		t.Fatalf("only the triage's fields change:\n%s", changed)
 	}
 }

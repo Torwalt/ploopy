@@ -97,7 +97,7 @@ func triages(fixes string, also ...string) func(string) error {
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(file, "\n%s\n\nNothing needs a decision.\n", review.AuthorHeading)
+		fmt.Fprintf(file, "\n%s\n\nNo design choice was needed.\n", review.AuthorHeading)
 		file.Close()
 		for _, path := range also {
 			if err := os.WriteFile(filepath.Join(dir, path), []byte("fixed\n"), 0o644); err != nil {

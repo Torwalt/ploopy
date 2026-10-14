@@ -36,8 +36,9 @@ func newReview(e *env) *cobra.Command {
 			"findings on that unit's commits without changing anything, and one more\n" +
 			"looks at the seams between the units. Then one triage session, usually\n" +
 			"a stronger model, weighs every finding: it writes <PLAN>_FIXES.md, an\n" +
-			"ordinary plan for the slips and gaps that hold, and puts what needs a\n" +
-			"decision to the author at the end of the review plan.\n\n" +
+			"ordinary plan for every finding that holds, applies its recommended\n" +
+			"design choices, and shows the author those choices and alternatives at\n" +
+			"the end of the review plan.\n\n" +
 			"The collecting sessions run with the agent the run settings choose. Who\n" +
 			"weighs the findings is asked on a page of its own and remembered apart;\n" +
 			"the --triage flags answer it. A review already written runs on from where\n" +
@@ -216,7 +217,7 @@ func reviewOutcome(root string, p *plan.Plan) {
 	if fixes := review.FixesPath(p.Reviews()); isFile(filepath.Join(root, fixes)) {
 		fmt.Printf("\nthe fix plan is %s: run it with `ploopy run --plan %s`\n", fixes, fixes)
 	} else {
-		fmt.Println("\nno fix plan: nothing the review confirmed is for the loop to fix")
+		fmt.Println("\nno fix plan: no finding held for the loop to fix")
 	}
 	fmt.Printf("close the review with `ploopy close %s` once you have read it\n", p.Name())
 }

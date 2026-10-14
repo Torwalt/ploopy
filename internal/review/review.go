@@ -185,8 +185,8 @@ func Generate(p *plan.Plan, s *state.State, o Options) (string, error) {
 	}
 	para("Each collecting unit reads one landed unit's work order, handover and commits, and "+
 		"writes its findings without changing the repository.%s The triage unit weighs every "+
-		"finding, writes the fix plan `%s` for the slips and gaps that hold, and adds what needs "+
-		"the author's decision to this document under *For the author*.", seams, fixes)
+		"finding, writes the fix plan `%s` for every finding that holds using its recommended "+
+		"design choices, and explains those choices and their alternatives under *For the author*.", seams, fixes)
 
 	b.WriteString("## Stage 1 — Collect\n\n")
 	for i, u := range units {
@@ -208,8 +208,8 @@ func Generate(p *plan.Plan, s *state.State, o Options) (string, error) {
 	}
 	b.WriteString("\n")
 	para("**Goal:** every finding confirmed or dropped, duplicates merged, each one classed as a " +
-		"slip, a gap or a design question; a fix plan for the slips and gaps; the design questions " +
-		"put to the author.")
+		"slip, a gap or a design question; a fix plan for every finding that holds, with recommended " +
+		"design choices already applied; those choices and their alternatives put to the author.")
 	b.WriteString(wrap(fmt.Sprintf("**Done when:** one commit touches only `%s` and this document, "+
 		"this document ends with a *For the author* section, and the fix plan, when there is one, "+
 		"lints clean.", fixes)) + "\n")

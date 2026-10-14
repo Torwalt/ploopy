@@ -26,10 +26,12 @@ runs it like any plan:
   runs it is asked on a page of its own — agent, model, effort and a spending
   cap, Opus at first and then like last time — and the `--triage-*` flags
   answer it. Until the triage has run, `ploopy review` on the same plan offers
-  to change it. The triage writes `<NAME>_FIXES.md`, an ordinary plan for the
-  slips and gaps that hold, and puts the design questions under *For the
-  author* at the end of the review. It may commit those two files and nothing
-  else.
+  to change it. The triage writes `<NAME>_FIXES.md`, an ordinary plan for every
+  finding that holds. It makes a recommended choice for each design finding so
+  the plan can run immediately, and records each recommendation and its
+  alternatives under *For the author* at the end of the review. The author can
+  revise those choices before running the fix plan. The triage may commit those
+  two files and nothing else.
 
 A repository adds its own review checklist at `.agents/review-checklist.md`, or
 names one with `review_checklist` in `.ploopy.toml`; collecting sessions go
@@ -77,4 +79,3 @@ How should it run?
 ```
 
 Every answer is also a flag: `ploopy run --help`.
-

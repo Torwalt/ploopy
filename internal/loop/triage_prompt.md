@@ -4,9 +4,10 @@ collected on the landed work of `{{reviewed}}`.
 
 You decide; you do not fix. You write two documents and nothing else:
 
-* `{{fixes}}`, the fix plan for the slips and gaps that hold, when any do;
+* `{{fixes}}`, the fix plan for every finding that holds, when any do, with your
+  recommended resolutions for design findings already applied;
 * the section `{{author_heading}}` at the end of `{{plan}}`, after its last
-  stage, always.
+  stage, always, including the alternatives to each design recommendation.
 
 Commit them together in one commit. The loop looks at that commit: if it
 touches any other path, the review stops. Nobody will answer a question.
