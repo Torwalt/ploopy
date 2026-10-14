@@ -82,6 +82,7 @@ func chooseCommand() (string, error) {
 	}
 	choices = append(choices,
 		ui.Choice{Label: "run a plan", Value: "run"},
+		ui.Choice{Label: "review a plan's work: findings, a triage, a fix plan", Value: "review"},
 		ui.Choice{Label: "status of every plan", Value: "status"},
 		ui.Choice{Label: "report on a plan: time, checks, cost", Value: "report"},
 		ui.Choice{Label: "close a finished plan: delete it and its state, report in the commit", Value: "close"},
@@ -144,6 +145,7 @@ func newRoot(e *env) *cobra.Command {
 	}
 	root.AddCommand(
 		newRun(e),
+		newReview(e),
 		newStatus(e),
 		newShow(e),
 		newLint(e),
@@ -198,6 +200,39 @@ func (e *env) state(p *plan.Plan) (*state.State, error) {
 
 // repo is the checkout ploopy was started in.
 func (e *env) repo() *repo.Repo { return repo.New(e.root, e.cfg.AuthorPaths) }
+
+// skills is what sessions are given besides their work order.
+type skills struct {
+	unit, review, triage, checklist string
+}
+
+// skillsAt reads every skill from the checkout when it keeps its own, else
+// from the binary, and the checkout's review checklist when it keeps one.
+func skillsAt(root string, cfg config.Config) (skills, error) {
+	var out skills
+	var err error
+	if out.unit, err = skillAt(root, cfg); err != nil {
+		return out, err
+	}
+	out.review = ownOr(root, config.RepoReviewSkill, ploopy.PlanReviewSkill)
+	out.triage = ownOr(root, config.RepoTriageSkill, ploopy.ReviewTriageSkill)
+	if path := cfg.ChecklistPath(root); path != "" {
+		text, err := os.ReadFile(path)
+		if err != nil {
+			return out, fmt.Errorf("no review checklist at %s", path)
+		}
+		out.checklist = string(text)
+	}
+	return out, nil
+}
+
+// ownOr is the checkout's own copy of a skill, else the bundled one.
+func ownOr(root, own, bundled string) string {
+	if text, err := os.ReadFile(filepath.Join(root, own)); err == nil {
+		return string(text)
+	}
+	return bundled
+}
 
 // skillAt is the plan-unit skill every session is given: the one the settings
 // name, else the checkout's own, else the one the binary ships with.

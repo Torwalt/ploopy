@@ -25,10 +25,23 @@ var (
 )
 
 // UnitFields may appear directly under a unit heading, before its first prose.
-var UnitFields = []string{"Test", "Context"}
+// Agent, Model, Effort and Budget run that one unit with another agent than
+// the run's.
+var UnitFields = []string{"Test", "Context", "Review", "Agent", "Model", "Effort", "Budget"}
 
-// Settings are the front-matter keys a plan may set.
-var Settings = []string{"authority", "context", "test", "agent", "effort", "model"}
+// Settings are the front-matter keys a plan may set. `reviews` makes the plan
+// a review of the plan it names.
+var Settings = []string{"authority", "context", "test", "agent", "effort", "model", "reviews"}
+
+// Roles a unit plays. A unit of an ordinary plan implements; the units of a
+// review plan collect findings on one landed unit, look at the seams between
+// all of them, or weigh what the others found.
+const (
+	Implement = "implement"
+	Collect   = "collect"
+	Seams     = "seams"
+	Triage    = "triage"
+)
 
 const workOrderNote = "The unit below is the only work authorized by this order. Later\n" +
 	"units of this stage and every later stage are deliberately absent."
@@ -65,6 +78,36 @@ func less(a, b []int) bool {
 		}
 	}
 	return len(a) < len(b)
+}
+
+// Role is what the unit does: it implements, unless its `Review:` field says
+// otherwise.
+func (u Unit) Role() string {
+	switch review := strings.TrimSpace(u.Fields["Review"]); review {
+	case "":
+		return Implement
+	case Seams, Triage:
+		return review
+	default:
+		return Collect
+	}
+}
+
+// Reviewed is the id of the unit a collecting unit reviews.
+func (u Unit) Reviewed() string {
+	if u.Role() != Collect {
+		return ""
+	}
+	return strings.TrimSpace(u.Fields["Review"])
+}
+
+// Budget is the unit's own spending cap in dollars, or 0.
+func (u Unit) Budget() float64 {
+	budget, err := strconv.ParseFloat(strings.TrimSpace(u.Fields["Budget"]), 64)
+	if err != nil || budget < 0 {
+		return 0
+	}
+	return budget
 }
 
 // Plan is a parsed task document. Path is relative to the repository root.
@@ -137,6 +180,9 @@ func (p *Plan) WorkOrder(u Unit) string {
 	}
 	return strings.Join([]string{p.Preamble(), "", stage, "", workOrderNote, "", p.Body(u), ""}, "\n")
 }
+
+// Reviews is the plan this one reviews, or "" for a plan that implements.
+func (p *Plan) Reviews() string { return strings.TrimSpace(p.Settings["reviews"]) }
 
 // Authority is the document whose decisions this plan implements, relative to
 // the repository root. It is named in front matter, or found beside a plan
@@ -459,6 +505,30 @@ func Lint(p *Plan, root string, harnesses Harnesses, settled map[string]bool) (e
 				warnings = append(warnings, fmt.Sprintf("%s: context document %s does not exist", where, doc))
 			}
 		}
+		if _, ok := u.Fields["Review"]; ok && p.Reviews() == "" {
+			errs = append(errs, where+": `Review:` belongs to a plan whose front matter names the plan it `reviews:`")
+		}
+		if value, ok := u.Fields["Budget"]; ok {
+			if budget, err := strconv.ParseFloat(strings.TrimSpace(value), 64); err != nil || budget <= 0 {
+				errs = append(errs, fmt.Sprintf("%s: `Budget:` must be dollars above zero, not %q", where, value))
+			}
+		}
+		errs = append(errs, lintAgent(where+": `Agent:`", u.Fields["Agent"], u.Fields["Effort"], harnesses)...)
+		if _, ok := u.Fields["Agent"]; !ok {
+			if u.Fields["Model"] != "" || u.Fields["Effort"] != "" {
+				errs = append(errs, where+": `Model:` and `Effort:` need the unit's own `Agent:`")
+			}
+		}
+	}
+
+	if reviewed := p.Reviews(); reviewed != "" && !isFile(filepath.Join(root, reviewed)) {
+		open := false
+		for _, u := range p.Units {
+			open = open || !settled[u.ID]
+		}
+		if open {
+			errs = append(errs, "the reviewed plan "+reviewed+" does not exist")
+		}
 	}
 
 	if value, ok := p.Settings["test"]; ok {
@@ -466,17 +536,7 @@ func Lint(p *Plan, root string, harnesses Harnesses, settled map[string]bool) (e
 			errs = append(errs, fmt.Sprintf("front matter `test:` must be yes or no, not %q", value))
 		}
 	}
-	if name := p.Settings["agent"]; name != "" && harnesses != nil {
-		if !harnesses.Known(name) {
-			errs = append(errs, "front matter `agent:` must be one of "+strings.Join(harnesses.Names(), ", "))
-		} else if effort, ok := p.Settings["effort"]; ok {
-			efforts := harnesses.Efforts(name)
-			if !contains(efforts, effort) {
-				errs = append(errs, fmt.Sprintf("front matter `effort:` for %s must be one of %s",
-					name, strings.Join(efforts, ", ")))
-			}
-		}
-	}
+	errs = append(errs, lintAgent("front matter `agent:`", p.Settings["agent"], p.Settings["effort"], harnesses)...)
 	if authority := p.Authority(root); authority != "" && !isFile(filepath.Join(root, authority)) {
 		errs = append(errs, "authority "+authority+" does not exist")
 	}
@@ -486,6 +546,23 @@ func Lint(p *Plan, root string, harnesses Harnesses, settled map[string]bool) (e
 		}
 	}
 	return errs, warnings
+}
+
+// lintAgent checks a named harness and the effort asked of it.
+func lintAgent(where, name, effort string, harnesses Harnesses) []string {
+	name = strings.TrimSpace(name)
+	if name == "" || harnesses == nil {
+		return nil
+	}
+	if !harnesses.Known(name) {
+		return []string{where + " must be one of " + strings.Join(harnesses.Names(), ", ")}
+	}
+	if effort = strings.TrimSpace(effort); effort != "" {
+		if efforts := harnesses.Efforts(name); !contains(efforts, effort) {
+			return []string{fmt.Sprintf("%s: effort for %s must be one of %s", where, name, strings.Join(efforts, ", "))}
+		}
+	}
+	return nil
 }
 
 func contains(values []string, want string) bool {

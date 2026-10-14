@@ -264,3 +264,79 @@ func mustWrite(t *testing.T, path, text string) {
 		t.Fatal(err)
 	}
 }
+
+const reviewPlan = `---
+reviews: docs/plans/PASS.md
+---
+
+## Stage 1 — Collect
+
+### 1.1 Review 2.3 Something
+
+Review: 2.3
+
+**Goal:** findings.
+
+### 1.2 Review the seams
+
+Review: seams
+
+**Goal:** findings.
+
+## Stage 2 — Triage
+
+### 2.1 Weigh
+
+Review: triage
+Agent: claude
+Model: opus
+Effort: high
+Budget: 2.5
+
+**Goal:** weigh.
+`
+
+func TestReviewUnitsKnowTheirRole(t *testing.T) {
+	p := Parse(reviewPlan, "docs/plans/PASS_REVIEW.md")
+	if p.Reviews() != "docs/plans/PASS.md" {
+		t.Fatalf("reviews %q", p.Reviews())
+	}
+	roles := []string{Collect, Seams, Triage}
+	for i, u := range p.Units {
+		if u.Role() != roles[i] {
+			t.Fatalf("unit %s plays %s, not %s", u.ID, u.Role(), roles[i])
+		}
+	}
+	if p.Units[0].Reviewed() != "2.3" || p.Units[1].Reviewed() != "" {
+		t.Fatalf("reviewed %q and %q", p.Units[0].Reviewed(), p.Units[1].Reviewed())
+	}
+	if p.Units[2].Budget() != 2.5 || p.Units[2].Fields["Model"] != "opus" {
+		t.Fatalf("triage fields %v", p.Units[2].Fields)
+	}
+	if Parse(sample, "P.md").Units[0].Role() != Implement {
+		t.Fatal("a unit without `Review:` implements")
+	}
+}
+
+func TestLintChecksReviewAndAgentFields(t *testing.T) {
+	root := t.TempDir()
+	mustWrite(t, filepath.Join(root, "docs/plans/PASS.md"), "# reviewed\n")
+	p := Parse(reviewPlan, "docs/plans/PASS_REVIEW.md")
+	if errs, _ := Lint(p, root, harnesses{}, nil); len(errs) > 0 {
+		t.Fatalf("a well-formed review plan has errors: %v", errs)
+	}
+
+	text := "## Stage 1 — S\n\n### 1.1 One\n\nReview: seams\nAgent: nonsense\nBudget: free\n\n**Goal:** x\n\n" +
+		"### 1.2 Two\n\nModel: opus\n\n**Goal:** x\n"
+	errs, _ := Lint(Parse(text, "P.md"), root, harnesses{}, nil)
+	joined := strings.Join(errs, "\n")
+	for _, want := range []string{"`reviews:`", "`Agent:` must be one of", "`Budget:`", "need the unit's own `Agent:`"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("errors %v do not mention %q", errs, want)
+		}
+	}
+
+	if errs, _ := Lint(p, t.TempDir(), harnesses{}, nil); !strings.Contains(strings.Join(errs, "\n"), "does not exist") {
+		t.Fatalf("a review of a missing plan should not lint: %v", errs)
+	}
+}

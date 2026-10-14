@@ -64,32 +64,40 @@ type promptArgs struct {
 	Test       string
 }
 
+// reading lists the documents a session reads first.
+func reading(docs []string) string {
+	if len(docs) == 0 {
+		return "* Nothing beyond the work order."
+	}
+	lines := make([]string, 0, len(docs))
+	for _, doc := range docs {
+		lines = append(lines, "* `"+doc+"`")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// fill puts values into a template's placeholders.
+func fill(template string, values map[string]string) string {
+	return placeholderRe.ReplaceAllStringFunc(template, func(match string) string {
+		return values[placeholderRe.FindStringSubmatch(match)[1]]
+	})
+}
+
 // renderPrompt is everything one session starts from.
 func renderPrompt(args promptArgs) string {
-	reading := "* Nothing beyond the work order."
-	if len(args.Context) > 0 {
-		lines := make([]string, 0, len(args.Context))
-		for _, doc := range args.Context {
-			lines = append(lines, "* `"+doc+"`")
-		}
-		reading = strings.Join(lines, "\n")
-	}
-
 	values := map[string]string{
 		"unit":       args.Unit.ID,
 		"title":      args.Unit.Title,
 		"plan":       args.Plan.Path,
 		"skill":      skillBody(args.Skill),
-		"context":    reading,
+		"context":    reading(args.Context),
 		"tests":      checksLine(args.Verify, args.Test, args.WantsTests),
 		"handover":   args.Handover,
 		"previous":   strings.TrimSpace(orDefault(args.Previous, noPrevious)),
 		"failure":    strings.TrimSpace(orDefault(args.Failure, noFailure)),
 		"work_order": strings.TrimSpace(args.Plan.WorkOrder(args.Unit)),
 	}
-	return placeholderRe.ReplaceAllStringFunc(promptTemplate, func(match string) string {
-		return values[placeholderRe.FindStringSubmatch(match)[1]]
-	})
+	return fill(promptTemplate, values)
 }
 
 func orDefault(value, fallback string) string {

@@ -9,7 +9,27 @@ stops, and records progress in `<PLAN>.state.json` beside the plan.
 1. Write `docs/plans/<NAME>.md` with the `plan-writing` skill and commit it on a branch.
 2. `ploopy` → run a plan → in a worktree → like last time. Keep working on master.
 3. `ploopy adjust` from any terminal changes what the run does next.
-4. In the morning: `git switch <branch>`, review, `ploopy close <NAME>`.
+4. In the morning: `git switch <branch>`, `ploopy review <NAME>`, read what it
+   puts to you, run the fix plan it wrote, `ploopy close` all three.
+
+## Review
+
+`ploopy review <NAME>` writes `<NAME>_REVIEW.md` beside the plan, commits it and
+runs it like any plan:
+
+- one session per landed unit, with the run's agent, reads that unit's work
+  order, handover and commits and writes findings with the `plan-review` skill.
+  It changes nothing: a review session that commits stops the run;
+- one more session looks only at the seams between the units;
+- one triage session, `--triage-agent claude --triage-model opus` unless told
+  otherwise, weighs every finding with the `review-triage` skill. It writes
+  `<NAME>_FIXES.md`, an ordinary plan for the slips and gaps that hold, and puts
+  the design questions under *For the author* at the end of the review. It may
+  commit those two files and nothing else.
+
+A repository adds its own review checklist at `.agents/review-checklist.md`, or
+names one with `review_checklist` in `.ploopy.toml`; collecting sessions go
+through it item by item.
 
 ## Start
 
@@ -17,6 +37,7 @@ stops, and records progress in `<PLAN>.state.json` beside the plan.
 $ ploopy
 ┃ What now?
 ┃ > run a plan
+┃   review a plan's work: findings, a triage, a fix plan
 ┃   status of every plan
 ┃   report on a plan: time, checks, cost
 ┃   close a finished plan: delete it and its state, report in the commit

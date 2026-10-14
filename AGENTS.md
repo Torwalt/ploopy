@@ -43,6 +43,8 @@ session's self-report where the repository can be asked instead.
 - `internal/guard` — which git commands an unattended session may not run.
   Reads the invocation, not the string it was written as.
 - `internal/config` — `.ploopy.toml`.
+- `internal/review` — write the review plan of a plan's landed work, and name
+  the fix plan its triage writes. Pure text: no git, no process execution.
 - `internal/stats` — the stats log a run appends to, and the plan report read
   from it and the state file. Must not import `loop`.
 - `internal/catalog` — every plan of the repository and where its progress

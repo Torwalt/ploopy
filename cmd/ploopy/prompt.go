@@ -23,7 +23,7 @@ func showPrompt(cmd *cobra.Command, e *env, c catalog.Copy, u plan.Unit) error {
 	if err != nil {
 		return err
 	}
-	skill, err := skillAt(root, cfg)
+	skill, err := skillsAt(root, cfg)
 	if err != nil {
 		return err
 	}
@@ -31,7 +31,11 @@ func showPrompt(cmd *cobra.Command, e *env, c catalog.Copy, u plan.Unit) error {
 	runner, err := loop.New(root, loop.Options{
 		PlanPath:    p.Path,
 		Harness:     e.harnesses[0],
-		Skill:       skill,
+		Skill:       skill.unit,
+		ReviewSkill: skill.review,
+		TriageSkill: skill.triage,
+		Checklist:   skill.checklist,
+		Harnesses:   e.harnesses,
 		BaseContext: cfg.Context,
 		VerifyCmd:   cfg.Verify,
 		TestCmd:     cfg.Test,
@@ -40,7 +44,7 @@ func showPrompt(cmd *cobra.Command, e *env, c catalog.Copy, u plan.Unit) error {
 	if err != nil {
 		return err
 	}
-	prompt, err := runner.Prompt(p, u, "")
+	prompt, err := runner.Prompt(cmd.Context(), p, u, "")
 	if err != nil {
 		return err
 	}

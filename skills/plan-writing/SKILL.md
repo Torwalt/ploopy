@@ -81,7 +81,8 @@ Test: yes
   ascending, and `N` matches the stage.
 - Optional fields go directly under a unit's heading, before its first prose:
   `Test: yes|no` overrides the plan's `test`; `Context: path …` adds reading for
-  that unit only.
+  that unit only; `Agent:` with `Model:` and `Effort:` runs that unit with
+  another agent than the run's, and `Budget:` caps its session in dollars.
 - Every unit states its goal as `**Goal:**` or `#### Goal`, and should say when
   it is done as `**Done when:**` or `#### Completion criteria`. Lint enforces the
   first and warns on the second.

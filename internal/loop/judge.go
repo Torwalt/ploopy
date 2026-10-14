@@ -27,6 +27,10 @@ type Verdict struct {
 	Marker  harness.Marker
 	Commits []repo.Commit
 	Notes   []string
+
+	// Fatal is a failure no retry can mend, such as a review session that
+	// committed: the run stops and leaves it to the author.
+	Fatal bool
 }
 
 const checkTailLines = 40
@@ -41,6 +45,12 @@ func (l *Loop) judge(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agent
 	if outcome.TimedOut {
 		return Verdict{Kind: Failed, Reason: fmt.Sprintf(
 			"the session hit the %s wall clock and was killed", l.opts.Timeout)}
+	}
+	switch u.Role() {
+	case plan.Collect, plan.Seams:
+		return l.judgeCollect(ctx, u, agent, base, outcome)
+	case plan.Triage:
+		return l.judgeTriage(ctx, p, u, agent, base, outcome)
 	}
 
 	dirt, err := l.repo.DirtLines(ctx)

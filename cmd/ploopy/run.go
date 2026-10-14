@@ -64,7 +64,12 @@ func newRun(e *env) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error { return runPlan(cmd, e, &f) },
 	}
+	addRunFlags(cmd, &f)
+	return cmd
+}
 
+// addRunFlags is every setting of a run, as flags.
+func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	flags := cmd.Flags()
 	flags.StringVar(&f.planName, "plan", "", "plan path or name; asked for when left out")
 	flags.BoolVar(&f.all, "all", false, "also offer finished plans")
@@ -99,7 +104,6 @@ func newRun(e *env) *cobra.Command {
 	flags.StringVar(&f.peak, "peak", "", "a unit due in the harness's peak hours: wait or run")
 	flags.BoolVar(&f.quiet, "quiet", false, "report decisions only, without the session feed")
 	flags.DurationVar(&f.grace, "grace", time.Minute, "countdown before the end action")
-	return cmd
 }
 
 func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
@@ -129,7 +133,7 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		return err
 	}
 
-	skill, err := skillAt(t.root, cfg)
+	skill, err := skillsAt(t.root, cfg)
 	if err != nil {
 		return err
 	}
@@ -159,7 +163,11 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		Tests:        testsOverride(f),
 		Context:      strings.Fields(f.context),
 		BaseContext:  cfg.Context,
-		Skill:        skill,
+		Skill:        skill.unit,
+		ReviewSkill:  skill.review,
+		TriageSkill:  skill.triage,
+		Checklist:    skill.checklist,
+		Harnesses:    e.harnesses,
 		VerifyCmd:    verify,
 		TestCmd:      test,
 		AuthorPaths:  cfg.AuthorPaths,
@@ -179,7 +187,7 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		if err != nil {
 			return err
 		}
-		return dryRun(runner, c, f)
+		return dryRun(ctx, runner, c, f)
 	}
 
 	root, moved := t.root, t.moved
@@ -231,6 +239,9 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		if complete {
 			fmt.Println()
 			fmt.Print(reportOf(catalog.Copy{Plan: p, State: s, Root: root}))
+			if p.Reviews() != "" {
+				reviewOutcome(root, p)
+			}
 		} else {
 			report.Summary(p, s, &result.Stats)
 		}
@@ -301,7 +312,7 @@ func endAction(ctx context.Context, runner *loop.Loop, report *ui.Reporter, fini
 	}
 }
 
-func dryRun(runner *loop.Loop, c catalog.Copy, f *runFlags) error {
+func dryRun(ctx context.Context, runner *loop.Loop, c catalog.Copy, f *runFlags) error {
 	p := c.Plan
 	unit := state.Resume(p, c.State)
 	if f.from != "" {
@@ -311,7 +322,7 @@ func dryRun(runner *loop.Loop, c catalog.Copy, f *runFlags) error {
 		fmt.Printf("%s is complete\n", p.Path)
 		return nil
 	}
-	prompt, err := runner.Prompt(p, *unit, "")
+	prompt, err := runner.Prompt(ctx, p, *unit, "")
 	if err != nil {
 		return err
 	}

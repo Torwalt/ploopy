@@ -287,6 +287,28 @@ func (r *Repo) Commits(ctx context.Context, base string) ([]Commit, error) {
 	return commits, nil
 }
 
+// ChangedPaths lists the paths the commits since base touch, leaving out the
+// author's paths and ploopy's own directory.
+func (r *Repo) ChangedPaths(ctx context.Context, base string) ([]string, error) {
+	out, err := r.git(ctx, "diff", "--name-only", base+"..HEAD")
+	if err != nil {
+		return nil, err
+	}
+	var paths []string
+	for _, line := range strings.Split(out, "\n") {
+		if path := strings.TrimSpace(line); path != "" && !r.excluded(path) {
+			paths = append(paths, path)
+		}
+	}
+	return paths, nil
+}
+
+// DiffStat is git's summary of what changed between two commits.
+func (r *Repo) DiffStat(ctx context.Context, from, to string) (string, error) {
+	out, err := r.git(ctx, "diff", "--stat=100", from+".."+to)
+	return strings.TrimRight(out, "\n"), err
+}
+
 func (r *Repo) allExcluded(paths []string) bool {
 	for _, path := range paths {
 		if !r.excluded(path) {

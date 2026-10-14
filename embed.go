@@ -14,3 +14,15 @@ var PlanUnitSkill string
 //
 //go:embed skills/plan-writing/SKILL.md
 var PlanWritingSkill string
+
+// PlanReviewSkill is how a review session collects findings on landed work.
+// A repository may override it at .agents/skills/plan-review/SKILL.md.
+//
+//go:embed skills/plan-review/SKILL.md
+var PlanReviewSkill string
+
+// ReviewTriageSkill is how the triage weighs the findings and writes the fix
+// plan. A repository may override it at .agents/skills/review-triage/SKILL.md.
+//
+//go:embed skills/review-triage/SKILL.md
+var ReviewTriageSkill string

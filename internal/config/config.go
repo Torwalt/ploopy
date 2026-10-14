@@ -16,16 +16,17 @@ const File = ".ploopy.toml"
 
 // Config is what a repository tells the loop about itself.
 type Config struct {
-	Plans       string   `toml:"plans"`        // where task documents live
-	Context     []string `toml:"context"`      // read first by every session
-	Verify      string   `toml:"verify"`       // run after every unit
-	Test        string   `toml:"test"`         // run after units that want tests
-	Setup       string   `toml:"setup"`        // readies a fresh worktree before its first check
-	AuthorPaths []string `toml:"author_paths"` // the author's files, never the session's dirt
-	Skill       string   `toml:"skill"`        // overrides the bundled plan-unit skill
-	StateCommit string   `toml:"state_commit"` // message template for the progress commit
-	CloseCommit string   `toml:"close_commit"` // message template for the commit that closes a plan
-	Push        bool     `toml:"push"`         // push the branch when a run ends
+	Plans       string   `toml:"plans"`            // where task documents live
+	Context     []string `toml:"context"`          // read first by every session
+	Verify      string   `toml:"verify"`           // run after every unit
+	Test        string   `toml:"test"`             // run after units that want tests
+	Setup       string   `toml:"setup"`            // readies a fresh worktree before its first check
+	AuthorPaths []string `toml:"author_paths"`     // the author's files, never the session's dirt
+	Skill       string   `toml:"skill"`            // overrides the bundled plan-unit skill
+	Checklist   string   `toml:"review_checklist"` // what review sessions check beside their skill
+	StateCommit string   `toml:"state_commit"`     // message template for the progress commit
+	CloseCommit string   `toml:"close_commit"`     // message template for the commit that closes a plan
+	Push        bool     `toml:"push"`             // push the branch when a run ends
 }
 
 // Default is what a repository without a settings file gets.
@@ -77,6 +78,25 @@ func Load(root string) (Config, error) {
 
 // RepoSkill is where a repository may keep its own plan-unit skill.
 const RepoSkill = ".agents/skills/plan-unit/SKILL.md"
+
+// Where a repository may keep its own review skills and checklist.
+const (
+	RepoReviewSkill = ".agents/skills/plan-review/SKILL.md"
+	RepoTriageSkill = ".agents/skills/review-triage/SKILL.md"
+	RepoChecklist   = ".agents/review-checklist.md"
+)
+
+// ChecklistPath is the review checklist collecting sessions are given: the
+// one the settings name, else the repository's own, else none.
+func (c Config) ChecklistPath(root string) string {
+	if c.Checklist != "" {
+		return filepath.Join(root, c.Checklist)
+	}
+	if own := filepath.Join(root, RepoChecklist); isFile(own) {
+		return own
+	}
+	return ""
+}
 
 // SkillPath is the plan-unit skill every session is given: the one the
 // settings name, else the repository's own, else the bundled one.

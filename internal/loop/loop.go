@@ -60,6 +60,15 @@ type Options struct {
 	BaseContext []string
 	Skill       string // the plan-unit skill, inlined in every prompt
 
+	// The skills of a review plan's units, and the repository's own review
+	// checklist, which collecting units are given beside their skill.
+	ReviewSkill string
+	TriageSkill string
+	Checklist   string
+
+	// Harnesses is every harness a unit's own `Agent:` may name.
+	Harnesses harness.Set
+
 	SetupCmd    string // readies a fresh worktree, once, before the preflight
 	VerifyCmd   string
 	TestCmd     string
@@ -167,6 +176,10 @@ type Loop struct {
 	onSecondary bool
 	primaryFree time.Time // when the usage limit that moved the run to the secondary resets
 
+	// own is the agent the current unit names for itself. It runs that unit
+	// whatever the run's agent is, and never hands it to the secondary.
+	own *Agent
+
 	runID   string
 	stats   stats.Run
 	mark    time.Time                // when the current unit's clock last moved
@@ -217,15 +230,18 @@ func (l *Loop) reload() (*plan.Plan, *state.State, error) {
 }
 
 // Prompt renders what a session would be given, without running anything.
-func (l *Loop) Prompt(p *plan.Plan, u plan.Unit, failure string) (string, error) {
+func (l *Loop) Prompt(ctx context.Context, p *plan.Plan, u plan.Unit, failure string) (string, error) {
 	_, s, err := l.reload()
 	if err != nil {
 		return "", err
 	}
-	return l.prompt(p, s, u, failure), nil
+	return l.prompt(ctx, p, s, u, failure)
 }
 
-func (l *Loop) prompt(p *plan.Plan, s *state.State, u plan.Unit, failure string) string {
+func (l *Loop) prompt(ctx context.Context, p *plan.Plan, s *state.State, u plan.Unit, failure string) (string, error) {
+	if u.Role() != plan.Implement {
+		return l.reviewPrompt(ctx, p, s, u, failure)
+	}
 	handover, _ := filepath.Rel(l.root, l.handoverPath(u))
 	return renderPrompt(promptArgs{
 		Skill:      l.opts.Skill,
@@ -238,7 +254,7 @@ func (l *Loop) prompt(p *plan.Plan, s *state.State, u plan.Unit, failure string)
 		WantsTests: l.wantsTests(p, u),
 		Verify:     l.opts.VerifyCmd,
 		Test:       l.opts.TestCmd,
-	})
+	}), nil
 }
 
 func (l *Loop) context(p *plan.Plan, u plan.Unit) []string {
@@ -365,6 +381,9 @@ func (l *Loop) Run(ctx context.Context) Result {
 	completed := 0
 	for unit != nil {
 		l.backToPrimary()
+		if l.own, err = l.unitAgent(*unit); err != nil {
+			return l.failRun(err.Error())
+		}
 		if err := l.peakGate(ctx); err != nil {
 			if errors.Is(err, errStopped) {
 				l.report.Say("stopping before %s, as asked", unit.ID)
@@ -411,10 +430,31 @@ func (l *Loop) Run(ctx context.Context) Result {
 
 // agent is who runs the next session.
 func (l *Loop) agent() Agent {
+	if l.own != nil {
+		return *l.own
+	}
 	if secondary := l.secondary(); l.onSecondary && secondary != nil {
 		return *secondary
 	}
 	return l.primary()
+}
+
+// unitAgent is the agent a unit names for itself, or nil to run it with the
+// run's own.
+func (l *Loop) unitAgent(u plan.Unit) (*Agent, error) {
+	name := strings.TrimSpace(u.Fields["Agent"])
+	if name == "" {
+		return nil, nil
+	}
+	h := l.opts.Harnesses.Get(name)
+	if h == nil {
+		return nil, fmt.Errorf("unit %s asks for agent %s, which ploopy cannot drive here", u.ID, name)
+	}
+	return &Agent{
+		Harness: h,
+		Model:   strings.TrimSpace(u.Fields["Model"]),
+		Effort:  strings.TrimSpace(u.Fields["Effort"]),
+	}, nil
 }
 
 func (l *Loop) primary() Agent {
@@ -435,7 +475,7 @@ func (l *Loop) steer() Steer {
 // usage limit, instead of waiting the limit out.
 func (l *Loop) toSecondary(agent Agent, limit *harness.RateLimit) bool {
 	secondary := l.secondary()
-	if l.onSecondary || secondary == nil {
+	if l.onSecondary || secondary == nil || l.own != nil {
 		return false
 	}
 	now := l.opts.Now()
@@ -606,6 +646,9 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 	}
 	u := *current
 	l.unit = u.ID
+	if l.own, err = l.unitAgent(u); err != nil {
+		return err
+	}
 	l.mark = l.opts.Now()
 	l.checked = map[string]time.Duration{}
 
@@ -661,7 +704,10 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 			}
 
 			stem = l.sessionStem(u)
-			prompt := l.prompt(p, s, u, failure)
+			prompt, err := l.prompt(ctx, p, s, u, failure)
+			if err != nil {
+				return err
+			}
 			if err := os.WriteFile(filepath.Join(l.logs, stem+".prompt"), []byte(prompt), 0o644); err != nil {
 				return err
 			}
@@ -754,6 +800,14 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 		verdict := l.judge(judgeCtx, p, u, agent, base, outcome, stem)
 		l.account(u, stem, agent, info, outcome, verdict.Kind, verdict.Reason)
 
+		if verdict.Fatal {
+			l.progress.Session = nil
+			if err := l.progress.save(); err != nil {
+				return err
+			}
+			return fmt.Errorf("unit %s: %s", u.ID, verdict.Reason)
+		}
+
 		if verdict.Kind == Blocked {
 			if blocks < l.opts.BlockRetries {
 				blocks++
@@ -796,6 +850,10 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 // session runs one agent and streams what it does to the reporter, keeping the
 // tail for the handover fallback.
 func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agent, prompt, stem, logPath string) (harness.Outcome, string, sessionInfo, error) {
+	budget := l.opts.MaxBudgetUSD
+	if own := u.Budget(); own > 0 {
+		budget = own
+	}
 	spec := harness.Spec{
 		Prompt:       prompt,
 		Model:        agent.Model,
@@ -806,7 +864,7 @@ func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, agent Age
 		Deny:         deniedTools,
 		Extra:        l.opts.HarnessArgs,
 		Timeout:      l.opts.Timeout,
-		MaxBudgetUSD: l.opts.MaxBudgetUSD,
+		MaxBudgetUSD: budget,
 		LogPath:      logPath,
 	}
 

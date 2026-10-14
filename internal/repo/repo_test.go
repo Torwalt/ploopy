@@ -577,3 +577,27 @@ func TestRemoveAndCommitLeavesOtherStagedWorkAlone(t *testing.T) {
 		t.Fatalf("staged after the close: %q", staged)
 	}
 }
+
+func TestChangedPathsLeaveOutTheAuthorsPaths(t *testing.T) {
+	root := newRepo(t)
+	r := New(root, []string{"docs/NOTES.md"})
+	base, err := r.Head(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, root, "src/a.go", "a\n")
+	write(t, root, "docs/NOTES.md", "mine\n")
+	commit(t, root, "both")
+
+	paths, err := r.ChangedPaths(context.Background(), base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(paths, ",") != "src/a.go" {
+		t.Fatalf("changed paths %v", paths)
+	}
+	stat, err := r.DiffStat(context.Background(), base, "HEAD")
+	if err != nil || !strings.Contains(stat, "src/a.go") || !strings.Contains(stat, "2 files changed") {
+		t.Fatalf("diff stat %q, %v", stat, err)
+	}
+}
