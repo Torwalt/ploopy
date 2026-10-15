@@ -26,6 +26,17 @@ type Run struct {
 	Waited   time.Duration // peak hours, usage limits and backoff
 	CostUSD  float64
 	Tokens   harness.Tokens
+	Degraded []Degraded
+}
+
+// Degraded is an agent whose adapter could not read all of what its harness
+// reported in a run.
+type Degraded struct {
+	Agent    string
+	Sessions int      // sessions it fell short in
+	Of       int      // sessions the agent ran
+	Notes    []string // what it could not read, each once
+	Logs     []string // the raw transcripts of those sessions
 }
 
 // Record is one line of the log: a session, a check, a wait, a tool call or a
@@ -48,6 +59,9 @@ type Record struct {
 	Reason  string          `json:"reason,omitempty"`
 	Tool    string          `json:"tool,omitempty"`
 	Command string          `json:"command,omitempty"`
+
+	Budget   *harness.Budget `json:"budget,omitempty"`   // the usage windows the session ended on
+	Degraded []string        `json:"degraded,omitempty"` // what its adapter could not read
 }
 
 // Dir is where a checkout keeps a plan's own files.

@@ -2,19 +2,24 @@ package loop
 
 import (
 	"context"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/Torwalt/ploopy/internal/harness"
+	"github.com/Torwalt/ploopy/internal/history"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/stats"
 )
 
 // sessionInfo is what the loop itself saw of a session.
 type sessionInfo struct {
-	Started time.Time
-	Took    time.Duration
-	Tools   int
+	Started   time.Time     `json:"started"`
+	Took      time.Duration `json:"took"`
+	Tools     int           `json:"tools,omitempty"`
+	WorkOrder int           `json:"work_order,omitempty"` // bytes of the unit's work order
+	Away      bool          `json:"away,omitempty"`       // started while the author was away from the subscriptions
 }
 
 // spent is what a unit has taken so far, across its sessions and the runs
@@ -61,12 +66,77 @@ func (l *Loop) account(u plan.Unit, stem string, agent Agent, info sessionInfo, 
 		Verify: verify.Seconds(), Test: test.Seconds(),
 		CostUSD: outcome.CostUSD, Turns: outcome.Turns, Tools: info.Tools,
 		Verdict: verdict, Reason: firstLine(reason),
+		Budget: outcome.Budget, Degraded: outcome.Degraded,
 	}
+	var tokens *harness.Tokens
 	if outcome.Tokens != (harness.Tokens{}) {
-		tokens := outcome.Tokens
-		r.Tokens = &tokens
+		spent := outcome.Tokens
+		tokens = &spent
 	}
+	r.Tokens = tokens
 	l.log(r)
+	l.degraded(agent, stem, outcome.Degraded)
+
+	if l.opts.History == "" {
+		return
+	}
+	_ = history.Append(l.opts.History, history.Record{
+		Plan: l.name, Branch: l.opts.Branch, Run: l.runID, Unit: u.ID, Stem: stem,
+		Agent: agent.Label(), Harness: agent.Harness.Name(),
+		Started: info.Started, Seconds: info.Took.Seconds(), Verdict: verdict,
+		Tokens: tokens, CostUSD: outcome.CostUSD, Before: outcome.BudgetBefore, After: outcome.Budget,
+		Away: info.Away, WorkOrder: info.WorkOrder, Degraded: outcome.Degraded,
+	})
+}
+
+// degraded books what an adapter could not read, and says so the first time
+// an agent's adapter falls short in a run.
+func (l *Loop) degraded(agent Agent, stem string, notes []string) {
+	label := agent.Label()
+	if l.ran == nil {
+		l.ran = map[string]int{}
+	}
+	l.ran[label]++
+	var d *stats.Degraded
+	for i := range l.stats.Degraded {
+		if l.stats.Degraded[i].Agent == label {
+			d = &l.stats.Degraded[i]
+		}
+	}
+	if d != nil {
+		d.Of = l.ran[label]
+	}
+	if len(notes) == 0 {
+		return
+	}
+	if d == nil {
+		l.stats.Degraded = append(l.stats.Degraded, stats.Degraded{Agent: label, Of: l.ran[label]})
+		d = &l.stats.Degraded[len(l.stats.Degraded)-1]
+		l.record("degraded", label+": "+strings.Join(notes, "; "))
+		l.report.Say("⚠ the %s adapter could not read all of what the harness reported: %s. "+
+			"Units are still judged from git; cost, tokens and usage windows may be incomplete.",
+			agent.Harness.Name(), strings.Join(notes, "; "))
+	}
+	d.Sessions++
+	log := filepath.Join(l.logs, stem+".log")
+	if shown, err := filepath.Rel(l.root, log); err == nil {
+		log = shown
+	}
+	d.Logs = append(d.Logs, log)
+	for _, note := range notes {
+		if !contains(d.Notes, note) {
+			d.Notes = append(d.Notes, note)
+		}
+	}
+}
+
+func contains(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
 }
 
 // pause waits, and books the wait against the run. A change the author makes

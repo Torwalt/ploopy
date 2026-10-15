@@ -22,7 +22,7 @@ func (*Harness) Models() []string {
 }
 func (*Harness) PeakWindows() []harness.Window { return nil }
 
-func (*Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session, error) {
+func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session, error) {
 	if spec.MaxBudgetUSD > 0 {
 		return nil, fmt.Errorf("codex cannot enforce a dollar spending cap; use a zero budget")
 	}
@@ -46,16 +46,34 @@ func (*Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session, 
 	}
 	argv = append(argv, spec.Extra...)
 	argv = append(argv, "-")
+	s := &session{h: h, ctx: ctx, events: make(chan harness.Event, 64), done: make(chan struct{}), calls: map[string]call{}}
+	s.outcome.BudgetBefore = s.budget("before")
 	proc, err := harness.StartProc(ctx, argv, spec.Dir, strings.NewReader(spec.Prompt), spec.LogPath, spec.Timeout)
 	if err != nil {
 		return nil, err
 	}
-	s := &session{proc: proc, events: make(chan harness.Event, 64), done: make(chan struct{}), calls: map[string]call{}}
+	s.proc = proc
 	go s.read()
 	return s, nil
 }
 
+// budget reads the usage windows around a session. A read that fails leaves
+// them unknown and says so.
+func (s *session) budget(when string) *harness.Budget {
+	if s.ctx.Err() != nil {
+		return nil
+	}
+	budget, err := s.h.Budget(s.ctx)
+	// A read the run's stop cut off says nothing about the harness.
+	if err != nil && s.ctx.Err() == nil {
+		s.drift.Missing("usage windows unreadable " + when + " the session: " + err.Error())
+	}
+	return budget
+}
+
 type session struct {
+	h           *Harness
+	ctx         context.Context
 	proc        *harness.Proc
 	events      chan harness.Event
 	done        chan struct{}
@@ -63,6 +81,8 @@ type session struct {
 	said        []string
 	diagnostics []string
 	calls       map[string]call
+	drift       harness.Drift
+	turns       int
 }
 
 type call struct {
@@ -113,7 +133,11 @@ func (s *session) read() {
 			continue
 		}
 		var e event
-		if json.Unmarshal([]byte(text), &e) != nil || e.Type == "" {
+		err := json.Unmarshal([]byte(text), &e)
+		if err != nil && harness.Structured(text) {
+			s.drift.Undecoded(eventType(text), err)
+		}
+		if err != nil || e.Type == "" {
 			s.diagnostics = append(s.diagnostics, text)
 			s.events <- harness.Event{Kind: harness.EventRaw, Text: text}
 			continue
@@ -127,6 +151,7 @@ func (s *session) handle(e event) {
 	case "thread.started":
 		s.outcome.SessionID = e.ThreadID
 	case "turn.completed":
+		s.turns++
 		u := e.Usage
 		cached := min(u.Cached, u.Input)
 		reasoning := min(u.Reasoning, u.Output)
@@ -208,7 +233,12 @@ func (s *session) tool(e event) {
 func (s *session) Wait() (harness.Outcome, error) {
 	<-s.done
 	exit, timedOut := s.proc.Wait()
+	s.outcome.Budget = s.budget("after")
+	if exit == 0 && !timedOut {
+		s.expect()
+	}
 	outcome := s.outcome
+	outcome.Degraded = s.drift.Notes()
 	outcome.Exit, outcome.TimedOut = exit, timedOut
 	outcome.Marker, outcome.Reason = harness.ParseMarker(strings.Join(s.said, "\n"))
 	if (outcome.Marker == harness.Done || outcome.Marker == harness.NothingToDo) && exit == 0 {
@@ -225,5 +255,43 @@ func (s *session) Wait() (harness.Outcome, error) {
 			}
 		}
 	}
+	if limit := outcome.RateLimit; limit != nil && limit.ResetAt.IsZero() && outcome.Budget != nil {
+		limit.ResetAt = resetOf(outcome.Budget)
+	}
 	return outcome, nil
+}
+
+// expect checks a session that ended normally for everything it reports.
+func (s *session) expect() {
+	if s.outcome.SessionID == "" {
+		s.drift.Missing("no thread.started: the thread is unknown")
+	}
+	if s.turns == 0 {
+		s.drift.Missing("no turn.completed: token usage is unknown")
+	}
+}
+
+// resetOf is when the window that ran out resets: the weekly one once it is
+// spent, else the five-hour one. Starting a little after it is safer.
+func resetOf(b *harness.Budget) time.Time {
+	now := time.Now()
+	window := b.Session
+	if b.Weekly.UsedAt(now) >= 1 {
+		window = b.Weekly
+	}
+	if !window.Active(now) {
+		return time.Time{}
+	}
+	return window.ResetAt.Add(2 * time.Minute)
+}
+
+// eventType names a line that did not decode by the type it claims, if any.
+func eventType(line string) string {
+	var head struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal([]byte(line), &head) == nil && head.Type != "" {
+		return head.Type
+	}
+	return "a line"
 }

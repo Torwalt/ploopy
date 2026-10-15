@@ -34,6 +34,7 @@ const (
 	EventNotice
 	EventRaw
 	EventToolDone // a tool call finished; Took is how long it ran
+	EventBudget   // the subscription's usage windows, as the harness just reported them
 )
 
 // Event is one observable step of a session. On an EventUsage, CostUSD and
@@ -45,6 +46,7 @@ type Event struct {
 	CostUSD float64
 	Tokens  int
 	Took    time.Duration
+	Budget  *Budget
 }
 
 // RateLimit is a session that ended because the account ran out of room, not
@@ -99,6 +101,15 @@ type Outcome struct {
 	// Exhausted is set when the run's own spending cap was reached. It is a
 	// deliberate stop, not a limit to wait out and not a block.
 	Exhausted string
+
+	// The subscription's usage windows when the session began and when it
+	// ended, where the harness reports them.
+	BudgetBefore *Budget
+	Budget       *Budget
+
+	// Degraded is what the adapter expected from the harness and could not
+	// read. The judgement does not depend on it; the numbers do.
+	Degraded []string
 }
 
 // Spec is one session to start.

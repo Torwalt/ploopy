@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,13 +15,28 @@ import (
 	"github.com/Torwalt/ploopy/internal/harness"
 )
 
+// limits is what the fake app server answers for the account's usage windows.
+const limits = `{"method":"account/updated","params":{"authMode":"chatgpt","planType":"plus"}}
+{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":60,"windowDurationMins":300,"resetsAt":1792087921},"secondary":{"usedPercent":9,"windowDurationMins":10080,"resetsAt":1792674721}}}}`
+
+// fakeCodex puts a script named `codex` on PATH. As `codex exec` it records
+// its arguments and prompt and prints output; as `codex app-server` it
+// answers the initialize handshake and then whatever CODEX_TEST_LIMITS holds.
 func fakeCodex(t *testing.T, output string, exit int) (string, string) {
 	t.Helper()
 	dir := t.TempDir()
 	args, prompt := filepath.Join(dir, "args"), filepath.Join(dir, "prompt")
 	t.Setenv("CODEX_TEST_ARGS", args)
 	t.Setenv("CODEX_TEST_PROMPT", prompt)
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$CODEX_TEST_ARGS\"\ncat > \"$CODEX_TEST_PROMPT\"\ncat <<'OUT'\n" + output + "\nOUT\nexit " + strconv.Itoa(exit) + "\n"
+	t.Setenv("CODEX_TEST_LIMITS", limits)
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = app-server ]; then\n" +
+		"  [ -n \"$CODEX_TEST_STALL\" ] && sleep \"$CODEX_TEST_STALL\"\n" +
+		"  read -r _; echo '{\"id\":1,\"result\":{}}'\n" +
+		"  read -r _; read -r _; printf '%s\\n' \"$CODEX_TEST_LIMITS\"\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"printf '%s\\n' \"$@\" > \"$CODEX_TEST_ARGS\"\ncat > \"$CODEX_TEST_PROMPT\"\ncat <<'OUT'\n" + output + "\nOUT\nexit " + strconv.Itoa(exit) + "\n"
 	if err := os.WriteFile(filepath.Join(dir, "codex"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -224,7 +240,7 @@ func TestTimeoutAndCancellation(t *testing.T) {
 	for _, cancel := range []bool{false, true} {
 		t.Run(map[bool]string{false: "timeout", true: "cancel"}[cancel], func(t *testing.T) {
 			dir := t.TempDir()
-			if err := os.WriteFile(filepath.Join(dir, "codex"), []byte("#!/bin/sh\ncat >/dev/null\nexec sleep 30\n"), 0o755); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, "codex"), []byte("#!/bin/sh\n[ \"$1\" = app-server ] && exit 1\ncat >/dev/null\nexec sleep 30\n"), 0o755); err != nil {
 				t.Fatal(err)
 			}
 			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -248,5 +264,87 @@ func TestTimeoutAndCancellation(t *testing.T) {
 				t.Fatalf("outcome %+v, error %v", out, err)
 			}
 		})
+	}
+}
+
+func TestTheUsageWindowsAreReadAroundTheSession(t *testing.T) {
+	fakeCodex(t, stream, 0)
+	out, _ := start(t, harness.Spec{Prompt: "x"})
+	for _, budget := range []*harness.Budget{out.BudgetBefore, out.Budget} {
+		if budget == nil || budget.Session.Used != 0.6 || budget.Weekly.Used != 0.09 ||
+			budget.Session.Length != 5*time.Hour || !budget.Session.ResetAt.Equal(time.Unix(1792087921, 0)) {
+			t.Fatalf("budget %+v", budget)
+		}
+	}
+	if len(out.Degraded) != 0 {
+		t.Fatalf("degraded %v", out.Degraded)
+	}
+}
+
+func TestUnreadableWindowsAreDegraded(t *testing.T) {
+	fakeCodex(t, stream, 0)
+	t.Setenv("CODEX_TEST_LIMITS", `{"id":2,"error":{"message":"not logged in"}}`)
+	out, _ := start(t, harness.Spec{Prompt: "x"})
+	if out.Budget != nil || len(out.Degraded) != 2 || !strings.Contains(out.Degraded[0], "usage windows unreadable before") {
+		t.Fatalf("budget %+v, degraded %v", out.Budget, out.Degraded)
+	}
+}
+
+// A read the run's stop cuts off is the stop, not lost output, and it ends at
+// once although the app server's own child still holds the pipe.
+func TestAStoppedWindowReadIsNotDegraded(t *testing.T) {
+	fakeCodex(t, stream, 0)
+	t.Setenv("CODEX_TEST_STALL", "10")
+	ctx, stop := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer stop()
+	began := time.Now()
+	s, err := New().Start(ctx, harness.Spec{Prompt: "x", Dir: t.TempDir(), Timeout: 30 * time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range s.Events() {
+	}
+	out, _ := s.Wait()
+	if took := time.Since(began); took > 5*time.Second {
+		t.Fatalf("the stopped read took %v", took)
+	}
+	if out.BudgetBefore != nil || len(out.Degraded) != 0 {
+		t.Fatalf("budget %+v, degraded %v", out.BudgetBefore, out.Degraded)
+	}
+}
+
+// An account on an API key has no usage windows, and nothing is missing.
+func TestAnAPIKeyAccountHasNoWindows(t *testing.T) {
+	fakeCodex(t, stream, 0)
+	t.Setenv("CODEX_TEST_LIMITS", `{"method":"account/updated","params":{"authMode":"apikey"}}
+{"id":2,"error":{"message":"rate limits need a ChatGPT login"}}`)
+	out, _ := start(t, harness.Spec{Prompt: "x"})
+	if out.Budget != nil || len(out.Degraded) != 0 {
+		t.Fatalf("budget %+v, degraded %v", out.Budget, out.Degraded)
+	}
+}
+
+func TestAnEventThatNoLongerDecodesIsDegraded(t *testing.T) {
+	fakeCodex(t, `{"type":"thread.started","thread_id":"t"}
+{"type":"turn.completed","usage":{"input_tokens":"many"}}
+{"type":"item.completed","item":{"id":"message","type":"agent_message","text":"DONE"}}`, 0)
+	out, _ := start(t, harness.Spec{Prompt: "x"})
+	joined := strings.Join(out.Degraded, "\n")
+	if out.Marker != harness.Done || !strings.Contains(joined, "did not decode: turn.completed") ||
+		!strings.Contains(joined, "no turn.completed") {
+		t.Fatalf("outcome %+v", out)
+	}
+}
+
+// A limit reported without a time resets when the spent window does.
+func TestALimitResetsWithItsWindow(t *testing.T) {
+	reset := time.Now().Add(3 * time.Hour).Truncate(time.Second)
+	fakeCodex(t, `{"type":"turn.failed","error":{"message":"rate_limit_exceeded"}}`, 1)
+	t.Setenv("CODEX_TEST_LIMITS", fmt.Sprintf(`{"id":2,"result":{"rateLimits":{"primary":`+
+		`{"usedPercent":100,"windowDurationMins":300,"resetsAt":%d},"secondary":`+
+		`{"usedPercent":40,"windowDurationMins":10080,"resetsAt":%d}}}}`, reset.Unix(), reset.Add(72*time.Hour).Unix()))
+	out, _ := start(t, harness.Spec{Prompt: "x"})
+	if out.RateLimit == nil || !out.RateLimit.ResetAt.Equal(reset.Add(2*time.Minute)) {
+		t.Fatalf("limit %+v", out.RateLimit)
 	}
 }

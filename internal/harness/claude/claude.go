@@ -5,9 +5,11 @@
 package claude
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -34,6 +36,10 @@ func (*Harness) Models() []string { return []string{"sonnet", "opus"} }
 
 // PeakWindows is empty: Anthropic does not bill by hour.
 func (*Harness) PeakWindows() []harness.Window { return nil }
+
+// Budget is unknown until a session runs: Claude Code reports its usage
+// windows only from inside one.
+func (*Harness) Budget(context.Context) (*harness.Budget, error) { return nil, nil }
 
 // Start runs one session. The prompt goes on stdin, which has no size limit.
 func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session, error) {
@@ -114,6 +120,12 @@ type session struct {
 	// said is what the agent wrote, decoded. A session killed before its
 	// result event still left its final message here.
 	said []string
+
+	drift        harness.Drift
+	resulted     bool
+	subscription bool // logged in to a subscription, which reports usage windows
+	windows      int  // rate_limit_events read
+	rejected     *harness.RateLimit
 }
 
 func (s *session) Events() <-chan harness.Event { return s.events }
@@ -132,20 +144,56 @@ func (s *session) Wait() (harness.Outcome, error) {
 	if s.outcome.RateLimit == nil && s.outcome.Exhausted == "" {
 		s.outcome.RateLimit = harness.RateLimitFromText(said, time.Now())
 	}
+	// The limit event's reset is exact; the prose is rounded and names no day.
+	if limit := s.outcome.RateLimit; limit != nil && s.rejected != nil && !s.rejected.ResetAt.IsZero() {
+		limit.ResetAt = s.rejected.ResetAt
+	}
 	if s.outcome.SessionID == "" {
 		s.outcome.SessionID = s.id
 	}
+	if exit == 0 && !timedOut {
+		s.expect()
+	}
+	s.outcome.Degraded = s.drift.Notes()
 	return s.outcome, nil
 }
 
+// expect checks a session that ended normally for everything it reports.
+func (s *session) expect() {
+	if !s.resulted {
+		s.drift.Missing("no result event: cost, tokens and turns are unknown")
+		return
+	}
+	if s.outcome.SessionID == "" {
+		s.drift.Missing("the result named no session")
+	}
+	if s.outcome.Tokens == (harness.Tokens{}) {
+		s.drift.Missing("the result reported no token usage")
+	}
+	if s.outcome.CostUSD <= 0 {
+		s.drift.Missing("the result reported no cost")
+	}
+	if s.subscription && s.windows == 0 {
+		s.drift.Missing("no rate_limit_event: the usage windows are unknown")
+	}
+}
+
+// envelope is what every stream-json object carries. A line is decoded in
+// full only once its type is known, so a changed field is named, not lost.
+type envelope struct {
+	Type string `json:"type"`
+}
+
 // streamLine is the subset of a stream-json object ploopy reads. Fields it
-// does not name are ignored, so a new Claude Code release cannot break it.
+// does not name are ignored.
 type streamLine struct {
 	Type            string          `json:"type"`
 	Subtype         string          `json:"subtype"`
 	SessionID       string          `json:"session_id"`
 	EstimatedTokens int             `json:"estimated_tokens"`
+	APIKeySource    string          `json:"apiKeySource"`
 	Message         json.RawMessage `json:"message"`
+	RateLimitInfo   *rateLimitInfo  `json:"rate_limit_info"`
 
 	IsError        bool            `json:"is_error"`
 	Result         string          `json:"result"`
@@ -155,6 +203,59 @@ type streamLine struct {
 	StopReason     string          `json:"stop_reason"`
 	TerminalReason string          `json:"terminal_reason"`
 	APIErrorStatus json.RawMessage `json:"api_error_status"`
+}
+
+// rateLimitInfo is where a subscription's usage windows stand after a request.
+type rateLimitInfo struct {
+	Status         string `json:"status"` // allowed, allowed_warning or rejected
+	ResetsAt       int64  `json:"resetsAt"`
+	RateLimitType  string `json:"rateLimitType"`
+	UnifiedWindows map[string]struct {
+		Utilization float64 `json:"utilization"`
+		ResetsAt    int64   `json:"resetsAt"`
+	} `json:"unifiedWindows"`
+}
+
+// budget is the windows the event shows, or nil when it shows neither.
+func (info *rateLimitInfo) budget(at time.Time) *harness.Budget {
+	session, hasSession := info.UnifiedWindows["five_hour"]
+	weekly, hasWeekly := info.UnifiedWindows["seven_day"]
+	if !hasSession || !hasWeekly {
+		return nil
+	}
+	return &harness.Budget{
+		At: at,
+		Session: harness.Allowance{
+			Used: session.Utilization, ResetAt: time.Unix(session.ResetsAt, 0), Length: harness.SessionWindow,
+		},
+		Weekly: harness.Allowance{
+			Used: weekly.Utilization, ResetAt: time.Unix(weekly.ResetsAt, 0), Length: harness.WeeklyWindow,
+		},
+	}
+}
+
+// LogBudgets reads the first and the last usage windows out of a session's
+// raw transcript, for sessions recorded before ploopy kept them. Neither
+// carries the instant it was seen.
+func LogBudgets(transcript io.Reader) (first, last *harness.Budget) {
+	lines := bufio.NewScanner(transcript)
+	lines.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
+	for lines.Scan() {
+		if !strings.Contains(lines.Text(), `"rate_limit_event"`) {
+			continue
+		}
+		var parsed streamLine
+		if json.Unmarshal(lines.Bytes(), &parsed) != nil || parsed.RateLimitInfo == nil {
+			continue
+		}
+		if budget := parsed.RateLimitInfo.budget(time.Time{}); budget != nil {
+			if first == nil {
+				first = budget
+			}
+			last = budget
+		}
+	}
+	return first, last
 }
 
 // usage is the session's whole consumption. Thinking is part of the output
@@ -206,9 +307,22 @@ func (s *session) read() {
 		if strings.TrimSpace(line) == "" {
 			continue
 		}
+		var head envelope
+		if err := json.Unmarshal([]byte(line), &head); err != nil {
+			if harness.Structured(line) {
+				s.drift.Undecoded("a line", err)
+			}
+			s.events <- harness.Event{Kind: harness.EventRaw, Text: line}
+			continue
+		}
+		switch head.Type {
+		case "assistant", "user", "system", "result", "rate_limit_event":
+		default:
+			continue
+		}
 		var parsed streamLine
 		if err := json.Unmarshal([]byte(line), &parsed); err != nil {
-			s.events <- harness.Event{Kind: harness.EventRaw, Text: line}
+			s.drift.Undecoded(head.Type, err)
 			continue
 		}
 		switch parsed.Type {
@@ -217,18 +331,50 @@ func (s *session) read() {
 		case "user":
 			s.toolResults(parsed)
 		case "system":
+			if parsed.Subtype == "init" {
+				s.subscription = parsed.APIKeySource == "none"
+			}
 			if parsed.EstimatedTokens > 0 {
 				s.events <- harness.Event{Kind: harness.EventUsage, Tokens: parsed.EstimatedTokens}
 			}
+		case "rate_limit_event":
+			s.rateLimit(parsed.RateLimitInfo)
 		case "result":
 			s.result(parsed)
 		}
 	}
 }
 
+// rateLimit reads where the usage windows stand.
+func (s *session) rateLimit(info *rateLimitInfo) {
+	if info == nil {
+		s.drift.Missing("a rate_limit_event carried no rate_limit_info")
+		return
+	}
+	s.windows++
+	now := time.Now()
+	if info.Status == "rejected" {
+		s.rejected = &harness.RateLimit{Reason: "claude's " + strings.ReplaceAll(info.RateLimitType, "_", "-") + " usage limit"}
+		if info.ResetsAt > 0 {
+			s.rejected.ResetAt = time.Unix(info.ResetsAt, 0).Add(2 * time.Minute)
+		}
+	}
+	budget := info.budget(now)
+	if budget == nil {
+		s.drift.Missing("rate_limit_event without the five_hour and seven_day windows")
+		return
+	}
+	if s.outcome.BudgetBefore == nil {
+		s.outcome.BudgetBefore = budget
+	}
+	s.outcome.Budget = budget
+	s.events <- harness.Event{Kind: harness.EventBudget, Budget: budget}
+}
+
 func (s *session) assistant(parsed streamLine) {
 	var message assistantMessage
-	if json.Unmarshal(parsed.Message, &message) != nil {
+	if err := json.Unmarshal(parsed.Message, &message); err != nil {
+		s.drift.Undecoded("an assistant message", err)
 		return
 	}
 	for _, block := range message.Content {
@@ -250,7 +396,8 @@ func (s *session) assistant(parsed streamLine) {
 
 func (s *session) toolResults(parsed streamLine) {
 	var message assistantMessage
-	if json.Unmarshal(parsed.Message, &message) != nil {
+	if err := json.Unmarshal(parsed.Message, &message); err != nil {
+		s.drift.Undecoded("a tool result", err)
 		return
 	}
 	for _, block := range message.Content {
@@ -266,6 +413,7 @@ func (s *session) toolResults(parsed streamLine) {
 }
 
 func (s *session) result(parsed streamLine) {
+	s.resulted = true
 	marker, reason := harness.ParseMarker(parsed.Result)
 	s.outcome.Marker = marker
 	s.outcome.Reason = reason

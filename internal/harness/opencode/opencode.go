@@ -94,6 +94,9 @@ type session struct {
 	// said is the agent's text and anything printed outside the event stream;
 	// the marker and a usage limit are read from it.
 	said []string
+
+	drift harness.Drift
+	steps int
 }
 
 // event is one line of `--format json`. Fields ploopy does not name are
@@ -140,7 +143,13 @@ func (s *session) read() {
 			continue
 		}
 		var parsed event
-		if !strings.HasPrefix(text, "{") || json.Unmarshal([]byte(text), &parsed) != nil {
+		if !harness.Structured(text) {
+			s.said = append(s.said, text)
+			s.events <- harness.Event{Kind: harness.EventRaw, Text: text}
+			continue
+		}
+		if err := json.Unmarshal([]byte(text), &parsed); err != nil {
+			s.drift.Undecoded(eventType(text), err)
 			s.said = append(s.said, text)
 			s.events <- harness.Event{Kind: harness.EventRaw, Text: text}
 			continue
@@ -169,6 +178,7 @@ func (s *session) handle(e event) {
 			}
 		}
 	case "step_finish":
+		s.steps++
 		// Each step reports its own use; the session's is the sum.
 		tokens := e.Part.Tokens
 		s.outcome.Tokens = s.outcome.Tokens.Add(harness.Tokens{
@@ -223,5 +233,25 @@ func (s *session) Wait() (harness.Outcome, error) {
 	if outcome.Marker == harness.None {
 		outcome.RateLimit = harness.RateLimitFromText(said, time.Now())
 	}
+	if exit == 0 && !timedOut {
+		if outcome.SessionID == "" {
+			s.drift.Missing("no event named the session")
+		}
+		if s.steps == 0 {
+			s.drift.Missing("no step_finish: cost and tokens are unknown")
+		}
+	}
+	outcome.Degraded = s.drift.Notes()
 	return outcome, nil
+}
+
+// eventType names a line that did not decode by the type it claims, if any.
+func eventType(line string) string {
+	var head struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal([]byte(line), &head) == nil && head.Type != "" {
+		return head.Type
+	}
+	return "a line"
 }

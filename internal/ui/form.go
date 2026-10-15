@@ -12,7 +12,10 @@ type Field struct {
 
 // Form asks for every field on one page. Left and right change a field, enter
 // moves to the next, and on the last one it starts.
-func Form(title string, fields []Field) error {
+func Form(title string, fields []Field) error { return FormNote(title, "", fields) }
+
+// FormNote is a form with a note above its fields.
+func FormNote(title, note string, fields []Field) error {
 	if !Interactive() {
 		return NoTerminal("help")
 	}
@@ -26,7 +29,11 @@ func Form(title string, fields []Field) error {
 		}
 		inputs = append(inputs, input.Inline(true))
 	}
-	return huh.NewForm(huh.NewGroup(inputs...).Title(title)).WithTheme(huh.ThemeBase16()).Run()
+	group := huh.NewGroup(inputs...).Title(title)
+	if note != "" {
+		group = group.Description(note)
+	}
+	return huh.NewForm(group).WithTheme(huh.ThemeBase16()).Run()
 }
 
 func options(choices []Choice) []huh.Option[string] {

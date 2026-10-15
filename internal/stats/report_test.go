@@ -141,3 +141,28 @@ func TestATrendNeedsEnoughRuns(t *testing.T) {
 		t.Fatalf("sparkline %q", line)
 	}
 }
+
+func TestTheReportSaysWhatEachUsageWindowBought(t *testing.T) {
+	p, s := fixture()
+	reset := time.Date(2026, 10, 16, 2, 0, 0, 0, time.Local)
+	spent := func(used float64) *harness.Budget {
+		return &harness.Budget{
+			Session: harness.Allowance{Used: used, ResetAt: reset},
+			Weekly:  harness.Allowance{Used: 0.6, ResetAt: reset.Add(96 * time.Hour)},
+		}
+	}
+	records := []Record{
+		{Kind: "session", Unit: "1.1", Agent: "claude sonnet high", Verdict: "landed", CostUSD: 2, Budget: spent(0.4)},
+		{Kind: "session", Unit: "1.2", Agent: "claude sonnet high", Verdict: "limit", CostUSD: 1.5, Budget: spent(1),
+			Degraded: []string{"the result reported no cost"}},
+	}
+	text := Report(p, s, records, nil)
+	for _, want := range []string{
+		"Usage windows", "claude, resets " + reset.Format("Mon 15:04"), "100%", "60%",
+		"1.2 adapter degraded: the result reported no cost", "totals are lower bounds",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the report lacks %q:\n%s", want, text)
+		}
+	}
+}

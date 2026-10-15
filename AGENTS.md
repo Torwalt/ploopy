@@ -47,6 +47,8 @@ session's self-report where the repository can be asked instead.
   the fix plan its triage writes. Pure text: no git, no process execution.
 - `internal/stats` — the stats log a run appends to, and the plan report read
   from it and the state file. Must not import `loop`.
+- `internal/history` — every session of every plan in the repository's git
+  directory, and the per-unit estimates read from it. Must not import `loop`.
 - `internal/catalog` — every plan of the repository and where its progress
   lives: checkouts, unmerged branches read through git objects, runs going on.
 - `internal/control` — the runtime registry `ploopy adjust` reaches a running

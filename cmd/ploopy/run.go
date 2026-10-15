@@ -15,6 +15,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/loop"
+	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/ui"
@@ -51,6 +52,9 @@ type runFlags struct {
 	peak         string
 	quiet        bool
 	grace        time.Duration
+	away         string
+	night        string
+	reserve      int
 }
 
 func newRun(e *env) *cobra.Command {
@@ -104,6 +108,11 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	flags.StringVar(&f.peak, "peak", "", "a unit due in the harness's peak hours: wait or run")
 	flags.BoolVar(&f.quiet, "quiet", false, "report decisions only, without the session feed")
 	flags.DurationVar(&f.grace, "grace", time.Minute, "countdown before the end action")
+	flags.StringVar(&f.away, "away", "", "when you leave Claude and Codex to the run, such as 21:00-09:00, or none")
+	flags.StringVar(&f.night, "night", "",
+		"subscriptions that take units while you are away and the fresh 5h windows each may open, such as claude=2,codex/gpt-6.1-sol/high=1")
+	flags.IntVar(&f.reserve, "weekly-reserve", defaultReserve,
+		"percent of every weekly window the run leaves to you while you are away")
 }
 
 func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
@@ -128,7 +137,7 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		return fmt.Errorf("%s does not lint; fix it before running it", p.Path)
 	}
 
-	chosen, err := chooseSettings(ctx, cmd, e, p, f, t.branch)
+	chosen, err := chooseSettings(ctx, cmd, e, p, f, t.branch, openUnits(p, c.State))
 	if err != nil {
 		return err
 	}
@@ -178,6 +187,8 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		MaxBudgetUSD: f.budget,
 		Secondary:    chosen.secondary,
 		WaitOffPeak:  chosen.waitOffPeak,
+		Night:        chosen.nightly,
+		History:      historyPath(ctx, e.root),
 	}
 
 	report := ui.NewReporter(os.Stdout, os.Stderr)
@@ -206,12 +217,14 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		opts.SetupCmd = cfg.Setup
 	}
 	branch, _ := repo.New(root, nil).Branch(ctx)
+	opts.Branch = branch
 	steer := announce(control.Status{
 		Root: root, Plan: p.Path, Branch: branch,
 		Agent: chosen.agent.Label(),
 		Settings: control.Settings{
 			Finish: string(chosen.finish), Peak: peakName(chosen.waitOffPeak), Push: &chosen.push,
 			Secondary: toControlAgent(chosen.secondary),
+			Away:      chosen.away, Night: chosen.night, Reserve: chosen.reserve,
 		},
 	}, e.harnesses, report)
 	defer steer.close()
@@ -222,9 +235,9 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		return err
 	}
 
-	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, chosen.agent.Harness.Name(),
+	report.Say("%s with %s%s at %s effort%s%s%s%s%s", p.Path, chosen.agent.Harness.Name(),
 		modelSuffix(chosen.agent.Model), chosen.agent.Effort, secondarySuffix(chosen.secondary),
-		peakSuffix(chosen), pushSuffix(chosen.push), finishSuffix(chosen.finish))
+		nightSuffix(chosen.away, chosen.night), peakSuffix(chosen), pushSuffix(chosen.push), finishSuffix(chosen.finish))
 	if steer.run != nil {
 		report.Say("change what happens next from another terminal with `ploopy adjust`")
 	}
@@ -246,6 +259,7 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 			report.Summary(p, s, &result.Stats)
 		}
 	}
+	report.Degraded(result.Stats.Degraded)
 
 	wanted := steer.wanted()
 	if wanted.Pushes() {
@@ -328,6 +342,17 @@ func dryRun(ctx context.Context, runner *loop.Loop, c catalog.Copy, f *runFlags)
 	}
 	fmt.Print(prompt)
 	return nil
+}
+
+// openUnits counts the units still to land.
+func openUnits(p *plan.Plan, s *state.State) int {
+	open := 0
+	for _, u := range p.Units {
+		if status := s.Status(u.ID); status != state.Landed && status != state.Skipped {
+			open++
+		}
+	}
+	return open
 }
 
 func testsOverride(f *runFlags) *bool {

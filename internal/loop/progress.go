@@ -16,6 +16,12 @@ type sessionRecord struct {
 	Stem    string           `json:"stem"`
 	Tail    string           `json:"tail"`
 	Extra   *json.RawMessage `json:"-"`
+
+	// Who ran it, which need not be who would run the next session.
+	Harness string      `json:"harness,omitempty"`
+	Model   string      `json:"model,omitempty"`
+	Effort  string      `json:"effort,omitempty"`
+	Info    sessionInfo `json:"info"`
 }
 
 // progress is what survives a crash within a unit. It is local to the machine;

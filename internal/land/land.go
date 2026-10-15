@@ -354,6 +354,10 @@ func (l *lander) session(ctx context.Context, kind string, attempt int, task, fa
 	outcome, err := session.Wait()
 	l.result.Sessions++
 	l.result.CostUSD += outcome.CostUSD
+	if len(outcome.Degraded) > 0 {
+		o.Report.Say("⚠ the %s adapter could not read all of what the harness reported: %s",
+			o.Agent.Harness.Name(), strings.Join(outcome.Degraded, "; "))
+	}
 	if err != nil {
 		return outcome, err
 	}

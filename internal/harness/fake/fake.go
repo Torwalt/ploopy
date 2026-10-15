@@ -23,7 +23,8 @@ type Step struct {
 type Harness struct {
 	Steps   []Step
 	Windows []harness.Window
-	Named   string // the name it answers to; "fake" when empty
+	Named   string          // the name it answers to; "fake" when empty
+	Meter   *harness.Budget // what Budget answers
 
 	mu      sync.Mutex
 	started int
@@ -50,6 +51,9 @@ func (*Harness) Models() []string { return []string{"fake-model"} }
 
 // PeakWindows the test asked for.
 func (h *Harness) PeakWindows() []harness.Window { return h.Windows }
+
+// Budget answers with the usage windows the test set.
+func (h *Harness) Budget(context.Context) (*harness.Budget, error) { return h.Meter, nil }
 
 // Started counts the sessions the loop has asked for.
 func (h *Harness) Started() int {

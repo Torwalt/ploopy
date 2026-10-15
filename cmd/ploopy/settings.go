@@ -29,12 +29,17 @@ type runSettings struct {
 	Peak      string         `json:"peak,omitempty"` // wait or run
 	Push      bool           `json:"push,omitempty"`
 	Finish    string         `json:"finish,omitempty"`
+
+	Away    string               `json:"away,omitempty"` // a span such as 21:00-09:00, or none
+	Night   []control.NightAgent `json:"night,omitempty"`
+	Reserve *int                 `json:"reserve,omitempty"` // percent of every week kept for the author
 }
 
 // given is which settings the author already gave, as flags or in the plan's
 // front matter. Those are never asked.
 type given struct {
 	harness, model, effort, secondary, peak, push, finish bool
+	away, night, reserve                                  bool
 }
 
 func (g given) all() bool {
@@ -48,12 +53,17 @@ type chosenRun struct {
 	waitOffPeak bool
 	push        bool
 	finish      ui.Finish
+
+	away    string
+	night   []control.NightAgent
+	reserve *int
+	nightly *loop.Night
 }
 
 // chooseSettings takes what the flags and the plan's front matter say, then
 // asks for the rest on one page, prefilled from the last run. When there was
 // a last run, starting like it is one keypress.
-func chooseSettings(ctx context.Context, cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags, branch string) (chosenRun, error) {
+func chooseSettings(ctx context.Context, cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags, branch string, open int) (chosenRun, error) {
 	s, g, err := givenSettings(cmd, e, p, f)
 	if err != nil {
 		return chosenRun{}, err
@@ -69,6 +79,7 @@ func chooseSettings(ctx context.Context, cmd *cobra.Command, e *env, p *plan.Pla
 	last := loadLast(ctx, e.root)
 	fill(e, &s, g, last)
 	if !g.all() {
+		printEstimates(loadHistory(ctx, e.root), open)
 		change := true
 		if last != nil {
 			picked, err := ui.Pick("How should it run?", "agent", []ui.Choice{
@@ -84,6 +95,13 @@ func chooseSettings(ctx context.Context, cmd *cobra.Command, e *env, p *plan.Pla
 			if err := askSettings(e, &s, g); err != nil {
 				return chosenRun{}, err
 			}
+		}
+	}
+	// What the subscriptions have left changes every night, so it is always
+	// put to the author.
+	if s.Away != "none" && !g.night {
+		if err := askNight(ctx, e, &s, g, open); err != nil {
+			return chosenRun{}, err
 		}
 	}
 
@@ -145,6 +163,26 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		}
 		s.Finish, g.finish = f.finish, true
 	}
+	if cmd.Flags().Changed("away") {
+		away, err := parseAwayFlag("--away", f.away)
+		if err != nil {
+			return s, g, err
+		}
+		s.Away, g.away = away, true
+	}
+	if cmd.Flags().Changed("night") {
+		agents, err := parseNight(e.harnesses, "--night", f.night)
+		if err != nil {
+			return s, g, err
+		}
+		s.Night, g.night = agents, true
+	}
+	if cmd.Flags().Changed("weekly-reserve") {
+		if f.reserve < 0 || f.reserve > 100 {
+			return s, g, fmt.Errorf("--weekly-reserve is a percentage, not %d", f.reserve)
+		}
+		s.Reserve, g.reserve = &f.reserve, true
+	}
 	return s, g, nil
 }
 
@@ -163,6 +201,12 @@ func unattended(e *env, s runSettings) (chosenRun, error) {
 	}
 	if s.Peak == "" {
 		s.Peak = "run"
+	}
+	if s.Away != "" && s.Away != "none" && s.Night == nil {
+		return chosenRun{}, ui.NoTerminal("night")
+	}
+	if s.Away == "" && s.Night != nil {
+		return chosenRun{}, ui.NoTerminal("away")
 	}
 	return resolveSettings(e, s)
 }
@@ -207,6 +251,18 @@ func fill(e *env, s *runSettings, g given, last *runSettings) {
 		if last != nil && ui.Finish(last.Finish).Valid() {
 			s.Finish = last.Finish
 		}
+	}
+	if !g.away {
+		s.Away = "none"
+		if last != nil && last.Away != "" {
+			s.Away = last.Away
+		}
+	}
+	if !g.night && last != nil {
+		s.Night = last.Night
+	}
+	if !g.reserve && last != nil {
+		s.Reserve = last.Reserve
 	}
 }
 
@@ -268,6 +324,10 @@ func askSettings(e *env, s *runSettings, g given) error {
 		fields = append(fields, ui.Field{Title: "When the run ends", Value: &s.Finish,
 			Choices: func() []ui.Choice { return ui.Finishes }})
 	}
+	if !g.away {
+		fields = append(fields, ui.Field{Title: "While you are away from Claude and Codex", Value: &s.Away,
+			Choices: func() []ui.Choice { return awayChoices(s.Away) }})
+	}
 
 	if err := ui.Form("How should it run?", fields); err != nil {
 		return err
@@ -306,12 +366,30 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 	if finish == "" {
 		finish = ui.FinishNone
 	}
+	// The run's own agent stays out of a remembered night, so a span set
+	// later by `ploopy adjust` cannot bring it in.
+	var night []control.NightAgent
+	for _, a := range s.Night {
+		if a.Harness != s.Harness {
+			night = append(night, a)
+		} else if s.Away != "" && s.Away != "none" {
+			return chosenRun{}, fmt.Errorf("%s is the run's own agent; it cannot also take sessions while you are away", a.Harness)
+		}
+	}
+	nightly, err := toLoopNight(e.harnesses, s.Away, night, s.Reserve)
+	if err != nil {
+		return chosenRun{}, err
+	}
 	return chosenRun{
 		agent:       loop.Agent{Harness: h, Model: s.Model, Effort: s.Effort},
 		secondary:   toLoopAgent(e.harnesses, s.Secondary),
 		waitOffPeak: s.Peak == "wait",
 		push:        s.Push,
 		finish:      finish,
+		away:        s.Away,
+		night:       night,
+		reserve:     s.Reserve,
+		nightly:     nightly,
 	}, nil
 }
 
@@ -319,7 +397,8 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 // agent has any.
 func describe(e *env, s runSettings) string {
 	agent := control.Agent{Harness: s.Harness, Model: s.Model, Effort: s.Effort}
-	settings := control.Settings{Finish: s.Finish, Peak: s.Peak, Push: &s.Push, Secondary: s.Secondary}
+	settings := control.Settings{Finish: s.Finish, Peak: s.Peak, Push: &s.Push, Secondary: s.Secondary,
+		Away: s.Away, Night: s.Night, Reserve: s.Reserve}
 	peaked := len(e.harnesses.Get(s.Harness).PeakWindows()) > 0
 	if secondary := e.harnesses.Get(agentHarness(s.Secondary)); secondary != nil {
 		peaked = peaked || len(secondary.PeakWindows()) > 0

@@ -28,10 +28,16 @@ func Report(p *plan.Plan, s *state.State, records []Record, current *Run) string
 	r.slowestUnits()
 	r.checks()
 	r.commands()
+	r.windows()
 	r.trouble()
 	if r.listPrice {
 		r.line("")
 		r.line("≈ Claude's cost is the API-price equivalent, not what a subscription charges.")
+	}
+	if r.degraded() {
+		r.line("")
+		r.line("Some sessions' harness output could not be read in full: their cost and tokens may be missing,")
+		r.line("so the totals are lower bounds.")
 	}
 	if len(records) == 0 {
 		r.line("")
@@ -412,6 +418,11 @@ func (r *report) trouble() {
 			lines = append(lines, cut(ue.unit.ID+" blocked: "+ue.entry.Reason, 72))
 		}
 	}
+	for _, rec := range r.records {
+		if rec.Kind == "session" && len(rec.Degraded) > 0 {
+			lines = append(lines, cut(rec.Unit+" adapter degraded: "+strings.Join(rec.Degraded, "; "), 72))
+		}
+	}
 	if len(lines) == 0 {
 		return
 	}
@@ -424,6 +435,59 @@ func (r *report) trouble() {
 			break
 		}
 		r.line("  %s", line)
+	}
+}
+
+func (r *report) degraded() bool {
+	for _, rec := range r.records {
+		if rec.Kind == "session" && len(rec.Degraded) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// windows is what each subscription window the sessions ran in bought: the
+// units it landed and the share of it they left spent.
+func (r *report) windows() {
+	type window struct {
+		harness       string
+		reset         time.Time
+		sessions      int
+		landed        int
+		cost          float64
+		session, week float64
+	}
+	var order []*window
+	byKey := map[string]*window{}
+	for _, rec := range r.records {
+		if rec.Kind != "session" || rec.Budget == nil || rec.Budget.Session.ResetAt.IsZero() {
+			continue
+		}
+		name, _, _ := strings.Cut(rec.Agent, " ")
+		key := name + rec.Budget.Session.ResetAt.String()
+		w := byKey[key]
+		if w == nil {
+			w = &window{harness: name, reset: rec.Budget.Session.ResetAt}
+			byKey[key] = w
+			order = append(order, w)
+		}
+		w.sessions++
+		w.cost += rec.CostUSD
+		if rec.Verdict == "landed" {
+			w.landed++
+		}
+		w.session, w.week = rec.Budget.Session.Used, rec.Budget.Weekly.Used
+	}
+	if len(order) == 0 {
+		return
+	}
+	r.line("")
+	r.line("%-28s %6s %8s %6s %8s %7s", "Usage windows", "units", "sessions", "spent", "weekly", "cost")
+	for _, w := range order {
+		title := w.harness + ", resets " + w.reset.Local().Format("Mon 15:04")
+		r.line("%-28s %6d %8d %5.0f%% %7.0f%% %7s", cut(title, 28), w.landed, w.sessions, w.session*100, w.week*100,
+			r.cost(w.cost, w.harness == "claude"))
 	}
 }
 

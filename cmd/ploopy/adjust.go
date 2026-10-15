@@ -23,6 +23,9 @@ type adjustFlags struct {
 	secondary    string
 	secondaryMod string
 	secondaryEff string
+	away         string
+	night        string
+	reserve      int
 }
 
 func newAdjust(e *env) *cobra.Command {
@@ -32,7 +35,8 @@ func newAdjust(e *env) *cobra.Command {
 		Short: "Change what a running run does next",
 		Long: "Change what a running run does next: its end action, whether it\n" +
 			"pushes, whether it stops after the current unit, the agent that takes\n" +
-			"over on a usage limit, and what a unit due in peak hours does.\n\n" +
+			"over on a usage limit, what a unit due in peak hours does, and how it\n" +
+			"uses Claude and Codex while you are away.\n\n" +
 			"With nothing passed, ploopy asks. It works from any directory.",
 		Args: cobra.NoArgs,
 		// A run is adjusted from anywhere, not only from inside its repository.
@@ -51,6 +55,9 @@ func newAdjust(e *env) *cobra.Command {
 	flags.StringVar(&f.secondary, "secondary", "", "harness that takes over on a usage limit, or none")
 	flags.StringVar(&f.secondaryMod, "secondary-model", "", "model for the secondary harness")
 	flags.StringVar(&f.secondaryEff, "secondary-effort", "", "effort for the secondary harness")
+	flags.StringVar(&f.away, "away", "", "when you leave Claude and Codex to the run, such as 21:00-07:00, or none")
+	flags.StringVar(&f.night, "night", "", "subscriptions and the fresh 5h windows each may open, such as claude=2,codex=0")
+	flags.IntVar(&f.reserve, "weekly-reserve", defaultReserve, "percent of every weekly window left to you")
 	return cmd
 }
 
@@ -67,7 +74,7 @@ func adjust(cmd *cobra.Command, e *env, f *adjustFlags) error {
 	if err != nil {
 		return err
 	}
-	if change == (control.Settings{}) && !ui.Interactive() {
+	if change.Empty() && !ui.Interactive() {
 		for _, live := range lives {
 			fmt.Printf("%-8d %-36s %-6s %s\n", live.PID, live.Name(), live.Unit, live.Wanted.Describe())
 		}
@@ -78,13 +85,19 @@ func adjust(cmd *cobra.Command, e *env, f *adjustFlags) error {
 	if err != nil {
 		return err
 	}
-	if change == (control.Settings{}) {
+	if change.Empty() {
 		return adjustInteractively(e, live)
 	}
 	return apply(live, change)
 }
 
 func apply(live control.Live, change control.Settings) error {
+	own, _, _ := strings.Cut(live.Agent, " ")
+	for _, a := range change.Night {
+		if a.Harness == own {
+			return fmt.Errorf("%s is the run's own agent; it cannot also take sessions while you are away", own)
+		}
+	}
 	updated, err := control.Adjust(live.PID, change)
 	if err != nil {
 		return err
@@ -155,6 +168,26 @@ func changeFromFlags(cmd *cobra.Command, e *env, f *adjustFlags) (control.Settin
 	if flags.Changed("stop") {
 		change.Stop = &f.stop
 	}
+	if flags.Changed("away") {
+		away, err := parseAwayFlag("--away", f.away)
+		if err != nil {
+			return change, err
+		}
+		change.Away = away
+	}
+	if flags.Changed("night") {
+		agents, err := parseNight(e.harnesses, "--night", f.night)
+		if err != nil {
+			return change, err
+		}
+		change.Night = agents
+	}
+	if flags.Changed("weekly-reserve") {
+		if f.reserve < 0 || f.reserve > 100 {
+			return change, fmt.Errorf("--weekly-reserve is a percentage, not %d", f.reserve)
+		}
+		change.Reserve = &f.reserve
+	}
 	if flags.Changed("secondary") {
 		if f.secondary == "none" {
 			change.Secondary = &control.Agent{}
@@ -171,13 +204,22 @@ func changeFromFlags(cmd *cobra.Command, e *env, f *adjustFlags) (control.Settin
 
 func adjustInteractively(e *env, live control.Live) error {
 	wanted := live.Wanted
-	setting, err := ui.Pick(live.Name()+": change what?", "finish", []ui.Choice{
+	choices := []ui.Choice{
 		{Label: "when the run ends: " + finishLabel(wanted.Finish), Value: "finish"},
 		{Label: "push when the run ends: " + yesNo(wanted.Pushes()), Value: "push"},
 		{Label: "stop after the current unit: " + yesNo(wanted.Stops()), Value: "stop"},
 		{Label: "on a usage limit: " + secondaryLabel(wanted.SecondaryAgent()), Value: "secondary"},
 		{Label: "a unit due in peak hours: " + peakLabel(wanted.Peak), Value: "peak"},
-	})
+		{Label: "while you are away: " + awayLabel(wanted.AwaySpan()), Value: "away"},
+	}
+	if wanted.AwaySpan() != "" {
+		for i, a := range wanted.Night {
+			choices = append(choices, ui.Choice{
+				Label: fmt.Sprintf("fresh windows %s may open: %d", a.Label(), a.Windows), Value: "night:" + strconv.Itoa(i),
+			})
+		}
+	}
+	setting, err := ui.Pick(live.Name()+": change what?", "finish", choices)
 	if err != nil {
 		return err
 	}
@@ -222,8 +264,32 @@ func adjustInteractively(e *env, live control.Live) error {
 		if change.Peak, err = ui.Pick("A unit due to start in peak hours?", "peak", peakChoices); err != nil {
 			return err
 		}
+	case "away":
+		if change.Away, err = ui.Pick("When are you away from Claude and Codex?", "away", awayChoices(wanted.Away)); err != nil {
+			return err
+		}
+	default:
+		index, _ := strconv.Atoi(strings.TrimPrefix(setting, "night:"))
+		agents := append([]control.NightAgent(nil), wanted.Night...)
+		var counts []ui.Choice
+		for n := 0; n <= 4; n++ {
+			counts = append(counts, ui.Choice{Label: strconv.Itoa(n), Value: strconv.Itoa(n)})
+		}
+		picked, err := ui.Pick("How many fresh windows may "+agents[index].Harness+" open this span, all told?", "night", counts)
+		if err != nil {
+			return err
+		}
+		agents[index].Windows, _ = strconv.Atoi(picked)
+		change.Night = agents
 	}
 	return apply(live, change)
+}
+
+func awayLabel(span string) string {
+	if span == "" {
+		return "not away"
+	}
+	return pretty(span)
 }
 
 var peakChoices = []ui.Choice{

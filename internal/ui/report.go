@@ -17,6 +17,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
+	"github.com/Torwalt/ploopy/internal/stats"
 )
 
 // Reporter renders a run. It is deliberately not a full-screen program:
@@ -38,6 +39,7 @@ type Reporter struct {
 	started time.Time
 	cost    float64
 	tokens  int
+	budget  *harness.Budget
 }
 
 // NewReporter builds a renderer for a writer, with colour only where it lands
@@ -86,7 +88,7 @@ func (r *Reporter) UnitStart(u plan.Unit, attempt int, logPath string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.started = time.Now()
-	r.cost, r.tokens = 0, 0
+	r.cost, r.tokens, r.budget = 0, 0, nil
 	fmt.Fprintf(r.out, "\n%s %s\n", r.unit.Render("▌ "+u.ID+"  "+u.Title),
 		r.dim.Render(fmt.Sprintf("attempt %d · %s", attempt, logPath)))
 }
@@ -96,6 +98,9 @@ func (r *Reporter) Event(e harness.Event) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	switch e.Kind {
+	case harness.EventBudget:
+		r.budget = e.Budget
+		return
 	case harness.EventUsage:
 		// Both are running totals, so the last one seen is the answer.
 		if e.Tokens > 0 {
@@ -144,6 +149,9 @@ func (r *Reporter) UnitDone(u plan.Unit, v loop.Verdict) {
 	if r.cost > 0 {
 		tail += fmt.Sprintf(" · $%.2f", r.cost)
 	}
+	if r.budget != nil {
+		tail += " · " + r.budget.Describe(time.Now())
+	}
 	if v.Kind == loop.Blocked {
 		fmt.Fprintf(r.out, "\n%s %s\n", r.bad.Render("▌ "+u.ID+" BLOCKED"), r.dim.Render(tail))
 		fmt.Fprintf(r.out, "    %s\n", v.Reason)
@@ -173,4 +181,27 @@ func truncate(text string, limit int) string {
 		return text
 	}
 	return string(runes[:limit-1]) + "…"
+}
+
+// Degraded says, loudly and after everything else the run reports, which
+// adapters could not read all of what their harness reported.
+func (r *Reporter) Degraded(degraded []stats.Degraded) {
+	if len(degraded) == 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	fmt.Fprintf(r.err, "\n%s\n", r.bad.Render("[ploopy] harness adapter degraded"))
+	fmt.Fprintln(r.err, "  Units were judged from git as always; these sessions' cost, tokens or usage windows are incomplete.")
+	for _, d := range degraded {
+		fmt.Fprintf(r.err, "  %s: %d of %d session(s)\n", r.tag.Render(d.Agent), d.Sessions, d.Of)
+		for _, note := range d.Notes {
+			fmt.Fprintf(r.err, "    %s\n", r.warn.Render(note))
+		}
+		logs := d.Logs
+		if len(logs) > 3 {
+			logs = append(logs[:3:3], fmt.Sprintf("and %d more", len(d.Logs)-3))
+		}
+		fmt.Fprintf(r.err, "    %s\n", r.dim.Render("logs: "+strings.Join(logs, ", ")))
+	}
 }

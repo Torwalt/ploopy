@@ -103,6 +103,73 @@ How should it run?
 
 Every answer is also a flag: `ploopy run --help`.
 
+## While you are away
+
+Claude's and Codex's five-hour windows go unused at night. Pick an away span
+on the settings page (or `--away 21:00-09:00`), make the run's own agent the
+one without windows, such as opencode with DeepSeek, and ploopy puts what the
+subscriptions have left on a page of its own:
+
+```
+While you are away, 21:00–09:00
+claude sonnet high · 5h 49% → 22:10 · weekly 51% → Tue 16:00 · seen 15:38
+  the rest of its window is free until 22:10; then 2 fresh window(s) fit before 09:00
+  per unit 16% of a 5h window (27% at worst), 1.0% of the week · ≈$2.25 list · 23 min — from 6 units
+  2 fresh window(s) ≈ 12 of 12 open units; the week ≈ 76% spent after them, 20% kept for you
+codex gpt-6.1-sol high · 5h 60% → 20:12 · weekly 9% → Thu 22 Oct 15:12 · now
+  2 fresh window(s) fit before 09:00
+  no estimate yet: 0 landed unit(s) on record, 3 needed
+opencode deepseek/deepseek-flash high takes the rest · per unit $0.05 · 4 min — from 33 units
+```
+
+It is asked every time, since the windows differ every night. Inside the span,
+each session goes to the first subscription with room, else to the run's own
+agent:
+
+- a window that resets before you are back is used up for free;
+- a fresh window opens only when it would end before you are back, and only
+  as many as you allowed;
+- a subscription at its usage limit hands over without waiting;
+- one that cannot run, logged out or not installed, hands over too and sits
+  out half an hour;
+- none goes past the share of the week you keep (20% unless you choose).
+
+Outside the span the subscriptions are yours. `--night claude=2,codex=1` and
+`--weekly-reserve 20` answer the page; `ploopy adjust` changes the span and
+the counts mid-run. Claude reports its windows only from inside a session, so
+before the first one ploopy goes by the last it saw; Codex's are read live
+through `codex app-server`, without a model call.
+
+## History
+
+Every session goes to `.git/ploopy/history.jsonl`, shared by all worktrees and
+kept when one is removed. `ploopy history` says what a landed unit took each
+agent here, every attempt included, and where the windows stand; the settings
+page shows the same above its questions. An estimate needs three landed units
+of one agent; units run while you were away are preferred once there are three,
+because your own use moves the windows during the day. `--import` adds the
+sessions the checkouts' stats logs still hold, Claude's windows read back out of
+its transcripts.
+
+## When an adapter falls short
+
+A harness that changes its output format must not cost a unit, and must not go
+unnoticed. Each adapter knows what a finished session reports — Claude a result
+event, its cost, tokens and usage windows; Codex a thread and token usage;
+opencode its steps — and counts structured lines that no longer decode. Plain
+output beside the stream, such as a warning, does not count. Units are judged
+from git as always; what fell short is said once when it first happens, marked
+in the stats log and the report, and repeated in red at the end of the run:
+
+```
+[ploopy] harness adapter degraded
+  Units were judged from git as always; these sessions' cost, tokens or usage windows are incomplete.
+  claude sonnet high: 2 of 2 session(s)
+    no result event: cost, tokens and turns are unknown
+    1 line did not decode: result: json: cannot unmarshal string into Go struct field streamLine.num_turns of type int
+    logs: .ploopy/night/logs/1.2-0.log, .ploopy/night/logs/1.3-0.log
+```
+
 ## Codex
 
 Choose `codex` on the Agent page for runs, reviews, triage or usage-limit
@@ -125,7 +192,9 @@ The model picker offers GPT-6.1 Sol, Astra, Luna, GPT-6 Sol and GPT-5.6 Sol;
 `xhigh` and `max`. Availability follows your Codex account.
 
 The adapter runs `codex exec --json`, sends the work order on stdin, and
-records text, tool activity, token usage and the actual thread ID. `ploopy
+records text, tool activity, token usage and the actual thread ID. Before and
+after each session it reads the account's usage windows from `codex
+app-server`. `ploopy
 replay` shows `codex resume <thread-id>` to reopen it. It recognizes usage
 limits for the normal wait/fallback policy. Codex's stream reports no dollar
 cost or spending-cap control: costs stay unknown and a nonzero `--budget`,

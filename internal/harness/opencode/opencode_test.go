@@ -174,3 +174,27 @@ func TestThePeakWindowsAreDeepseeksOwn(t *testing.T) {
 		}
 	}
 }
+
+func TestAStepThatNoLongerDecodesIsDegraded(t *testing.T) {
+	fakeOpencode(t, strings.Replace(stream, `"cost":0.0005`, `"cost":"cheap"`, 1))
+	outcome := start(t, harness.Spec{Prompt: "x"})
+	if outcome.Marker != harness.Done || len(outcome.Degraded) != 1 ||
+		!strings.Contains(outcome.Degraded[0], "did not decode: step_finish") {
+		t.Fatalf("outcome %+v", outcome)
+	}
+}
+
+func TestASessionWithoutStepsIsDegraded(t *testing.T) {
+	fakeOpencode(t, `{"type":"text","sessionID":"ses_1","part":{"type":"text","text":"DONE"}}`)
+	outcome := start(t, harness.Spec{Prompt: "x"})
+	if len(outcome.Degraded) != 1 || !strings.Contains(outcome.Degraded[0], "no step_finish") {
+		t.Fatalf("degraded %v", outcome.Degraded)
+	}
+}
+
+func TestPlainOutputIsNotDrift(t *testing.T) {
+	fakeOpencode(t, "a warning on stderr\n"+stream)
+	if outcome := start(t, harness.Spec{Prompt: "x"}); len(outcome.Degraded) != 0 {
+		t.Fatalf("degraded %v", outcome.Degraded)
+	}
+}

@@ -2,6 +2,7 @@ package claude
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -187,6 +188,10 @@ func TestOutputThatIsNotJsonDoesNotCrashTheAdapter(t *testing.T) {
 	if raw != 1 {
 		t.Fatalf("%d raw events, want 1", raw)
 	}
+	// What a harness prints beside its stream, such as a warning, is not drift.
+	if len(outcome.Degraded) != 0 {
+		t.Fatalf("degraded %v", outcome.Degraded)
+	}
 }
 
 func TestASessionThatNeverReportsAResultFallsBackToItsText(t *testing.T) {
@@ -198,6 +203,9 @@ func TestASessionThatNeverReportsAResultFallsBackToItsText(t *testing.T) {
 	}
 	if outcome.SessionID != "abc" {
 		t.Fatalf("session id %q", outcome.SessionID)
+	}
+	if len(outcome.Degraded) != 1 || !strings.Contains(outcome.Degraded[0], "no result event") {
+		t.Fatalf("degraded %v", outcome.Degraded)
 	}
 }
 
@@ -230,5 +238,92 @@ func TestAToolCallIsTimedUntilItsResult(t *testing.T) {
 	}
 	if len(done) != 1 || done[0].Tool != "Bash" || done[0].Text != "just test" || done[0].Took < 0 {
 		t.Fatalf("finished calls %+v", done)
+	}
+}
+
+func windowEvent(status string, session, weekly float64) string {
+	return fmt.Sprintf(`{"type":"rate_limit_event","rate_limit_info":{"status":%q,"resetsAt":1792066200,`+
+		`"rateLimitType":"five_hour","unifiedWindows":{"five_hour":{"utilization":%g,"resetsAt":1792066200},`+
+		`"seven_day":{"utilization":%g,"resetsAt":1792504800}}},"session_id":"abc"}`, status, session, weekly)
+}
+
+// subscriptionStream is a session logged in to a subscription, which reports
+// usage windows, without any of them.
+var subscriptionStream = strings.Replace(successStream, `"subtype":"init"`, `"subtype":"init","apiKeySource":"none"`, 1)
+
+func TestTheUsageWindowsComeFromRateLimitEvents(t *testing.T) {
+	fakeClaude(t, windowEvent("allowed", 0.59, 0.4)+"\n"+windowEvent("allowed_warning", 0.72, 0.41)+"\n"+
+		subscriptionStream)
+
+	outcome, events := start(t, harness.Spec{Prompt: "x", SessionID: "abc"})
+	before, after := outcome.BudgetBefore, outcome.Budget
+	if before == nil || after == nil || before.Session.Used != 0.59 || after.Session.Used != 0.72 || after.Weekly.Used != 0.41 {
+		t.Fatalf("before %+v after %+v", before, after)
+	}
+	if !after.Session.ResetAt.Equal(time.Unix(1792066200, 0)) || after.Session.Length != harness.SessionWindow ||
+		!after.Weekly.ResetAt.Equal(time.Unix(1792504800, 0)) {
+		t.Fatalf("windows %+v", after)
+	}
+	budgets := 0
+	for _, event := range events {
+		if event.Kind == harness.EventBudget {
+			budgets++
+		}
+	}
+	if budgets != 2 {
+		t.Fatalf("%d budget events, want 2", budgets)
+	}
+	if len(outcome.Degraded) != 0 {
+		t.Fatalf("degraded %v", outcome.Degraded)
+	}
+}
+
+func TestARejectedWindowSaysWhenItResets(t *testing.T) {
+	fakeClaude(t, windowEvent("rejected", 1, 0.43)+"\n"+
+		`{"type":"result","subtype":"success","is_error":true,"api_error_status":429,`+
+		`"result":"You've hit your session limit","session_id":"abc"}`)
+
+	outcome, _ := start(t, harness.Spec{Prompt: "x", SessionID: "abc"})
+	if outcome.RateLimit == nil {
+		t.Fatal("the usage limit was not recognised")
+	}
+	if want := time.Unix(1792066200, 0).Add(2 * time.Minute); !outcome.RateLimit.ResetAt.Equal(want) {
+		t.Fatalf("reset %v, want %v", outcome.RateLimit.ResetAt, want)
+	}
+}
+
+// The event's reset is exact; the prose is rounded and names no day, so a
+// weekly limit read from it would lift tomorrow.
+func TestTheRejectedEventsResetOverridesTheProse(t *testing.T) {
+	fakeClaude(t, windowEvent("rejected", 0.4, 1)+"\n"+
+		`{"type":"result","subtype":"success","is_error":true,"api_error_status":429,`+
+		`"result":"You've hit your weekly limit · resets 4pm (Europe/Berlin)","session_id":"abc"}`)
+
+	outcome, _ := start(t, harness.Spec{Prompt: "x", SessionID: "abc"})
+	if want := time.Unix(1792066200, 0).Add(2 * time.Minute); outcome.RateLimit == nil || !outcome.RateLimit.ResetAt.Equal(want) {
+		t.Fatalf("limit %+v, want a reset at %v", outcome.RateLimit, want)
+	}
+}
+
+// A field Claude Code changed the type of loses the numbers, never the run.
+func TestAResultThatNoLongerDecodesIsReportedAsDegraded(t *testing.T) {
+	fakeClaude(t, strings.Replace(successStream, `"num_turns":4`, `"num_turns":"4"`, 1))
+
+	outcome, _ := start(t, harness.Spec{Prompt: "x", SessionID: "abc"})
+	if outcome.Marker != harness.Done {
+		t.Fatalf("marker %q", outcome.Marker)
+	}
+	joined := strings.Join(outcome.Degraded, "\n")
+	if !strings.Contains(joined, "did not decode: result") || !strings.Contains(joined, "no result event") {
+		t.Fatalf("degraded %v", outcome.Degraded)
+	}
+}
+
+func TestASubscriptionSessionWithoutWindowsIsDegraded(t *testing.T) {
+	fakeClaude(t, subscriptionStream)
+
+	outcome, _ := start(t, harness.Spec{Prompt: "x", SessionID: "abc"})
+	if len(outcome.Degraded) != 1 || !strings.Contains(outcome.Degraded[0], "rate_limit_event") {
+		t.Fatalf("degraded %v", outcome.Degraded)
 	}
 }
