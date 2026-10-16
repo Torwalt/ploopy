@@ -959,3 +959,27 @@ func TestAHarnessWithoutPeakWindowsIsNeverGated(t *testing.T) {
 		t.Fatalf("a harness with no windows slept %v", f.slept)
 	}
 }
+
+// The end action is noted after the run removed its worktree; the note must
+// not bring the directory back, or the next worktree for the branch cannot go
+// there.
+func TestANoteAfterTheCheckoutIsGoneLeavesNothingBehind(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Do: commits("one.go", "first"), Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	runner, err := New(f.root, f.opts, &silent{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result := runner.Run(context.Background()); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if err := os.RemoveAll(f.root); err != nil {
+		t.Fatal(err)
+	}
+	runner.Note("finish", "poweroff")
+	if _, err := os.Stat(f.root); !os.IsNotExist(err) {
+		t.Fatalf("the removed checkout came back: %v", err)
+	}
+}

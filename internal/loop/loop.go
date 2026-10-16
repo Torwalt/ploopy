@@ -315,6 +315,9 @@ func (l *Loop) previousHandover(p *plan.Plan, s *state.State, u plan.Unit) strin
 // record appends to the run log, which is the history of everything the loop
 // decided for this plan.
 func (l *Loop) record(kind, message string) {
+	if !l.rooted() {
+		return
+	}
 	if err := os.MkdirAll(l.dir, 0o755); err != nil {
 		return
 	}
@@ -332,9 +335,16 @@ func (l *Loop) record(kind, message string) {
 // action, in the same run log.
 func (l *Loop) Note(kind, message string) { l.record(kind, message) }
 
+// rooted reports whether the checkout is still there. A worktree removed at
+// the end of the run must not come back as a directory holding only its log.
+func (l *Loop) rooted() bool {
+	_, err := os.Stat(l.root)
+	return err == nil
+}
+
 // notify writes the run's status and runs the author's notify command.
 func (l *Loop) notify(status, message string) {
-	if err := os.MkdirAll(l.dir, 0o755); err == nil {
+	if l.rooted() && os.MkdirAll(l.dir, 0o755) == nil {
 		_ = os.WriteFile(filepath.Join(l.dir, "status"), []byte(status), 0o644)
 	}
 	if l.opts.Notify == "" {
