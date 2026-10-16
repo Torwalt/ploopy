@@ -89,8 +89,8 @@ func newReport(e *env) *cobra.Command {
 			if !stamp {
 				return nil
 			}
-			if c.Root == "" {
-				return fmt.Errorf("%s is not checked out anywhere; check it out to stamp its report", c.Branch)
+			if c, err = e.checkedOut(ctx, c); err != nil {
+				return err
 			}
 			if err := repo.New(c.Root, nil).CommitEmpty(ctx, strings.TrimRight(text, "\n")); err != nil {
 				return err
@@ -220,8 +220,8 @@ func newMark(e *env) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if c.Root == "" {
-				return fmt.Errorf("%s is not checked out anywhere; check it out to mark its units", c.Branch)
+			if c, err = e.checkedOut(cmd.Context(), c); err != nil {
+				return err
 			}
 			u, err := unitArg(c, args, "Which unit?", nil)
 			if err != nil {

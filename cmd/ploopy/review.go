@@ -78,11 +78,10 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 	if c.Live != nil {
 		return fmt.Errorf("%s is running in %s; review it once the run has ended", c.Plan.Path, c.Live.Root)
 	}
-	if c.Root == "" {
-		return fmt.Errorf("%s is only on branch %s; check it out to review it", c.Plan.Path, c.Branch)
+	root, err := e.place(ctx, c)
+	if err != nil {
+		return err
 	}
-
-	root := c.Root
 	reviewPath := review.Path(c.Plan.Path)
 	if isFile(filepath.Join(root, reviewPath)) {
 		existing, err := plan.Load(filepath.Join(root, reviewPath), reviewPath)

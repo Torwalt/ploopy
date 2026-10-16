@@ -95,8 +95,8 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	flags.StringVar(&f.context, "context", "", `documents every session reads first, e.g. "A.md B.md"`)
 	flags.StringVar(&f.notify, "notify", "", "command run when the loop stops")
 	flags.BoolVar(&f.allowDirty, "allow-dirty", false, "hand a dirty working tree to the first session")
-	flags.BoolVar(&f.worktree, "worktree", false,
-		"run in a worktree of the current branch; this checkout moves to the default branch")
+	flags.BoolVar(&f.worktree, "worktree", false, "")
+	_ = flags.MarkDeprecated("worktree", "every run goes to a worktree of its branch")
 	flags.BoolVar(&f.dryRun, "dry-run", false, "print the first session's prompt and stop")
 	flags.StringVar(&f.finish, "finish", "", "when the run ends: none, suspend or poweroff")
 	flags.BoolVar(&f.push, "push", false, "push the branch when the run ends, before the end action")
@@ -201,16 +201,8 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		return dryRun(ctx, runner, c, f)
 	}
 
-	root, moved := t.root, t.moved
-	if moved != nil {
-		if err := e.repo().HandOff(ctx, moved.branch, moved.onto, moved.path); err != nil {
-			return err
-		}
-		report.Say("%s is on %s now; %s runs in %s", e.root, moved.onto, moved.branch, moved.path)
-		root = moved.path
-		t.fresh = true
-	}
-	if !c.Here {
+	root := t.root
+	if !samePath(root, e.root) {
 		report.Say("%s runs in %s, where %s is checked out", p.Path, root, t.branch)
 	}
 	if t.fresh {
@@ -265,9 +257,9 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 	if wanted.Pushes() {
 		pushBranch(ctx, root, runner, report)
 	}
-	// Only a worktree at ploopy's own path is removed: one the author made is
-	// theirs, and a run started inside a worktree has its shell there.
-	if branch != "" && root == worktreePath(e.root, branch) {
+	// Only a worktree ploopy made is removed: one the author made is theirs,
+	// and a run started inside a worktree has its shell there.
+	if branch != "" && e.ours(ctx, root) {
 		leaveWorktree(ctx, e, root, branch, p.Path, cfg, complete, runner, report)
 	}
 	endAction(ctx, runner, report, ui.Finish(wanted.Finish), f.grace)
@@ -413,53 +405,39 @@ func choosePlan(ctx context.Context, e *env, f *runFlags) (catalog.Copy, error) 
 	return e.pick(ctx, "Which plan?", !f.all)
 }
 
-// target is where a run happens: this checkout, a worktree the plan already
-// runs in, or a new worktree for the branch that holds the plan.
+// target is where a run happens: always a worktree of the plan's branch.
 type target struct {
 	root   string
 	cfg    config.Config
 	branch string
-	moved  *handoff // this checkout's branch, handed over to a worktree
-	fresh  bool     // the worktree is new and wants the setup command
+	fresh  bool // no run has used the worktree yet, so it wants the setup command
 }
 
 func prepareTarget(ctx context.Context, e *env, f *runFlags, c catalog.Copy) (target, error) {
-	switch {
-	case c.Here:
-		moved, err := chooseWorktree(ctx, e, f)
+	root := ""
+	if f.dryRun {
+		checked, err := e.checkedOut(ctx, c)
 		if err != nil {
 			return target{}, err
 		}
-		if moved != nil {
-			if err := moved.check(ctx, e, c.Plan, f.allowDirty); err != nil {
-				return target{}, err
-			}
-		}
-		return target{root: e.root, cfg: e.cfg, branch: c.Branch, moved: moved}, nil
-	case c.Root != "":
-		cfg, err := config.Load(c.Root)
+		root = checked.Root
+	} else {
+		placed, err := e.place(ctx, c)
 		if err != nil {
 			return target{}, err
 		}
-		return target{root: c.Root, cfg: cfg, branch: c.Branch}, nil
+		root = placed
 	}
-
-	// Only a branch holds it: check that branch out beside this checkout. A
-	// later `ploopy` finds the plan there, whether or not this run starts.
-	path := worktreePath(e.root, c.Branch)
-	if _, err := os.Stat(path); err == nil {
-		return target{}, fmt.Errorf("%s already exists but does not hold %s; remove it, or check %s out there",
-			path, c.Branch, c.Branch)
-	}
-	if err := e.repo().AddWorktree(ctx, path, c.Branch); err != nil {
-		return target{}, err
-	}
-	fmt.Printf("%s holds %s; checked it out in %s for the run\n", c.Branch, c.Plan.Path, path)
-	cfg, err := config.Load(path)
+	cfg, err := config.Load(root)
 	if err != nil {
 		return target{}, err
 	}
-	return target{root: path, cfg: cfg, branch: c.Branch, fresh: true}, nil
+	branch, err := repo.New(root, nil).Branch(ctx)
+	if err != nil {
+		return target{}, err
+	}
+	_, used := os.Stat(filepath.Join(root, repo.WorkDir))
+	return target{root: root, cfg: cfg, branch: branch, fresh: os.IsNotExist(used)}, nil
 }
 
 // peakHours renders the windows in local time, today's offset applied. The

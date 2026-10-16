@@ -41,9 +41,6 @@ func closePlan(ctx context.Context, e *env, args []string, force, keep bool) err
 	if c.Live != nil {
 		return fmt.Errorf("%s is running in %s; stop it first with `ploopy adjust --stop`", c.Plan.Path, c.Live.Root)
 	}
-	if c.Root == "" {
-		return fmt.Errorf("%s is only on branch %s; check it out to close it", c.Plan.Path, c.Branch)
-	}
 	if done, total := c.Done(); done < total && !force {
 		if !ui.Interactive() {
 			return fmt.Errorf("%s has %d of %d units still open; --force closes it anyway", c.Plan.Path, total-done, total)
@@ -59,6 +56,9 @@ func closePlan(ctx context.Context, e *env, args []string, force, keep bool) err
 		}
 	}
 
+	if c, err = e.checkedOut(ctx, c); err != nil {
+		return err
+	}
 	cfg, err := config.Load(c.Root)
 	if err != nil {
 		return err
@@ -69,7 +69,7 @@ func closePlan(ctx context.Context, e *env, args []string, force, keep bool) err
 	}
 
 	fmt.Printf("%s\n\nclosed %s in a commit on %s\n", text, c.Plan.Path, c.Branch)
-	if !c.Here {
+	if !samePath(c.Root, e.root) {
 		closeWorktree(ctx, e, c.Root, c.Branch, cfg, keep)
 	}
 	return nil

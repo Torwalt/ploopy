@@ -6,13 +6,35 @@ stops, and records progress in `<PLAN>.state.json` beside the plan.
 
 ## Flow
 
-1. Write `docs/plans/<NAME>.md` with the `plan-writing` skill and commit it on a branch.
-2. `ploopy` → run a plan → in a worktree → like last time. Keep working on master.
+1. Write `docs/plans/<NAME>.md` with the `plan-writing` skill.
+2. `ploopy` → run a plan → like last time. It runs in a worktree of the plan's
+   branch; keep working on master.
 3. `ploopy adjust` from any terminal changes what the run does next.
-4. In the morning: `git switch <branch>`, `ploopy review <NAME>`, read what it
-   puts to you, run the fix plan it wrote.
+4. In the morning, still on master: `ploopy review <NAME>`, read what it puts
+   to you, run the fix plan it wrote.
 5. `ploopy land <branch>` closes all three plans, rebases the branch onto master,
    runs the checks, and fast-forwards master. Master is yours to push.
+
+## Worktrees
+
+Every run, and every review, goes to a worktree of the plan's branch at
+`<repo>.worktrees/<branch>`, whichever checkout ploopy is started from:
+
+- a worktree that holds the branch is used as it is;
+- a branch checked out nowhere is checked out there;
+- a branch the main checkout has moves there, and the main checkout to the
+  default branch. Uncommitted changes besides the plan stop this: they belong
+  to the branch, and the run would not see them;
+- a plan on the default branch gets a branch named after it, `PLAYTEST_FIXES`
+  → `playtest-fixes`, at the commit it is on. A later run finds that branch
+  again;
+- a plan not yet committed is committed on the branch the run uses, and taken
+  out of the default branch's checkout;
+- what a removed worktree left behind at that path is cleared, and anything
+  else there is moved aside.
+
+`close`, `mark`, `report --commit` and `show` check a branch out the same way
+when no checkout holds it.
 
 ## Land
 
@@ -74,10 +96,6 @@ $ ploopy
 ┃   replay a unit's session
 ┃   mark a unit by hand
 ┃   lint the plans
-
-┃ Where?
-┃   here, on engine-pass
-┃ > in a worktree for engine-pass; this checkout moves to master
 
 ┃ How should it run?
 ┃ > like last time: opencode deepseek/deepseek-flash high · no end action · push at the end · wait

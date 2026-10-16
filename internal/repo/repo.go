@@ -110,7 +110,18 @@ func (r *Repo) Linked(ctx context.Context) (bool, error) {
 
 // Committed reports whether path is in the commit at HEAD.
 func (r *Repo) Committed(ctx context.Context, path string) bool {
-	_, err := r.git(ctx, "cat-file", "-e", "HEAD:"+filepath.ToSlash(path))
+	return r.CommittedAt(ctx, "HEAD", path)
+}
+
+// CommittedAt reports whether path is in the commit rev names.
+func (r *Repo) CommittedAt(ctx context.Context, rev, path string) bool {
+	_, err := r.git(ctx, "cat-file", "-e", rev+":"+filepath.ToSlash(path))
+	return err == nil
+}
+
+// HasBranch reports whether a local branch exists.
+func (r *Repo) HasBranch(ctx context.Context, branch string) bool {
+	_, err := r.git(ctx, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
 	return err == nil
 }
 
@@ -346,11 +357,37 @@ func (r *Repo) RemoveAndCommit(ctx context.Context, paths []string, message stri
 
 // CommitOnly commits one path and nothing else.
 func (r *Repo) CommitOnly(ctx context.Context, path, message string) error {
-	if _, err := r.git(ctx, "add", "--", path); err != nil {
+	return r.CommitPaths(ctx, []string{path}, message)
+}
+
+// CommitPaths commits paths and nothing else: whatever else is staged stays
+// staged.
+func (r *Repo) CommitPaths(ctx context.Context, paths []string, message string) error {
+	if _, err := r.git(ctx, append([]string{"add", "--"}, paths...)...); err != nil {
 		return err
 	}
-	_, err := r.git(ctx, "commit", "-q", "--no-verify", "-m", message, "--", path)
+	_, err := r.git(ctx, append([]string{"commit", "-q", "--no-verify", "-m", message, "--"}, paths...)...)
 	return err
+}
+
+// Discard puts paths back as HEAD has them, and deletes those HEAD does not
+// have.
+func (r *Repo) Discard(ctx context.Context, paths []string) error {
+	for _, path := range paths {
+		if r.Committed(ctx, path) {
+			if _, err := r.git(ctx, "restore", "--source=HEAD", "--staged", "--worktree", "--", path); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := r.git(ctx, "rm", "-q", "--cached", "--ignore-unmatch", "--", path); err != nil {
+			return err
+		}
+		if err := os.Remove(filepath.Join(r.Root, path)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 // Push sends the branch checked out here to its remote, and says where it went.
@@ -414,6 +451,18 @@ func (r *Repo) pushTarget(ctx context.Context, branch string) (remote string, tr
 // AddWorktree checks branch out at path, leaving this checkout alone.
 func (r *Repo) AddWorktree(ctx context.Context, path, branch string) error {
 	_, err := r.git(ctx, "worktree", "add", "--quiet", path, branch)
+	return err
+}
+
+// NewWorktree makes branch at base and checks it out at path.
+func (r *Repo) NewWorktree(ctx context.Context, path, branch, base string) error {
+	_, err := r.git(ctx, "worktree", "add", "--quiet", "-b", branch, path, base)
+	return err
+}
+
+// PruneWorktrees forgets the checkouts whose directories are gone.
+func (r *Repo) PruneWorktrees(ctx context.Context) error {
+	_, err := r.git(ctx, "worktree", "prune")
 	return err
 }
 

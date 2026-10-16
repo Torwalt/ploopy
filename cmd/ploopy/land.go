@@ -101,7 +101,7 @@ func landBranch(cmd *cobra.Command, e *env, args []string, f *landFlags) error {
 	}
 	fresh := root == ""
 	if fresh {
-		if err := r.AddWorktree(ctx, own, branch); err != nil {
+		if own, err = e.addWorktree(ctx, main, trees, branch); err != nil {
 			return err
 		}
 		root = own

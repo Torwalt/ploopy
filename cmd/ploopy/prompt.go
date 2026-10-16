@@ -15,8 +15,9 @@ import (
 // showPrompt renders what a session would be given. It needs a harness only
 // for the shape of the options, so the first one will do.
 func showPrompt(cmd *cobra.Command, e *env, c catalog.Copy, u plan.Unit) error {
-	if c.Root == "" {
-		return fmt.Errorf("%s is only on branch %s; check it out to see a whole prompt", c.Plan.Path, c.Branch)
+	c, err := e.checkedOut(cmd.Context(), c)
+	if err != nil {
+		return err
 	}
 	root := c.Root
 	cfg, err := config.Load(root)
