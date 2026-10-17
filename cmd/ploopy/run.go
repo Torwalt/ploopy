@@ -13,7 +13,6 @@ import (
 	"github.com/Torwalt/ploopy/internal/catalog"
 	"github.com/Torwalt/ploopy/internal/config"
 	"github.com/Torwalt/ploopy/internal/control"
-	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
@@ -562,43 +561,6 @@ func prepareTarget(ctx context.Context, e *env, f *runFlags, c catalog.Copy) (ta
 	}
 	_, used := os.Stat(filepath.Join(root, repo.WorkDir))
 	return target{root: root, cfg: cfg, branch: branch, fresh: os.IsNotExist(used)}, nil
-}
-
-// peakHours renders the windows in local time, today's offset applied. The
-// days stay UTC days.
-func peakHours(windows []harness.Window, now time.Time) string {
-	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	clock := func(minutes int) string {
-		return midnight.Add(time.Duration(minutes) * time.Minute).In(now.Location()).Format("15:04")
-	}
-	var parts []string
-	last := ""
-	for _, w := range windows {
-		span := clock(w.Start) + "–" + clock(w.End)
-		if days := weekdays(w.Days); days != last || len(parts) == 0 {
-			parts = append(parts, days+" "+span)
-			last = days
-		} else {
-			parts[len(parts)-1] += ", " + span
-		}
-	}
-	return strings.Join(parts, "; ")
-}
-
-// weekdays names a set of days, a consecutive run as a range.
-func weekdays(days []time.Weekday) string {
-	names := make([]string, 0, len(days))
-	for _, day := range days {
-		names = append(names, day.String()[:3])
-	}
-	consecutive := len(days) > 2
-	for i := 1; i < len(days); i++ {
-		consecutive = consecutive && days[i] == days[i-1]+1
-	}
-	if consecutive {
-		return names[0] + "–" + names[len(names)-1]
-	}
-	return strings.Join(names, ", ")
 }
 
 func labelled(values []string) []ui.Choice {
