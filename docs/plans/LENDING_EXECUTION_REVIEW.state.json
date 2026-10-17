@@ -119,6 +119,26 @@
         "reasoning": 83128,
         "cache_read": 7712640
       }
+    },
+    "1.7": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T15:17:50+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "248e14ed4bdaaf3d34c993f6b971aa41475677b3",
+      "attempts": 1,
+      "handover": "# Findings: Unit 3.3, The shrinking reserve and the order among subscriptions, of LENDING_EXECUTION\n\nReviewed: a492059def6d..4e604c30d065, 3 files. Steps: all done.\n\n## F1 — §7's \"the active window that resets first goes first\" has no test\n\n- Class: gap\n- Confidence: high\n- Where: `internal/loop/night.go:323-324`; the only active-window test is `internal/loop/night_test.go:180-192`\n- Situation: two leases both have an active five-hour window with room, for example claude resets in two hours and codex in four. §7 rule 1 says claude goes first because its window expires first.\n- Happens: `lendOrder` compares `Session.ResetAt` ascending, but no test has two active choices. Changing `.Before` to `.After` leaves `go test ./internal/loop` green (verified against a `git archive` copy of `4e604c3`). The existing test has one active and one fresh, so it pins only the active-before-fresh half.\n- Should: add a test with two active windows whose resets differ and assert the earlier reset is picked, and the later one next when the first is spent if convenient.\n- Test: none exists.\n\n## F2 — §7 rule 3, ties keep lease-file order, has no test\n\n- Class: gap\n- Confidence: high\n- Where: `internal/loop/night.go:317-328`; tests `internal/loop/night_test.go:159-216`\n- Situation: two fresh leases have equal urgency, for example both budgets nil, or identical keep, weekly use and time to reset; `Lending.Leases` is claude then codex.\n- Happens: `sort.SliceStable` preserves the order, but no test creates a tie. I made the comparator break ties by harness name and `go test ./internal/loop` stayed green (verified).\n- Should: add a fresh-tie case asserting the first lease in `Lending.Leases` is picked.\n- Test: none exists.\n\n## F3 — `EffectiveKeep`'s nil-budget and over-seven-day branches are untested\n\n- Class: gap\n- Confidence: high\n- Where: `internal/loop/night.go:131-135`, `:138-145`; table `internal/loop/night_test.go:107-143`; nil-budget row `internal/loop/night_test.go:85`\n- Situation: (a) a lease with `Keep` 0.2 and no budget at all — Claude's first session before history, or an adapter that cannot report its windows — must keep 20%, not 0 (§6: `b == nil` returns `lease.Keep`). (b) a reported weekly window whose reset is more than seven days away must not raise the reserve above `lease.Keep` (§6 clamps `left/7d` to 1).\n- Happens: both are correct in the code, but the \"unknown reset\" row passes a reset equal to `now` rather than a nil budget, so it exercises `!b.Weekly.Active`, not `b == nil`; the nil-budget row at line 85 only checks `Room`'s yes/no, which still passes when the keep is 0. Every table row has at most 120h left. Returning 0 for `b == nil`, or deleting the upper clamp, leaves `go test ./internal/loop` green (both verified).\n- Should: add a case with `b == nil` asserting `EffectiveKeep` is `lease.Keep` and `Room` allows the lease, and a row with, say, 200h left asserting the keep stays 0.2.\n- Test: none exists.\n\n## F4 — `lendUrgency`'s spend-all and stale-week paths are untested\n\n- Class: gap\n- Confidence: medium\n- Where: `internal/loop/night.go:350-355`; tests `internal/loop/night_test.go:107-143` and `:159-216`\n- Situation: (a) a run with `SpendAll` and two fresh leases whose order changes when the reserve is zero: claude keep 0.2, weekly 50% used, resets in 24h, versus codex keep 0, weekly 51% used, resets in 24h. With the reserve codex leads (2.04%/h versus 1.96%/h); with spend-all claude leads (2.08%/h versus 2.04%/h). (b) a lease whose weekly reset has already passed, which the handover says has urgency 0.\n- Happens: the code passes `spendAll` through and special-cases stale resets, but neither path is tested. Making `lendUrgency` call `EffectiveKeep(..., false)` regardless of `spendAll`, or changing the stale guard to `ResetAt.IsZero()` only, leaves `go test ./internal/loop` green (both verified).\n- Should: add an ordering test under `Lending{SpendAll: true}` that flips the pick, and one asserting a stale weekly reset's urgency is 0, the handover's stated choice.\n- Test: none exists.",
+      "session_id": "ses_eb6022711ffezon8QZj27oUQWx",
+      "cost_usd": 0.045442338,
+      "harness": "opencode",
+      "elapsed_s": 336,
+      "session_s": 336,
+      "tokens": {
+        "input": 63999,
+        "output": 6184,
+        "reasoning": 39837,
+        "cache_read": 2743296
+      }
     }
   }
 }
