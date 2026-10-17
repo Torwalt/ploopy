@@ -1,5 +1,5 @@
-// Package ui owns the terminal: the selection form, the live run and the
-// countdown that ends it. Nothing else writes to the screen.
+// Package ui owns the terminal: the selection form and board, the live run and
+// the countdown that ends it. Nothing else writes to the screen.
 package ui
 
 import (
