@@ -34,9 +34,12 @@ follows from that.
   reset. A run can be told to spend everything instead (`spend all`).
 - **D7** ploopy picks the order among lent subscriptions, not the author: first
   a window already open, then whichever has the most of its week to lose (§7).
-- **D8** A plan or a run can refuse the subscriptions: `subscriptions: no` in
-  front matter, `--no-subscriptions`, or a key on the board. Such a run uses the
-  bedrock alone, and units that name their own `Agent:`.
+  The bedrock is always last. The author considered a fixed Claude → Codex order
+  and chose this instead.
+- **D8** A plan or a run chooses which lent subscriptions it may use: all of
+  them, any one of them, or none (bedrock only). This is set with
+  `subscriptions:` in front matter, `--subscriptions`, or a key on the board
+  (§9). Units that name their own `Agent:` run as named whatever the set.
 - **D9** The secondary stays, as the bedrock's own fallback when the bedrock
   hits a usage limit (such as another opencode model when DeepSeek is
   limited).
@@ -45,6 +48,16 @@ follows from that.
   board. It needs bubbletea as a direct dependency, which `AGENTS.md` must then
   list.
 - **D11** The top-level "What now?" menu gets one-key shortcuts.
+- **D12** The repository gets a sandbox for trying all of this without real
+  sessions or real plans: fake `claude`, `codex` and `opencode` binaries that
+  speak each CLI's format and report usage windows from an editable scenario,
+  and a toy repository with isolated state directories (§12).
+- **D13** `ploopy review` uses the same board. The collecting sessions get the
+  run's columns, and the triage becomes one more column on the board instead of
+  a page of its own (§13).
+- **D14** A review can go straight on to its fix plan. When its triage has
+  written one, the same invocation runs it with the review's settings, and
+  pushes and takes its end action only after that (§13).
 
 ## 2. Vocabulary
 
@@ -311,18 +324,30 @@ inside the away span. `history.Estimate`'s clean preference is unchanged.
 `Options.Night` becomes `Options.Lending *Lending`, and `Steer.Night` becomes
 `Steer.Lending`. A nil `Lending` means nothing is lent, or the run refused.
 
-## 9. Refusing the subscriptions, spending all
+## 9. Which subscriptions a run uses, spending all
 
-- Plan front matter key `subscriptions`: `yes` (the default) or `no`. It is
-  added to `plan.Settings` and linted like `test`.
-- `ploopy run --no-subscriptions` and `--spend-all`.
-- `control.Settings` gains `Subscriptions *bool` and `SpendAll *bool`, laid over
-  by `Over`, rendered by `Describe` ("bedrock only", "spending all of the
-  week"). `ploopy adjust --subscriptions=false|true` and `--spend-all=true|false`.
+A run's *subscription set* says which lent subscriptions it may use:
+
+- `all` (the default): every lent one;
+- `none`: the bedrock only;
+- harness names, such as `claude` or `claude codex`: only those, if lent.
+
+Order inside the set is always §7's, and the bedrock is last.
+
+- Plan front matter key `subscriptions` takes `all`, `none`, or space-separated
+  harness names. It is added to `plan.Settings`. Lint rejects an empty value and
+  names that are not harnesses ploopy knows (`plan.Harnesses`). Whether a named
+  harness is metered is checked when the run starts.
+- `ploopy run --subscriptions all|none|claude,codex` and `--spend-all`.
+- `control.Settings` gains `Subscriptions string` (`""` unset, else `all`,
+  `none`, or space-separated names) and `SpendAll *bool`. Both are laid over by
+  `Over` and rendered by `Describe` ("bedrock only", "claude only", "spending
+  all of the week"). `ploopy adjust --subscriptions …` and
+  `--spend-all=true|false`.
 - `steering.Steer()` builds `Lending` from the lease file each time it is asked
-  (the file is small, and a pick happens once per session). It returns nil when
-  the run's settings refuse the subscriptions. It leaves out the bedrock's own
-  harness, and sets `SpendAll`.
+  (the file is small, and a pick happens once per session). It keeps only the
+  leases in the run's set, leaves out the bedrock's own harness, and sets
+  `SpendAll`. An empty result is nil.
 - A run without steering (the registry was unreachable) builds `Lending` once,
   at the start.
 
@@ -395,9 +420,14 @@ alike.
   - `k` keep, cycling 0, 10, 20, 30, 40, 50, 100, plus the current value when it
     is not among them;
   - read-only lines: its windows as `windowsNow` reads them.
-- Run: `s` subscriptions (use lent / bedrock only), `w` week (keep reserves /
-  spend all), `p` push (only when the branch can be pushed, as today), `f` when
-  the run ends.
+- Run:
+  - `s` subscriptions, cycling the set (§9): all lent → each subscription alone →
+    bedrock only. With Claude and Codex that is: all, claude only, codex only,
+    bedrock only. A subscription column outside the set is dimmed and titled
+    "not this run";
+  - `w` week (keep reserves / spend all);
+  - `p` push (only when the branch can be pushed, as today);
+  - `f` when the run ends.
 
 Changing the bedrock's agent to a subscription harness removes that harness's
 column. A given setting (a flag, or front matter) shows locked. On start, the
@@ -448,7 +478,135 @@ on the machine. `pickRun` still asks which run when several go on.
 - The README's "While you are away" section becomes "Subscriptions", describing
   the bedrock, leases, keep, the order and refusal.
 
-## 12. Package placement
+## 12. The sandbox
+
+**Fake agents**: `dev/fakeagent`, one `package main` binary that answers as
+whichever of `claude`, `codex` and `opencode` it was invoked as
+(`filepath.Base(os.Args[0])`).
+
+- **Formats.** It emits what each adapter parses, as the adapter's own tests
+  feed it:
+  - Claude: stream-json with assistant text, a `rate_limit_event` whose
+    `rate_limit_info` carries `five_hour` and `seven_day`, and a result event
+    with cost and turns;
+  - Codex: `exec --json` events with a thread id and token usage, plus
+    `app-server` answering `initialize` and `account/rateLimits/read` over
+    JSON-RPC on stdin/stdout;
+  - opencode: its `--format json` steps.
+
+  A usage limit is answered in each harness's limit format, so the adapters'
+  limit parsers recognise it. Logged out is a failure to start. The prompt
+  arrives the way each adapter delivers it.
+- **Scenario.** It is read from `$PLOOPY_SANDBOX/scenario.toml`, one table per
+  harness:
+
+  ```toml
+  [claude]
+  seconds = 6                 # how long a session takes
+  session_used = 0.40         # the five-hour window now
+  session_resets_in = "2h"
+  weekly_used = 0.51
+  weekly_resets_in = "96h"
+  per_session = 0.15          # share of the five-hour window one session takes
+  per_session_weekly = 0.01
+  cost = 0.80                 # dollars a session reports
+  outcome = "done"            # done | blocked | nothing | red | dirty | limit | logged-out
+
+  [codex]
+  seconds = 6
+  weekly_used = 0.10
+  weekly_resets_in = "24h"    # no session window: the next session opens one
+  per_session = 0.20
+  per_session_weekly = 0.02
+  outcome = "done"
+
+  [opencode]
+  seconds = 4
+  cost = 0.05
+  outcome = "done"
+  ```
+
+  Times are relative to when the scenario is read, so leases and nightly spans
+  are tried against the real clock: lend Claude nightly over a span that
+  includes now.
+- **State.** It lives in `$PLOOPY_SANDBOX/state.json`, with absolute reset
+  instants and used shares. It is seeded per harness from the scenario on first
+  use, and seeded again whenever `scenario.toml` is newer than the state. Each
+  session adds its `per_session` shares. A window whose reset has passed
+  restarts at 0, with a new reset five hours (seven days) on. A window that
+  reaches 1 answers the next session with a usage limit until it resets.
+  `app-server` reads the same state without changing it.
+- **Roles.** The fake tells them apart by the prompt's opening line:
+  - an implementing unit appends `unit <id> by <harness>` to `work.txt`, commits
+    `Do unit <id>`, writes the handover to the path the prompt names, and ends
+    `DONE`;
+  - `red` also creates and commits `BROKEN`, which the toy repository's verify
+    rejects;
+  - `dirty` leaves `work.txt` changed and uncommitted;
+  - `blocked` and `nothing` end with those markers and change nothing;
+  - a collecting review session writes `No findings.` to the findings path the
+    prompt names, commits nothing, and ends `DONE`;
+  - a triage writes a two-unit `<NAME>_FIXES.md` and an `AuthorHeading` section
+    at the end of the review plan (the paths come from the prompt and
+    `internal/review`), commits both, and ends `DONE`.
+
+**The sandbox**: `dev/sandbox`, `package main`, run as `go run ./dev/sandbox
+[DIR]` and as the flake app `nix run .#sandbox`. It:
+
+1. Builds ploopy and the fake into `DIR/bin`, with `claude`, `codex` and
+   `opencode` as links to the fake. DIR is a new temp directory when not given.
+2. Creates `DIR/repo`: `git init` on `master`, an `AGENTS.md` of two lines, a
+   `.ploopy.toml` with `verify = "test ! -e BROKEN"`, and a toy plan
+   `docs/plans/TOY.md` of eight one-line units, all committed.
+3. Writes the default scenario above to `DIR/scenario.toml`.
+4. Execs `$SHELL` in `DIR/repo`, with `PATH` starting with `DIR/bin`,
+   `XDG_STATE_HOME` and `XDG_RUNTIME_DIR` inside DIR, and `PLOOPY_SANDBOX=DIR`.
+   The author's real leases and runs are never touched.
+5. Prints a cheat sheet first: where the scenario is, `ploopy lend …`, `ploopy`,
+   `ploopy review TOY`.
+
+`dev/` is outside the flake's `subPackages`, so release builds carry neither
+binary.
+
+## 13. Review on the board, then the fix plan
+
+**One board.** `ploopy review` builds one board: the run's columns (§10) for
+the collecting sessions, and a Triage column before the Run column:
+
+- `a` agent, `m` model (strongest first, `triageModels`), `e` effort,
+  `b` spending cap (`budgetChoices`);
+- the Run column gains `n` then: *stop* / *run the fix plan*.
+
+This replaces both prompts of a review today: the triage's own page
+(`chooseTriage`'s keep-or-change pick and `askTriage`), and the run settings
+asked afterwards. `chooseTriage` still resolves flags, the review's current
+triage, the last triage and the default, and the board shows the result. The
+board's values then go to the review's run without asking again.
+
+- **A review already written whose triage has not run:** the Triage column is
+  prefilled "as this review has it". Changing it commits as `retriage` does.
+- **A review whose triage has run:** the column is locked ("the triage has
+  run").
+- **The triage's agent** is the triage unit's own agent. It runs as named and is
+  never handed over, whatever the leases and the subscription set.
+
+**Then the fix plan (D14).** `ploopy review --then stop|fixes` (default
+`stop`), and `control.Settings.Then` (`""`, `stop`, `fixes`), so
+`ploopy adjust --then fixes` and the adjust board (`n`) change it mid-run.
+When the review run ends complete, its fix plan exists, and Then is `fixes`:
+
+1. `reviewOutcome` is printed as today.
+2. The fix plan runs in the same worktree, as a run of its own, announced in
+   the registry. It uses the review's resolved settings, except those the fix
+   plan's front matter gives. No board is shown.
+3. Pushing, leaving the worktree and the end action happen once, after the fix
+   plan's run. The review's run skips them.
+
+In every other case (the review stopped, failed, or wrote no fix plan) the
+review ends as today. A stop signal ends whichever run is going, and the fix
+plan does not start after a stopped review.
+
+## 14. Package placement
 
 - `internal/lease` (new): the lease file. It must not import `loop` or
   `harness`. It is added to `AGENTS.md`'s package list.
@@ -459,3 +617,7 @@ on the machine. `pickRun` still asks which run when several go on.
   into settings, and holds the `lend` and `reclaim` commands.
 - `github.com/charmbracelet/bubbletea` moves from indirect to direct in
   `go.mod`, and `AGENTS.md`'s dependency line names it.
+- `dev/fakeagent` and `dev/sandbox` (§12): development tools, not in the
+  release build. `AGENTS.md` gains a line about them under *Tests*.
+
+

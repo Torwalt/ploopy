@@ -16,14 +16,85 @@ Before committing, run the verification block of `AGENTS.md`:
 nothing), and `go test ./...`.
 
 Every unit that changes what the author sees, such as flags, commands, messages
-or screens, updates the README section that describes it in the same commit. The
+or screens, updates the README section that describes it in the same commit.
+Stage 1 builds a sandbox (§12). A later unit that changes what a session must
+produce, or what the sandbox must set up, keeps `dev/fakeagent` and
+`dev/sandbox` in step in the same commit. The
 loop's tests in `internal/loop` are the specification of the judge. Change one
 only where the authority changes the contract (D1, D5), and say which in the
 commit body.
 
-## Stage 1 — Uncommitted changes go to the session
+## Stage 1 — A sandbox to try it in
 
-### 1.1 Hand uncommitted changes to the session instead of refusing
+### 1.1 Fake agents
+
+**Goal:** `dev/fakeagent`, one binary that answers as `claude`, `codex`
+(including `codex app-server`) or `opencode`, depending on the name it was run
+as. It speaks each CLI's format, keeps the usage windows of a scenario, and acts
+on the repository by the role of the prompt, exactly as §12 *Fake agents*
+specifies.
+
+**Start from:**
+- §12 of the authority;
+- the adapters and their tests, which are the reference for every format:
+  - `internal/harness/claude/claude.go` and `claude_test.go` (`fakeClaude`,
+    the `rate_limit_event` and `LogBudgets` parsing);
+  - `internal/harness/codex/codex.go` and `budget.go` (the `app-server`
+    JSON-RPC exchange: `initialize`, `initialized`, `account/rateLimits/read`);
+  - `internal/harness/opencode/opencode.go`;
+  - the limit parsers in `internal/harness`;
+- `internal/loop/prompt.md` and `internal/loop/review_prompt.md` for the opening
+  lines that tell the roles apart, and for where the handover and findings paths
+  appear;
+- `internal/review` (`FixesPath`, `AuthorHeading`) and `judgeTriage` in
+  `internal/loop/review.go` for what a triage must commit.
+
+TOML parsing uses BurntSushi/toml, which is already a dependency.
+
+**Explicit non-goals:** no sandbox setup (the next unit), and no change to
+ploopy's own code.
+
+**Done when:**
+- `go test ./dev/fakeagent` builds the fake into a temp dir under the three
+  names, puts it on `PATH`, and drives the real adapters through it:
+  - a Claude session whose `Outcome` has a budget and no drift notes;
+  - a Codex session, and `codex.Budget` reading the scenario's windows;
+  - an opencode session;
+  - a scenario with `outcome = "limit"` recognised as a usage limit by each
+    adapter;
+  - two sessions in a row raising `session_used` by `per_session`;
+- a test in a temp git repository runs one implementing prompt (it commits and
+  writes the handover) and one collecting prompt (it writes findings and
+  commits nothing);
+- `nix flake check` still builds only `cmd/ploopy`.
+
+### 1.2 The sandbox
+
+**Goal:** `go run ./dev/sandbox [DIR]` and `nix run .#sandbox` set up and enter a
+sandbox exactly as §12 *The sandbox* specifies: the binaries, the toy
+repository and plan, the default scenario, the isolated `XDG_*` directories, and
+a shell with the cheat sheet printed first.
+
+**Start from:**
+- §12;
+- `flake.nix`, where `apps` gains `sandbox`. The app runs a small derivation or
+  a `go run` wrapper, whichever keeps `vendorHash` valid. Say which in the commit
+  body;
+- `AGENTS.md` *Tests*: add a line that `dev/fakeagent` and `dev/sandbox` exist
+  to try the interface by hand, and that tests never depend on the sandbox.
+
+**Done when:**
+- a test runs the sandbox's setup function (not the shell) into a temp dir and
+  checks the layout: `bin/` with the four names, `repo/` committed with the toy
+  plan linting clean under the built ploopy, and `scenario.toml`;
+- a test runs `ploopy run --plan TOY --agent opencode --effort high --units 2`
+  inside that setup, without a terminal, and sees two units land;
+- the README gains a short *Trying it out* section with the two commands and
+  what to edit.
+
+## Stage 2 — Uncommitted changes go to the session
+
+### 2.1 Hand uncommitted changes to the session instead of refusing
 
 **Goal:** A run of an implementing plan never refuses a dirty worktree. Each
 session that starts on uncommitted changes is told what they are and whose they
@@ -59,7 +130,7 @@ mentions `--allow-dirty`.
   - a review plan started on a dirty tree still fails the run;
 - the README no longer mentions `--allow-dirty`.
 
-### 1.2 Carry uncommitted changes into the worktree on hand-off
+### 2.2 Carry uncommitted changes into the worktree on hand-off
 
 **Goal:** When a run moves a branch out of the main checkout into a worktree,
 the branch's uncommitted changes move with it, by the stash procedure of §3. It
@@ -88,9 +159,9 @@ checkout. A pending plan is committed before the stash, as today, by
 - the README's Worktrees bullet about uncommitted changes describes the new
   behaviour.
 
-## Stage 2 — Leases
+## Stage 3 — Leases
 
-### 2.1 The lease file
+### 3.1 The lease file
 
 **Goal:** A new package `internal/lease` reads and writes the machine's lease
 file exactly as §4 specifies: path, format, kinds, one lease per harness in name
@@ -125,7 +196,7 @@ span is a string here).
 - `rg -n '"github.com/Torwalt/ploopy/internal/(loop|harness)"' internal/lease`
   is empty.
 
-### 2.2 The loop runs on leases
+### 3.2 The loop runs on leases
 
 **Goal:** `internal/loop` replaces `Night`/`NightAgent` with `Lease`/`Lending`
 and decides room by §5 and who runs a session by §8. For now the keep is the
@@ -172,7 +243,7 @@ agents into nightly leases.
 **Done when:** `rg -n '\bNight\b|NightAgent' internal/loop` is empty, the tests
 above pass, and `go test ./...` is green.
 
-### 2.3 The shrinking reserve and the order among subscriptions
+### 3.3 The shrinking reserve and the order among subscriptions
 
 **Goal:** `EffectiveKeep` (§6) decides rule 3 of `Lending.Room`, and `lendPick`
 orders the leases with room by §7.
@@ -190,7 +261,7 @@ orders the leases with room by §7.
 - a loop test with two open leases shows the units going to the one §7 puts
   first, and then to the other once the first's window is spent.
 
-### 2.4 Runs read the machine's leases; `lend` and `reclaim`
+### 3.4 Runs read the machine's leases; `lend` and `reclaim`
 
 **Goal:** Lending comes from the lease file (§4), not from run settings. The
 away span, night agents and reserve leave the settings, the flags, the control
@@ -239,34 +310,45 @@ as §4 specifies.
 is empty, the tests pass, and `ploopy lend --help` and `ploopy reclaim --help`
 describe §4.
 
-### 2.5 A plan or a run refuses the subscriptions; spend all
+### 3.5 Which subscriptions a run uses; spend all
 
-**Goal:** §9: the `subscriptions` front-matter key, `--no-subscriptions` and
-`--spend-all` on `run`, `Subscriptions`/`SpendAll` in `control.Settings` with
-`adjust` flags, and the effect on `Steer`. The settings page offers both as
-fields until the board replaces it.
+**Goal:** §9: the subscription set (`all`, `none`, or harness names) from the
+`subscriptions` front-matter key, `--subscriptions` and `--spend-all` on `run`,
+and `Subscriptions`/`SpendAll` in `control.Settings` with matching `adjust`
+flags. `steering.Steer()` keeps only the leases in the set. Until the board
+replaces the settings page, the page offers both as fields: the set as all /
+each subscription alone / bedrock only, and spending as keep reserves / spend
+all.
 
 **Start from:**
-- `plan.Settings` and the `test:` lint in `internal/plan/plan.go`;
+- `plan.Settings` and the `test:` lint in `internal/plan/plan.go`, and
+  `plan.Harnesses` for the name check;
 - `givenSettings`, `askSettings`, `describe` and `runSettings` in
   `cmd/ploopy/settings.go`;
 - `control.Settings.Over/Describe`, `changeFromFlags` in `adjust.go`, and
   `steering.Steer`.
 
-A plan's `subscriptions: no` counts as given, as front-matter agents do today.
-It is not asked, and the run says "the plan runs on the bedrock only" at start.
+A plan's `subscriptions:` counts as given, as front-matter agents do today, and
+is not asked. When it is narrower than `all`, the run says so at the start ("the
+plan uses the bedrock only", "the plan uses claude only").
 
 **Done when:**
-- a plan test lints `subscriptions: maybe` as an error;
-- a cmd test shows a plan with `subscriptions: no` and an open lease getting a
-  nil `Lending`;
+- plan tests:
+  - lint `subscriptions:` with an empty value and with an unknown harness name
+    as errors;
+  - accept `all`, `none` and `codex claude`;
+- cmd tests, with open leases for claude and codex:
+  - a plan with `subscriptions: none` gets a nil `Lending`;
+  - `subscriptions: codex` gets codex's lease alone;
+  - `--subscriptions claude,codex` gets both, in §7 order;
+  - a named harness that is not metered is refused at start;
 - `--spend-all` sets `SpendAll`;
 - `control` tests cover `Over` and `Describe` for both new fields;
 - the README documents the key and both flags.
 
-## Stage 3 — The board
+## Stage 4 — The board
 
-### 3.1 The board component
+### 4.1 The board component
 
 **Goal:** `ui.Board` in `internal/ui`, a bubbletea program with the model, keys
 and layout of §10, independent of any ploopy command. bubbletea becomes a direct
@@ -296,7 +378,7 @@ dependency, and `AGENTS.md`'s dependency line names it.
   stacked;
 - `go.mod` lists bubbletea without `// indirect`.
 
-### 3.2 Run settings on the board
+### 4.2 Run settings on the board
 
 **Goal:** `chooseSettings` puts everything on one board, per §10's columns for a
 run, with the forecast footer. This replaces:
@@ -331,7 +413,7 @@ run settings saved as today.
   - the bedrock taking the rest with its cost;
 - the README's *Start* section shows the board in place of the old pages.
 
-### 3.3 `ploopy adjust` on the board
+### 4.3 `ploopy adjust` on the board
 
 **Goal:** `adjustInteractively` shows the board with §10's *adjust* columns, and
 Enter applies the run settings through `control.Adjust` and writes the leases.
@@ -339,7 +421,7 @@ Enter applies the run settings through `control.Adjust` and writes the leases.
 
 **Start from:**
 - `adjustInteractively`, `apply` and `pickRun` in `cmd/ploopy/adjust.go`;
-- the board fields that 3.2 built for a run. Share the column builders between
+- the board fields that 4.2 built for a run. Share the column builders between
   run and adjust, not copies of them.
 
 **Done when:**
@@ -349,7 +431,7 @@ Enter applies the run settings through `control.Adjust` and writes the leases.
   and lease file;
 - the README's adjust paragraph matches.
 
-### 3.4 One-key shortcuts in the main menu
+### 4.4 One-key shortcuts in the main menu
 
 **Goal:** `ploopy` with no arguments offers its commands with a shortcut letter
 each, shown in the label. Pressing the letter picks at once, and arrows plus
@@ -360,13 +442,71 @@ report, `h` history, `c` close, `l` land, `n` lend, `w` show, `y` replay,
 **Start from:**
 - `chooseCommand` in `cmd/ploopy/main.go`;
 - `ui.Pick` in `internal/ui/select.go`. Add a `ui.PickKeyed` (or a `Key` on
-  `ui.Choice`) built on bubbletea, or on the board's building blocks from 3.1.
+  `ui.Choice`) built on bubbletea, or on the board's building blocks from 4.1.
   Leave `ui.Pick`'s other callers as they are.
 
 **Done when:**
 - a model test shows a letter picking its command, an unknown letter doing
   nothing, and Enter picking the highlighted one;
 - the README's *Start* listing shows the letters.
+
+## Stage 5 — Review on the board
+
+### 5.1 One board for a review
+
+**Goal:** `ploopy review` asks everything on one board, as §13 *One board*
+specifies: the run's columns for the collecting sessions, plus a Triage column.
+This replaces the triage's own page and the separate run settings. A review
+written earlier shows its triage prefilled, and the column is locked once the
+triage has run.
+
+**Start from:**
+- `reviewPlan`, `writeReview` and `retriage` in `cmd/ploopy/review.go`;
+- `chooseTriage`, `askTriage`, `askAgent`, `triageModels` and `budgetChoices`
+  in `cmd/ploopy/triage.go`;
+- the column builders that unit 4.2 shares between run and adjust;
+- `runPlan` in `cmd/ploopy/run.go`, which must accept settings already chosen,
+  so a review's board is not followed by another.
+
+`askAgent` may have other callers (`rg -n askAgent cmd`). Keep it for them,
+or move them to the board in this unit if they put the same question.
+
+**Done when:**
+- `rg -n '"Who weighs the findings\?"' cmd` finds no `ui.Pick` call;
+- tests build the review board's columns for:
+  - a new review (Triage column from the last triage);
+  - a written review with its triage pending (prefilled "as this review has
+    it", and a change commits as `retriage` did);
+  - a review whose triage ran (column locked);
+- a non-interactive `ploopy review` with `--triage-*` flags behaves as before
+  (`cmd/ploopy/triage_test.go` passes);
+- the README's *Review* section describes the board.
+
+### 5.2 A review goes on to its fix plan
+
+**Goal:** §13 *Then the fix plan*: `ploopy review --then stop|fixes`,
+`control.Settings.Then` with `ploopy adjust --then`, and `n` on the review board
+and the adjust board. A complete review with a fix plan and Then `fixes` runs
+the fix plan in the same worktree with the review's settings. Push, leaving the
+worktree and the end action happen once, at the very end.
+
+**Start from:**
+- the tail of `runPlan` in `cmd/ploopy/run.go`: `reviewOutcome`,
+  `pushBranch`, `leaveWorktree` and `endAction`. Split it so a chained run defers
+  the last three;
+- `reviewOutcome` and `reviewPlan` in `cmd/ploopy/review.go`;
+- `review.FixesPath`;
+- `control.Settings.Over/Describe` and `changeFromFlags` in `adjust.go`.
+
+**Done when:** cmd tests drive a review through fake harnesses (as the loop's
+tests do, or through the sandbox's fake agent on `PATH`) and show that:
+- with Then `fixes`, the fix plan's units land after the triage in one
+  invocation, and the worktree is left only once, at the end;
+- with Then `stop`, the run ends after the review as today;
+- a review that stops before the triage does not start the fix plan;
+- an `adjust` change of Then made during the review is honoured;
+- the README's *Flow* and *Review* sections show the overnight path: review,
+  triage, fixes in one invocation.
 
 ## Notes for the author
 
@@ -376,5 +516,7 @@ report, `h` history, `c` close, `l` land, `n` lend, `w` show, `y` replay,
   with `verify = "go build -o /dev/null ./... && go vet ./... && test -z \"$(gofmt -l .)\""`
   and `test = "go test ./..."` would make the loop check them too. Add it before
   running if you want that.
-- Units 2.2 and 2.4 are the largest. If one blocks, split it with new ids; do
+- Units 3.2 and 3.4 are the largest. If one blocks, split it with new ids; do
   not renumber.
+- Stage 1 comes first so that every later stage can be tried by hand in
+  `nix run .#sandbox` as soon as it lands.
