@@ -39,6 +39,26 @@
         "reasoning": 56647,
         "cache_read": 2983808
       }
+    },
+    "1.3": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T14:56:56+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "5ddc69f2c63fa0a73e929cb86cd2d8861718bf0e",
+      "attempts": 1,
+      "handover": "# Findings: Unit 2.1, Hand uncommitted changes to the session instead of refusing, of LENDING_EXECUTION\n\nReviewed: 88eeb2402b9d..c4384cbef9cd, 11 files. Steps: all done.\n\n## F1 — The red-preflight tail is dropped when the first chosen agent cannot start\n\n- Class: slip\n- Confidence: high\n- Where: `internal/loop/loop.go:292-293` and `internal/loop/loop.go:841-867`\n- Situation: A run starts with inherited uncommitted changes, the preflight's verify is red, and the agent `pick` chooses first is a night agent that cannot start (logged out or not installed; a `fake.Step{Err: ...}` reaches `l.benched`). The bedrock is still available.\n- Happens: `l.prompt` is rendered before `l.session` starts it, and `uncommitted` clears `l.preflightRed` at `loop.go:292-293` as soon as any prompt is rendered. When `Start` returns an error the loop benches that agent and `continue`s, so the next prompt — the first prompt a session actually receives — has no `Verify is red with these changes:` block. Reproduced against c4384cb: with an inherited `inherited.txt`, a red verify and a failing night step, the night prompt carried the tail and the bedrock's first prompt did not.\n- Should: Keep `preflightRed` until a session actually starts (clear it after a successful `Start`, not when a prompt is rendered), so the first session that runs carries the tail, as §3 of `LENDING.md` requires (\"the failing tail of the verify log goes into the first session's prompt\").\n- Test: none exists. Add a loop test that combines `TestAnInheritedRedPreflightGoesToTheFirstSession` with the failing-night-step case from `TestANightAgentThatCannotRunHandsOver` and assert the primary's first prompt contains the tail.\n\n## F2 — Resuming the same unit after a stop keeps `LeftDirty`, but no test would notice if it did not\n\n- Class: gap\n- Confidence: high\n- Where: `internal/loop/progress.go:67-75`, feeding the origin choice at `internal/loop/loop.go:298`\n- Situation: A run is stopped mid-session, leaving `progress.Unit == \"1.1\"` and `progress.LeftDirty == true`; the next run resumes the same unit. §3 requires the origin sentence \"An earlier attempt at this unit left these uncommitted.\" because `progress.forUnit(unit) \u0026\u0026 progress.LeftDirty`.\n- Happens: This is the reason for the handover's `progress.reset` deviation, but nothing asserts the resumed prompt. `TestAStopMidSessionHandsItsWorkToTheNextRun` only checks the `stoppedMidUnit` failure text, and the \"earlier attempt\" assertion in `TestAFailedAttemptTellsTheNextOneWhy` is within one run and never exercises `reset` after the dirt exists. Reverting the `progress.go` hunk leaves `go test ./internal/loop` green (checked against c4384cb), so the behaviour can regress silently.\n- Should: Assert the origin sentence on the resumed prompt, in the existing rerun-after-stop test the work order says must keep passing.\n- Test: none exists; extend `TestAStopMidSessionHandsItsWorkToTheNextRun` to assert `f.h.Prompts[1]` contains `An earlier attempt at this unit left these uncommitted.` (a scratch test with that assertion passes at c4384cb and fails with the old `reset`).",
+      "session_id": "ses_eb615d99affe2kPOVdupHoOQEY",
+      "cost_usd": 0.060532536,
+      "harness": "opencode",
+      "elapsed_s": 374,
+      "session_s": 374,
+      "tokens": {
+        "input": 75868,
+        "output": 7565,
+        "reasoning": 49537,
+        "cache_read": 4963712
+      }
     }
   }
 }
