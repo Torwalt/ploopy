@@ -40,8 +40,8 @@ Every run, and every review, goes to a worktree of the plan's branch at
 - a worktree that holds the branch is used as it is;
 - a branch checked out nowhere is checked out there;
 - a branch the main checkout has moves there, and the main checkout to the
-  default branch. Uncommitted changes besides the plan move with the branch,
-  into the worktree the run sees;
+  default branch. Uncommitted changes besides the plan and the author's own
+  paths move with the branch, into the worktree the run sees;
 - a plan on the default branch gets a branch named after it, `PLAYTEST_FIXES`
   → `playtest-fixes`, at the commit it is on. A later run finds that branch
   again;
