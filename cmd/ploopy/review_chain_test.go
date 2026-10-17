@@ -329,3 +329,158 @@ func TestAStopAfterTheTriageDoesNotStartTheFixPlan(t *testing.T) {
 		t.Fatal("the fix plan ran after the review was stopped")
 	}
 }
+
+// captureSettings records what a run announced while this step runs.
+func captureSettings(step fake.Step, planPath string, into *control.Settings) fake.Step {
+	do := step.Do
+	step.Do = func(dir string) error {
+		lives, err := control.List()
+		if err != nil {
+			return err
+		}
+		for _, live := range lives {
+			if live.Plan == planPath {
+				*into = live.Settings
+			}
+		}
+		return do(dir)
+	}
+	return step
+}
+
+func TestTheFixPlanInheritsTheReviewsSpendAllAdjustment(t *testing.T) {
+	e, _ := chainRepo(t)
+	h := fake.New(findingsStep(), triageStep(t),
+		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
+	h.Steps[0].Do = func(dir string) error {
+		if err := findingsStep().Do(dir); err != nil {
+			return err
+		}
+		spendAll := true
+		_, err := control.Adjust(os.Getpid(), control.Settings{SpendAll: &spendAll})
+		return err
+	}
+	var fix control.Settings
+	h.Steps[2] = captureSettings(h.Steps[2], "docs/plans/PASS_FIXES.md", &fix)
+	h.Steps[3] = captureSettings(h.Steps[3], "docs/plans/PASS_FIXES.md", &fix)
+	e.harnesses = harness.Set{h}
+
+	if err := runReview(t, e, reviewArgs("--then", "fixes")...); err != nil {
+		t.Fatal(err)
+	}
+	if fix.SpendAll == nil {
+		t.Fatal("the fix run did not keep the review's spend-all adjustment")
+	}
+	if !*fix.SpendAll {
+		t.Fatal("the fix run keeps reserves despite the review's spend-all adjustment")
+	}
+}
+
+// namedFake is a scripted harness with its own name and choices, so a test can
+// tell one from another.
+type namedFake struct {
+	*fake.Harness
+	name    string
+	models  []string
+	efforts []string
+}
+
+func (h *namedFake) Name() string     { return h.name }
+func (h *namedFake) Models() []string { return h.models }
+func (h *namedFake) Efforts() []string {
+	return h.efforts
+}
+
+func TestAFixPlansFrontMatterWinsForAgentEffortAndSubscriptions(t *testing.T) {
+	e, _ := chainRepo(t)
+	fixes := strings.Replace(fixesPlan, "model: fix-model",
+		"agent: other\neffort: low\nsubscriptions: fake", 1)
+	reviewHarness := &namedFake{
+		Harness: fake.New(findingsStep(), triageStepWithPlan(t, fixes),
+			fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix")),
+		name: "fake", models: []string{"fake-model"}, efforts: []string{"high"},
+	}
+	fixHarness := &namedFake{
+		Harness: fake.New(fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix")),
+		name:    "other", models: []string{"other-model"}, efforts: []string{"low", "high"},
+	}
+	var fix control.Settings
+	fixHarness.Steps[0] = captureSettings(fixHarness.Steps[0], "docs/plans/PASS_FIXES.md", &fix)
+	fixHarness.Steps[1] = captureSettings(fixHarness.Steps[1], "docs/plans/PASS_FIXES.md", &fix)
+	e.harnesses = harness.Set{reviewHarness, fixHarness}
+
+	if err := runReview(t, e, reviewArgs("--then", "fixes")...); err != nil {
+		t.Fatal(err)
+	}
+	if reviewHarness.Started() != 2 {
+		t.Fatalf("the review ran %d sessions, want it and its triage", reviewHarness.Started())
+	}
+	if fixHarness.Started() != 2 {
+		t.Fatalf("the fix plan ran %d sessions, want both units on its agent", fixHarness.Started())
+	}
+	if got := fixHarness.Specs[0].Effort; got != "low" {
+		t.Fatalf("the fix plan ran at %q effort, want its front matter's", got)
+	}
+	if got := fixHarness.Specs[0].Model; got != "other-model" {
+		t.Fatalf("the fix plan ran as %q, want its new agent's default", got)
+	}
+	if fix.Subscriptions != "fake" {
+		t.Fatalf("the fix run uses %q, want its front matter's subscription set", fix.Subscriptions)
+	}
+}
+
+func TestAReviewWithoutThenStartsNoFixPlan(t *testing.T) {
+	e, tree := chainRepo(t)
+	h := fake.New(findingsStep(), triageStep(t), fixStep("fix1.go", "Do the first fix"))
+	e.harnesses = harness.Set{h}
+
+	if err := runReview(t, e, reviewArgs()...); err != nil {
+		t.Fatal(err)
+	}
+	if h.Started() != 2 {
+		t.Fatalf("the run started %d sessions, want the review and its triage only", h.Started())
+	}
+	if exists(filepath.Join(tree, "docs/plans/PASS_FIXES.state.json")) {
+		t.Fatal("the fix plan ran without --then fixes")
+	}
+}
+
+func TestAPushHappensOnceAfterTheFixPlan(t *testing.T) {
+	e, tree := chainRepo(t)
+	remote := t.TempDir()
+	git(t, remote, "init", "-q", "--bare")
+	git(t, e.root, "remote", "add", "origin", remote)
+	pushes := filepath.Join(t.TempDir(), "pushes.log")
+	write(t, remote, "hooks/pre-receive",
+		"#!/bin/sh\ncat >/dev/null\nprintf 'push\\n' >> "+pushes+"\n")
+	if err := os.Chmod(filepath.Join(remote, "hooks/pre-receive"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	h := fake.New(findingsStep(), triageStep(t),
+		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
+	e.harnesses = harness.Set{h}
+
+	if err := runReview(t, e, reviewArgs("--then", "fixes", "--push")...); err != nil {
+		t.Fatal(err)
+	}
+	if h.Started() != 4 {
+		t.Fatalf("the run started %d sessions, want the fixes too", h.Started())
+	}
+	if exists(tree) {
+		t.Fatal("the worktree should be left once, after the fix plan")
+	}
+	log, err := os.ReadFile(pushes)
+	if err != nil {
+		t.Fatalf("the branch was not pushed: %v", err)
+	}
+	if got := strings.Count(string(log), "push\n"); got != 1 {
+		t.Fatalf("the branch was pushed %d times, want once after the fix plan", got)
+	}
+	pushed := gitOut(t, remote, "log", "--format=%s", "pass")
+	for _, want := range []string{"Do the first fix", "Do the second fix"} {
+		if !strings.Contains(pushed, want) {
+			t.Fatalf("the push happened before %q:\n%s", want, pushed)
+		}
+	}
+}
