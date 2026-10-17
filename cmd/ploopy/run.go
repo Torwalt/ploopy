@@ -293,17 +293,7 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, pick.agent.Harness.Name(),
 		modelSuffix(pick.agent.Model), pick.agent.Effort, secondarySuffix(pick.secondary),
 		peakSuffix(pick), pushSuffix(pick.push), finishSuffix(pick.finish))
-	if pick.subscriptions != "all" {
-		origin := "this run"
-		if planSet, err := subscriptionSet(e.harnesses, p.Settings["subscriptions"]); err == nil &&
-			p.Settings["subscriptions"] != "" && planSet == pick.subscriptions {
-			origin = "the plan"
-		}
-		report.Say("%s uses %s", origin, subscriptionText(pick.subscriptions))
-	}
-	if pick.spendAll {
-		report.Say("spending all of the subscriptions' weeks")
-	}
+	announceSubscriptions(report, e, p, pick)
 	if steer.run != nil {
 		report.Say("change what happens next from another terminal with `ploopy adjust`")
 	}
@@ -331,6 +321,22 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 		root: root, branch: branch, cfg: cfg, p: p, runner: runner, report: report,
 		result: result, complete: complete, wanted: steer.wanted(), chosen: pick,
 	}, nil
+}
+
+// announceSubscriptions says which subscriptions the run may use and whether
+// it spends all of their weeks. A narrowed set is never silent.
+func announceSubscriptions(report *ui.Reporter, e *env, p *plan.Plan, pick chosenRun) {
+	if pick.subscriptions != "all" {
+		origin := "this run"
+		if planSet, err := subscriptionSet(e.harnesses, p.Settings["subscriptions"]); err == nil &&
+			p.Settings["subscriptions"] != "" && planSet == pick.subscriptions {
+			origin = "the plan"
+		}
+		report.Say("%s uses %s", origin, subscriptionText(pick.subscriptions))
+	}
+	if pick.spendAll {
+		report.Say("spending all of the subscriptions' weeks")
+	}
 }
 
 // chainedFixPlan is the fix plan a complete review hands over to, when Then
