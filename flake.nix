@@ -59,6 +59,15 @@
               pkgs.git
             ];
             text = ''
+              if [ "$#" -gt 0 ]; then
+                dir=$1
+                shift
+                case "$dir" in
+                  /*) ;;
+                  *) dir=$PWD/$dir ;;
+                esac
+                set -- "$dir" "$@"
+              fi
               cd ${self}
               exec go run ./dev/sandbox "$@"
             '';
