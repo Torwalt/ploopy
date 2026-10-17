@@ -170,6 +170,30 @@
         "reasoning": 16628,
         "cache_read": 3167872
       }
+    },
+    "3.4": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T12:40:38+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "95f85f28ce6d7f31e9eb162b630be3a13a875feb",
+      "commits": [
+        "c9b1430e0d895c4d8f579ce6848619a36e367c0f Read lending from the machine's lease file"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `c9b1430` reads lending from `internal/lease` instead of run settings.\n  `steering.Steer()` reloads `lease.Load().Active(now)` every time and drops the\n  bedrock's harness; a run whose registry is unreachable builds the same once\n  at start. A broken lease file is reported once and lends nothing.\n- `ploopy lend` lists active leases or writes one with\n  `--until`/`--nightly`/`--open`, `--keep`, `--model`, `--effort`;\n  `ploopy reclaim \u003charness\u003e|all` removes them. Both work from any directory.\n  A non-metered harness is refused with \"X has no subscription to lend\".\n- The settings form now shows active leases above its questions, with §6's\n  keep notation, then \"change them with `ploopy lend`\".\n- Away/night/reserve are gone from `runSettings`, `given`, `chosenRun`,\n  `control.Settings`, `control.NightAgent`, `adjust`, and the run status.\n  `--away`, `--night` and `--weekly-reserve` remain on `run` and `adjust`,\n  hidden and deprecated, with no effect.\n- README's \"While you are away\" is now \"Subscriptions\"; the main chooser has a\n  `lend` entry.\n\n**Landmark drift**\n\n- `cmd/ploopy/night.go` now holds only the shared history helpers\n  (`historyPath`, `loadHistory`, `windowsNow`, `printEstimates`). The lease\n  loading, line rendering and the two commands are in `cmd/ploopy/lend.go`.\n- `announce` now takes a `*lendingLoader` beside the harness set and reporter.\n\n**Deviations from the work order**\n\n- Lease-file errors are deduplicated by one `lendingLoader` shared by the start\n  load and steering, so the start error is not repeated when `Steer` runs.\n- `lend` and the settings note compute effective keep from the checkout's\n  history, not live harness budgets, so listing stays fast and works anywhere.\n  With no history they show the lease's stored keep.\n- Hand-edited leases for unknown or non-metered harnesses are skipped rather\n  than failing the run; only `lend` refuses to write one.\n- The old `night_test.go` tests went with their functions; the two history tests\n  remain there.\n\n**What the next session must know**\n\n- This unit implements §4 and the lease-reading part of §9 only. The run's\n  subscription set (`Subscriptions`, `--subscriptions`, `--spend-all`) and the\n  board are untouched: `Lending` currently contains every active metered lease\n  except the bedrock, and `SpendAll` is always false.\n- `loop.Options.Lending` is the once-at-start value. When steering registers,\n  the loop reads `Steering.Steer().Lending` instead, so the lease file is\n  re-read for every pick/read/wake.\n- `lendingFromLeases` fills empty model/effort from the harness's first model\n  and `preferredEffort`.\n- `ploopy lend` outside a git checkout has no history, so it cannot show a\n  shrunk reserve there; inside a checkout it reads that repo's history.\n\n**Open problems**\n\n- The board unit still needs to render the shrunk keep live and write lease\n  changes; the current settings note is deliberately display-only.\n- No command path currently surfaces a malformed nightly span until a run or\n  `lend` touches the file; `lease.Load` itself only validates kinds and keep.",
+      "session_id": "ses_eb69120b2ffeqPAfZnU7wZEZIc",
+      "cost_usd": 0.057088494000000004,
+      "harness": "opencode",
+      "elapsed_s": 275,
+      "session_s": 272,
+      "test_s": 2,
+      "tokens": {
+        "input": 91053,
+        "output": 18516,
+        "reasoning": 26834,
+        "cache_read": 5406848
+      }
     }
   }
 }
