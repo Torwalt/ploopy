@@ -263,6 +263,30 @@
         "reasoning": 8158,
         "cache_read": 779008
       }
+    },
+    "1.12": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:35:19+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "d6e3ec9a1c429446737d345e1103818c090c4cc0",
+      "commits": [
+        "710483e8bd9bd7d58475bed7d8456db6bdc6924d Take lend defaults only from an active lease"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `710483e` makes `lend` read its keep, model and effort defaults from\n  `file.Active(now)` instead of every entry, so a passed `until` lease no\n  longer supplies them. `now` moved above that loop.\n- The confirmation line now gets\n  `history.Latest(localHistory(cmd.Context()), h.Name())`, so it shows the\n  shrunk keep with the arrow, as `listLeases` already did.\n- Two tests in `cmd/ploopy/lend_test.go`: an expired until lease with keep 0\n  and model `haiku` yields keep 20 and Claude's first model; a nearly spent\n  week makes the confirmation contain `keep 20% → `.\n\n**Landmark drift**\n\nNone: `cmd/ploopy/lend.go:101-106` and `:150` were where the plan said.\n\n**Deviations from the work order**\n\n- The shrunk-keep test runs against a temporary git repository (`t.Chdir` into\n  `worktreeRepo`'s tree) and appends a budget record there, so it never reads\n  or writes the checkout's real `.git/ploopy/history.jsonl`.\n- Both tests were run before the fix and failed for the intended reasons\n  (lease written with keep 0/model `haiku`; confirmation without the arrow).\n\n**What the next session must know**\n\n- `file.Active(now)` filters only passed `until` leases; nightly leases outside\n  their span still supply defaults, which matches §4's \"read as absent\" rule.\n- The confirmation loads history after the save, so a failure to find a repo\n  simply leaves the budget nil and prints the plain keep.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb5496cceffegnSkDLl42nHSvJ",
+      "cost_usd": 0.013420332000000004,
+      "harness": "opencode",
+      "elapsed_s": 78,
+      "session_s": 71,
+      "test_s": 7,
+      "tokens": {
+        "input": 36890,
+        "output": 3938,
+        "reasoning": 2952,
+        "cache_read": 1250944
+      }
     }
   }
 }
