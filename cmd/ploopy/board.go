@@ -370,7 +370,7 @@ func (sb *settingsBoard) runColumn() ui.Column {
 	}
 	fields = append(fields, ui.BoardField{Key: 'f', Label: "end", Value: &s.Finish,
 		Choices: func() []ui.Choice { return ui.Finishes }, Locked: sb.given.why("finish")})
-	if sb.triage != nil || sb.adjust {
+	if sb.triage != nil || (sb.adjust && sb.plan.Reviews() != "") {
 		fields = append(fields, ui.BoardField{Key: 'n', Label: "then", Value: &sb.then,
 			Choices: func() []ui.Choice { return thenChoices }, Locked: sb.given.why("then")})
 	}

@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -82,6 +84,11 @@ func TestASubscriptionOutsideTheSetIsDimmedAndSaysSo(t *testing.T) {
 // liveRun announces a run for the adjust board.
 func liveRun(t *testing.T, e *env, settings control.Settings) control.Live {
 	t.Helper()
+	return liveRunPlan(t, e, settings, "docs/plans/PASS.md")
+}
+
+func liveRunPlan(t *testing.T, e *env, settings control.Settings, planPath string) control.Live {
+	t.Helper()
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	if settings.Finish == "" {
 		settings.Finish = "none"
@@ -90,7 +97,7 @@ func liveRun(t *testing.T, e *env, settings control.Settings) control.Live {
 		settings.Peak = "run"
 	}
 	if _, err := control.Register(control.Status{
-		Root: e.root, Plan: "docs/plans/PASS.md", Branch: "pass",
+		Root: e.root, Plan: planPath, Branch: "pass",
 		Agent: "opencode deepseek/deepseek-flash high", Settings: settings,
 	}); err != nil {
 		t.Fatal(err)
@@ -139,9 +146,28 @@ func TestTheAdjustBoardLocksTheBedrockAndOffersStop(t *testing.T) {
 	if !stop {
 		t.Fatal("the adjust board offers no stop field")
 	}
-	if !then {
-		t.Fatal("the adjust board offers no then field")
+	if then {
+		t.Fatal("the adjust board offers then on a plan that implements")
 	}
+}
+
+func TestTheAdjustBoardOffersThenOnAReviewRun(t *testing.T) {
+	e := boardEnv(t)
+	path := filepath.Join(e.root, "docs/plans/PASS_REVIEW.md")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("---\nreviews: docs/plans/PASS.md\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	live := liveRunPlan(t, e, control.Settings{}, "docs/plans/PASS_REVIEW.md")
+	board := newAdjustBoard(context.Background(), e, live)
+
+	run := board.board.Columns[len(board.board.Columns)-1]
+	if run.Title != "Run" {
+		t.Fatalf("the last column is %q", run.Title)
+	}
+	fieldByKey(t, run, 'n')
 }
 
 func TestTheAdjustBoardSaysEnterApplies(t *testing.T) {
