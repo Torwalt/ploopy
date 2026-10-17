@@ -19,14 +19,15 @@ type steering struct {
 	run       *control.Run
 	base      control.Settings
 	harnesses harness.Set
+	leases    *lendingLoader
 	changed   chan struct{}
 	stop      chan struct{}
 }
 
 // announce registers the run. Without a runtime directory the run goes on
 // unannounced, keeping what it started with.
-func announce(status control.Status, harnesses harness.Set, report *ui.Reporter) *steering {
-	s := &steering{base: status.Settings, harnesses: harnesses, changed: make(chan struct{}, 1)}
+func announce(status control.Status, harnesses harness.Set, leases *lendingLoader, report *ui.Reporter) *steering {
+	s := &steering{base: status.Settings, harnesses: harnesses, leases: leases, changed: make(chan struct{}, 1)}
 	run, err := control.Register(status)
 	if err != nil {
 		report.Say("`ploopy adjust` cannot reach this run: %v", err)
@@ -71,7 +72,10 @@ func (s *steering) loopSteering() loop.Steering {
 // Steer answers the loop.
 func (s *steering) Steer() loop.Steer {
 	wanted := s.wanted()
-	lending, _ := toLoopLending(s.harnesses, wanted.AwaySpan(), wanted.Night, wanted.Reserve)
+	var lending *loop.Lending
+	if s.leases != nil {
+		lending = s.leases.load(time.Now())
+	}
 	return loop.Steer{
 		WaitOffPeak: wanted.Peak == "wait",
 		Secondary:   toLoopAgent(s.harnesses, wanted.SecondaryAgent()),

@@ -33,13 +33,6 @@ func (a Agent) Label() string {
 	return strings.Join(strings.Fields(a.Harness+" "+a.Model+" "+a.Effort), " ")
 }
 
-// NightAgent is a subscription's agent and the fresh five-hour windows a run
-// may open for it in one away span.
-type NightAgent struct {
-	Agent
-	Windows int `json:"windows"`
-}
-
 // Settings are what can change while a run goes on. In a change, an unset
 // field leaves the run's own setting alone.
 type Settings struct {
@@ -48,13 +41,6 @@ type Settings struct {
 	Push      *bool  `json:"push,omitempty"`
 	Stop      *bool  `json:"stop,omitempty"`      // stop once the current unit is done
 	Secondary *Agent `json:"secondary,omitempty"` // an empty harness means none
-
-	// While the author is away from the subscriptions, such as 21:00-09:00,
-	// or "none". The night agents take sessions in turn while their windows
-	// have room, leaving the reserve of every week, in percent, alone.
-	Away    string       `json:"away,omitempty"`
-	Night   []NightAgent `json:"night,omitempty"`
-	Reserve *int         `json:"reserve,omitempty"`
 }
 
 // Over lays a change over base settings.
@@ -75,28 +61,11 @@ func (s Settings) Over(base Settings) Settings {
 	if s.Secondary != nil {
 		out.Secondary = s.Secondary
 	}
-	if s.Away != "" {
-		out.Away = s.Away
-	}
-	if s.Night != nil {
-		out.Night = s.Night
-	}
-	if s.Reserve != nil {
-		out.Reserve = s.Reserve
-	}
 	return out
 }
 
 // Empty reports whether a change changes nothing.
 func (s Settings) Empty() bool { return same(s, Settings{}) }
-
-// AwaySpan is when the author is away, or "" when not.
-func (s Settings) AwaySpan() string {
-	if s.Away == "none" {
-		return ""
-	}
-	return s.Away
-}
 
 // Pushes reports whether the settings push when the run ends.
 func (s Settings) Pushes() bool { return s.Push != nil && *s.Push }
@@ -131,20 +100,6 @@ func (s Settings) Describe() string {
 	}
 	if s.Stops() {
 		parts = append(parts, "stop after the current unit")
-	}
-	if away := s.AwaySpan(); away != "" {
-		var agents []string
-		for _, a := range s.Night {
-			agents = append(agents, fmt.Sprintf("%s ×%d", a.Label(), a.Windows))
-		}
-		text := "away " + away
-		if len(agents) > 0 {
-			text += ": " + strings.Join(agents, ", ")
-		}
-		if s.Reserve != nil {
-			text += fmt.Sprintf(", %d%% of the week kept", *s.Reserve)
-		}
-		parts = append(parts, text)
 	}
 	return strings.Join(parts, " · ")
 }
