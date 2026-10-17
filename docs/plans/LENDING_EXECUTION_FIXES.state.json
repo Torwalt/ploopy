@@ -70,6 +70,30 @@
         "reasoning": 9859,
         "cache_read": 793984
       }
+    },
+    "1.4": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:21:17+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "cf033b12388486601852cadf053ac00c51fdd505",
+      "commits": [
+        "ed30fe0783eb4fa3ee3aa18b27b0517dc3038e30 Run the Nix sandbox in the caller's directory"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `ed30fe0` — the `sandbox` flake app resolves its first argument to an\n  absolute path against `$PWD` before `cd ${self}`. An already-absolute DIR is\n  passed through unchanged; no argument still reaches `dev/sandbox` empty, so\n  it creates a temp directory.\n\n**Landmark drift**\n\nNone. `flake.nix:61-64` still held the wrapper as the work order described.\n\n**Deviations from the work order**\n\n- No automated test was added: the defect is in a Nix-generated shell wrapper,\n  and repository tests deliberately never depend on the sandbox. It was shown\n  by hand before the change (`mkdir /nix/store/.../x: read-only file system`)\n  and after it (prepared `\u003cscratch\u003e/x`).\n- The \"from a scratch directory\" check used an absolute flake reference\n  (`nix run /abs/repo#sandbox`), because `.#sandbox` resolves against the\n  scratch directory's own (absent) flake. The wrapper's behaviour is the same\n  for either reference.\n- The wrapper uses `shift`/`set --` rather than a bash slice, so remaining\n  arguments (which `dev/sandbox` rejects anyway) survive unchanged.\n\n**What the next session must know**\n\n- `writeShellApplication` runs the text under bash with `set -euo pipefail`.\n  `$PWD/$dir` is purely lexical; `dev/sandbox`'s `filepath.Abs` then cleans it.\n- `nix flake check` passes; its only output of note is the usual warning that\n  the other systems were omitted.\n- `nixfmt --check flake.nix`, `go build`, `go vet`, `gofmt` and `go test ./...`\n  are green.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb555e3bfffeiBy4niE3HADFeO",
+      "cost_usd": 0.007416252000000001,
+      "harness": "opencode",
+      "elapsed_s": 54,
+      "session_s": 53,
+      "test_s": 1,
+      "tokens": {
+        "input": 23790,
+        "output": 2010,
+        "reasoning": 2481,
+        "cache_read": 384384
+      }
     }
   }
 }
