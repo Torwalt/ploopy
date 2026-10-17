@@ -214,6 +214,77 @@ func TestOtherChangesOnTheBranchMoveWithIt(t *testing.T) {
 	}
 }
 
+func TestAStagedDeletionMovesWithTheBranch(t *testing.T) {
+	e := mainRepo(t)
+	onBranch(t, e)
+	e.cfg.AuthorPaths = []string{"NOTES.md"}
+	git(t, e.root, "switch", "-q", "pass")
+	git(t, e.root, "rm", "-q", "README.md")
+	write(t, e.root, "NOTES.md", "mine\n")
+
+	root := placed(t, e)
+	if got := output(t, e.root, "branch", "--show-current"); got != "master" {
+		t.Fatalf("the main checkout should move to master, it is on %q", got)
+	}
+	if got := output(t, root, "branch", "--show-current"); got != "pass" {
+		t.Fatalf("the worktree should hold pass, it holds %q", got)
+	}
+	if exists(filepath.Join(root, "README.md")) {
+		t.Fatal("the staged deletion did not move with the branch")
+	}
+	if out := output(t, root, "status", "--porcelain"); !strings.Contains(out, "README.md") {
+		t.Fatalf("the worktree should hold the deletion uncommitted:\n%s", out)
+	}
+	if out := output(t, e.root, "status", "--porcelain"); !strings.Contains(out, "NOTES.md") ||
+		strings.Contains(out, "README.md") {
+		t.Fatalf("only the author's path should stay in the main checkout:\n%s", out)
+	}
+	for _, dir := range []string{e.root, root} {
+		if out := output(t, dir, "stash", "list"); out != "" {
+			t.Fatalf("the stash should be empty in %s:\n%s", dir, out)
+		}
+	}
+}
+
+func TestAStagedRenameMovesWithTheBranch(t *testing.T) {
+	e := mainRepo(t)
+	onBranch(t, e)
+	e.cfg.AuthorPaths = []string{"NOTES.md"}
+	git(t, e.root, "switch", "-q", "pass")
+	write(t, e.root, "old.txt", "kept\n")
+	git(t, e.root, "add", "old.txt")
+	git(t, e.root, "commit", "-q", "-m", "old")
+	git(t, e.root, "mv", "old.txt", "new.txt")
+	write(t, e.root, "NOTES.md", "mine\n")
+
+	root := placed(t, e)
+	if got := output(t, e.root, "branch", "--show-current"); got != "master" {
+		t.Fatalf("the main checkout should move to master, it is on %q", got)
+	}
+	if got := output(t, root, "branch", "--show-current"); got != "pass" {
+		t.Fatalf("the worktree should hold pass, it holds %q", got)
+	}
+	if got, _ := os.ReadFile(filepath.Join(root, "new.txt")); string(got) != "kept\n" {
+		t.Fatalf("the staged rename did not move with the branch: %q", got)
+	}
+	if exists(filepath.Join(root, "old.txt")) {
+		t.Fatal("the old name should be gone in the worktree")
+	}
+	if out := output(t, root, "status", "--porcelain"); !strings.Contains(out, "new.txt") ||
+		!strings.Contains(out, "old.txt") {
+		t.Fatalf("the worktree should hold the rename uncommitted:\n%s", out)
+	}
+	if out := output(t, e.root, "status", "--porcelain"); !strings.Contains(out, "NOTES.md") ||
+		strings.Contains(out, "old.txt") || strings.Contains(out, "new.txt") {
+		t.Fatalf("only the author's path should stay in the main checkout:\n%s", out)
+	}
+	for _, dir := range []string{e.root, root} {
+		if out := output(t, dir, "stash", "list"); out != "" {
+			t.Fatalf("the stash should be empty in %s:\n%s", dir, out)
+		}
+	}
+}
+
 func TestAFailedHandOffPutsTheChangesBack(t *testing.T) {
 	e := mainRepo(t)
 	onBranch(t, e)
@@ -221,6 +292,12 @@ func TestAFailedHandOffPutsTheChangesBack(t *testing.T) {
 	git(t, e.root, "switch", "-q", "pass")
 	write(t, e.root, "README.md", "half done\n")
 	write(t, e.root, "half.go", "package half\n")
+	write(t, e.root, "gone.txt", "gone\n")
+	write(t, e.root, "old.txt", "old\n")
+	git(t, e.root, "add", "gone.txt", "old.txt")
+	git(t, e.root, "commit", "-q", "-m", "files")
+	git(t, e.root, "rm", "-q", "gone.txt")
+	git(t, e.root, "mv", "old.txt", "new.txt")
 	write(t, e.root, "NOTES.md", "mine\n")
 	if err := os.MkdirAll(worktreesDir(e.root), 0o755); err != nil {
 		t.Fatal(err)
@@ -240,10 +317,13 @@ func TestAFailedHandOffPutsTheChangesBack(t *testing.T) {
 	if got := output(t, e.root, "branch", "--show-current"); got != "pass" {
 		t.Fatalf("the main checkout should be back on pass, it is on %q", got)
 	}
-	for path, want := range map[string]string{"README.md": "half done\n", "half.go": "package half\n"} {
+	for path, want := range map[string]string{"README.md": "half done\n", "half.go": "package half\n", "new.txt": "old\n"} {
 		if got, _ := os.ReadFile(filepath.Join(e.root, path)); string(got) != want {
 			t.Fatalf("%s was not put back in the main checkout: %q", path, got)
 		}
+	}
+	if exists(filepath.Join(e.root, "gone.txt")) || exists(filepath.Join(e.root, "old.txt")) {
+		t.Fatal("the staged deletion and the old name should be back as staged deletions")
 	}
 	if out := output(t, e.root, "stash", "list"); out != "" {
 		t.Fatalf("the stash should be empty:\n%s", out)

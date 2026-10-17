@@ -144,11 +144,31 @@ func (r *Repo) HandOff(ctx context.Context, branch, onto, path string) error {
 }
 
 // StashPaths stashes exactly paths, untracked ones included, so a hand-off to
-// another checkout at the same commit can carry them.
+// another checkout at the same commit can carry them. Git cannot match a
+// pathspec for a deleted path, so the whole tree is matched and everything
+// else is excluded instead.
 func (r *Repo) StashPaths(ctx context.Context, paths []string) error {
 	ctx = context.WithoutCancel(ctx)
-	_, err := r.git(ctx, append([]string{"stash", "push", "--quiet", "--include-untracked",
-		"--message", "ploopy hand-off", "--"}, paths...)...)
+	changes, err := r.Status(ctx)
+	if err != nil {
+		return err
+	}
+	want := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		want[path] = true
+	}
+	specs := []string{"."}
+	for _, change := range changes {
+		if want[change.Path] {
+			continue
+		}
+		specs = append(specs, ":(exclude,literal)"+change.Path)
+		if change.From != "" && !want[change.From] {
+			specs = append(specs, ":(exclude,literal)"+change.From)
+		}
+	}
+	_, err = r.git(ctx, append([]string{"stash", "push", "--quiet", "--include-untracked",
+		"--message", "ploopy hand-off", "--"}, specs...)...)
 	return err
 }
 
