@@ -1,0 +1,29 @@
+{
+  "units": {
+    "1.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T12:16:59+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "0b11a02379b310016cdff71bc651065bce60c972",
+      "commits": [
+        "6fa28c8dcc18abc8a0a1631671409e736fd96fc8 Add fake harness agents for the sandbox"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `6fa28c8` adds `dev/fakeagent`: one binary that answers as `claude`,\n  `codex` (including `app-server`) or `opencode`, selected by\n  `filepath.Base(os.Args[0])`.\n- It reads `$PLOOPY_SANDBOX/scenario.toml`, keeps absolute windows in\n  `$PLOOPY_SANDBOX/state.json`, and re-seeds when the scenario is newer.\n- Prompt roles: implement commits `Do unit \u003cid\u003e` after appending to\n  `work.txt` and writes the handover; collect writes `No findings.`; triage\n  writes a two-unit fixes plan and appends `## For the author`. `red` adds and\n  commits `BROKEN`; `dirty` leaves `work.txt` uncommitted; `blocked` and\n  `nothing` change nothing.\n- Tests drive the real adapters through the binary: Claude and Codex budgets,\n  opencode steps, all three limit formats, per-session usage growth, the\n  implement/collect roles in a temp git repo, and triage.\n\n**Landmark drift**\n\n- `dev/` did not exist; this unit created it. Nothing else moved.\n\n**Deviations from the work order**\n\n- State is a top-level map keyed by harness (`{\"claude\": {\"session\": …,\n  \"weekly\": …}}`); the plan only specified absolute instants and shares.\n- A scenario with no `session_resets_in` stores an inactive session window;\n  the next session opens one, matching the Codex example.\n- `speak.go`, `act.go`, `scenario.go` split the format, role and state work\n  rather than keeping one large file.\n- Added a triage test beyond the required two role tests, because triage paths\n  come from prompt text and are easy to regress.\n\n**What the next session must know**\n\n- Build the fake with `go run ./dev/fakeagent` only after placing it on PATH\n  under one of the three names; as `fakeagent` it exits 2.\n- `nix flake check` passed; `subPackages` is still only `cmd/ploopy`.\n- `codex app-server` never writes state. It seeds/refreshes in memory and\n  answers `initialize`, `initialized` + `account/updated`, then\n  `account/rateLimits/read`.\n- Claiming a window reaches 1 is persisted; the next session answers a usage\n  limit until that window resets. The session that reaches 1 still completes.\n- Tests set `seconds = 0`; the sandbox default of 6 is honoured by sleeping.\n- Role detection matches the prompt's opening line exactly; the triage check\n  looks for \"it weighs the findings\". Keep the prompt templates' openings\n  stable or update the fake with them.\n\n**Open problems**\n\n- None found. The sandbox setup and its flake app are the next unit.",
+      "session_id": "ses_eb6a75d71ffe8QHg4xUEl1hdA1",
+      "cost_usd": 0.06039115199999998,
+      "harness": "opencode",
+      "elapsed_s": 339,
+      "session_s": 324,
+      "verify_s": 1,
+      "test_s": 13,
+      "tokens": {
+        "input": 134548,
+        "output": 16340,
+        "reasoning": 33457,
+        "cache_read": 3443584
+      }
+    }
+  }
+}
