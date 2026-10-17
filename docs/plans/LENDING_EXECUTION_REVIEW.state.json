@@ -179,6 +179,26 @@
         "reasoning": 38362,
         "cache_read": 5211392
       }
+    },
+    "1.10": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T15:33:52+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "08e7249ebfcf47344f278810c5106ba04e56e528",
+      "attempts": 1,
+      "handover": "# Findings: Unit 4.1 of LENDING_EXECUTION, The board component\n\nReviewed: 8355569c9547..e374646ea0d4, 5 files. Steps: all done.\n\n## F1 — A focused dim column and a locked field under the cursor lose the focus highlight\n\n- Class: slip\n- Confidence: high\n- Where: `internal/ui/board.go:443-450` and `internal/ui/board.go:454-463`\n- Situation: focus a subscription column that is outside the run's set (it is `Dim`, titled \"not this run\"), or put the field cursor on a locked field in the focused column. The adjust board starts with the cursor on the locked `a agent` field.\n- Happens: the title switch tests `column.Dim` before `focused`, and the field switch tests `field.Locked` and `column.Dim` before `focused \u0026\u0026 i == b.cursor[index]`. The focused column's title and the field under the cursor therefore render with the dim/locked style, not the focused style. On the adjust board the cursor's position is invisible from the first frame; on a dim column both the column focus and the cursor position are invisible.\n- Should: §10 Layout says \"The focused column's title is highlighted, and so is the field under the cursor.\" Apply the focused styles to those two, combining them with dim/locked styling if that appearance is also wanted, rather than replacing it.\n- Test: none exists; `TestALockedFieldKeepsItsValueAndSaysWhy` checks only the reason text, and the width test checks only side-by-side versus stacked.\n\n## F2 — No test covers `+`/`-` when the cursor is off the lease field\n\n- Class: gap\n- Confidence: high\n- Where: `internal/ui/board.go:262-277`, especially the fallback loop at `board.go:271-275`; `internal/ui/board_test.go:149-197`\n- Situation: focus a subscription column, move the field cursor from `u lent` to `m model`, `e effort` or `k keep` with the arrows, then press `+` or `-`.\n- Happens: it adjusts the lease because `timeField` falls back to the first clock-bearing field. Deleting that fallback loop and returning only the cursor field leaves `go test ./...` green (verified on an archive of e374646), so a regression would silently make `+`/`-` do nothing unless the cursor is exactly on the lease field.\n- Should: §10 says `+`/`-` move the lease's end hour in a subscription column, not only when the cursor happens to be on it. Add a test that moves the cursor off the time field, presses `+`, and asserts the lease value changed.\n- Test: none exists.\n\n## F3 — No test covers `[`/`]` leaving a single-clock (until) term unchanged\n\n- Class: gap\n- Confidence: high\n- Where: `internal/ui/board.go:321-326`; `internal/ui/board_test.go:149-197`\n- Situation: focus a subscription column whose value is an until term such as `until 09:00` (one clock) and press `[` or `]`.\n- Happens: nothing changes, which is correct, because `adjustClock` refuses `start` when there are fewer than two clocks. Removing that guard (`if start { at = 0 }`) leaves `go test ./...` green (verified on an archive of e374646); a regression would move the until hour on a key §10 reserves for a nightly span's start.\n- Should: §10 says `[`/`]` move a nightly span's start hour. Add a test that presses both on an until value and asserts it is unchanged.\n- Test: none exists.",
+      "session_id": "ses_eb5f349e6ffe5MELBYxTkmarRP",
+      "cost_usd": 0.04808418600000001,
+      "harness": "opencode",
+      "elapsed_s": 324,
+      "session_s": 324,
+      "tokens": {
+        "input": 60623,
+        "output": 5369,
+        "reasoning": 43885,
+        "cache_read": 3146112
+      }
     }
   }
 }
