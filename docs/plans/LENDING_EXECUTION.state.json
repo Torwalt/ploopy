@@ -48,6 +48,30 @@
         "reasoning": 19132,
         "cache_read": 3475968
       }
+    },
+    "2.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T12:25:05+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "88eeb2402b9d4edfd6090eafb6797da790a72eb7",
+      "commits": [
+        "c4384cbef9cd0997fa61c6c11b5194bd80cd6ceb Hand uncommitted changes to sessions"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `c4384cb` hands uncommitted changes to sessions. `checkTree` no longer\n  refuses an implementing plan: the prompt gets `## Uncommitted changes in the\n  tree` after *Your previous attempt*, with the dirt lines, the origin sentence\n  (earlier attempt vs before the run), and the red-preflight tail under\n  *Verify is red with these changes:*.\n- A red preflight on inherited changes is recorded instead of stopping the\n  run; a review plan (any non-`Implement` first unit) still refuses a dirty\n  tree, without naming `--allow-dirty`.\n- `Options.AllowDirty` is gone; `--allow-dirty` is registered hidden and\n  deprecated and does nothing.\n- `handOff` now stashes the non-author dirty paths (renames' `From` included,\n  untracked included), hands the branch off, and pops the stash in the new\n  worktree; it reports how many changes moved.\n- README's worktree bullet and a paragraph describe the new behaviour.\n\n**Landmark drift**\n\n- `checkTree`, `preflight`, `prompt`, `renderPrompt` and `promptArgs` kept\n  their names. `AllowDirty` no longer exists.\n- The old tests of refused dirt were replaced: `TestADirtyTreeTheLoopDidNotLeaveIsRefused`\n  → `TestInheritedChangesAreHandedToTheFirstSession`;\n  `TestOtherChangesOnTheBranchStopTheHandOff` → `TestOtherChangesOnTheBranchMoveWithIt`.\n\n**Deviations from the work order**\n\n- Stashing is done by new `repo.StashPaths` / `repo.StashPop`, using\n  `git stash push --include-untracked -- \u003cpath\u003e...`.\n- `progress.reset` no longer clears `LeftDirty` when resuming the same unit;\n  otherwise the prompt could not tell that the dirt came from an earlier\n  attempt after `reset` ran. A new unit still clears it.\n- The `allow-dirty` string lives in a const in `addRunFlags`, so `rg allow-dirty\n  cmd` finds one line; the flag is hidden by `MarkDeprecated`.\n\n**What the next session must know**\n\n- `preflightRed` is one-shot: `uncommitted` consumes it on the first rendered\n  prompt. Dry-run/show render through `Prompt` without a preflight, so they\n  only get the dirt section.\n- `handOff` restores the stash into the main checkout on a `HandOff` failure;\n  if the pop into the new worktree fails, it best-effort pops in main and the\n  stash still holds the changes if that also fails.\n- `setup` is deliberately unchanged. With a configured `setup`, a fresh\n  worktree that received inherited dirt will still make `setup` fail its\n  whole-tree-clean check. That is the authority's explicit choice, not an\n  oversight here.\n- The red-preflight path still leaves the judge after the session unchanged: a\n  red verify or dirty tree after a session fails the attempt.\n\n**Open problems**\n\n- The `setup` plus inherited-dirt interaction above is the only doubtful spot.\n- No test covers a stash-pop failure path; it is best-effort by design.",
+      "session_id": "ses_eb69edc85ffeEKKo4Hmk42XOhb",
+      "cost_usd": 0.055299552000000016,
+      "harness": "opencode",
+      "elapsed_s": 241,
+      "session_s": 233,
+      "test_s": 8,
+      "tokens": {
+        "input": 102616,
+        "output": 12507,
+        "reasoning": 21459,
+        "cache_read": 6509184
+      }
     }
   }
 }
