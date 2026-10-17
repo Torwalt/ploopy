@@ -335,23 +335,6 @@ func subscriptionNames(value string) (map[string]bool, bool) {
 	return names, false
 }
 
-func leasesNote(ctx context.Context, e *env, now time.Time) string {
-	file, err := lease.Load()
-	var lines []string
-	if err != nil {
-		lines = append(lines, "the lease file cannot be read: "+err.Error())
-	} else {
-		records := loadHistory(ctx, e.root)
-		for _, l := range file.Active(now) {
-			lines = append(lines, leaseLine(e.harnesses.Get(l.Harness), l, history.Latest(records, l.Harness), now))
-		}
-	}
-	if len(lines) == 0 {
-		lines = append(lines, "nothing is lent")
-	}
-	return strings.Join(lines, "\n") + "\n\nchange them with `ploopy lend`"
-}
-
 // leaseLine is one lease for a person: who runs, on what terms, and how much
 // of the week it now keeps.
 func leaseLine(h harness.Harness, l lease.Lease, b *harness.Budget, now time.Time) string {

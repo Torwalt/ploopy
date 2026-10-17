@@ -34,14 +34,25 @@ type runSettings struct {
 }
 
 // given is which settings the author already gave, as flags or in the plan's
-// front matter. Those are never asked.
+// front matter. The board shows those locked and says where they came from.
 type given struct {
 	harness, model, effort, secondary, peak, subscriptions, spendAll, push, finish bool
+	sources                                                                        map[string]string
 }
 
-func (g given) all() bool {
-	return g.harness && g.model && g.effort && g.secondary && g.peak &&
-		g.subscriptions && g.spendAll && g.push && g.finish
+// why is where a given setting came from, for the board's locked field.
+func (g given) why(key string) string {
+	if g.sources == nil {
+		return ""
+	}
+	return g.sources[key]
+}
+
+func (g *given) from(key, source string) {
+	if g.sources == nil {
+		g.sources = map[string]string{}
+	}
+	g.sources[key] = source
 }
 
 // chosenRun is the settings, resolved.
@@ -55,9 +66,9 @@ type chosenRun struct {
 	finish        ui.Finish
 }
 
-// chooseSettings takes what the flags and the plan's front matter say, then
-// asks for the rest on one page, prefilled from the last run. When there was
-// a last run, starting like it is one keypress.
+// chooseSettings puts everything on one board, prefilled from the last run
+// and the leases. Enter starts; the settings the flags and the plan gave are
+// locked and say where they came from.
 func chooseSettings(ctx context.Context, cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags, branch string, open int) (chosenRun, error) {
 	s, g, err := givenSettings(cmd, e, p, f)
 	if err != nil {
@@ -73,28 +84,16 @@ func chooseSettings(ctx context.Context, cmd *cobra.Command, e *env, p *plan.Pla
 
 	last := loadLast(ctx, e.root)
 	fill(e, &s, g, last)
-	if !g.all() {
-		printEstimates(loadHistory(ctx, e.root), open)
-		change := true
-		if last != nil {
-			picked, err := ui.Pick("How should it run?", "agent", []ui.Choice{
-				{Label: "like last time: " + describe(e, s), Value: "last"},
-				{Label: "change the settings", Value: "change"},
-			})
-			if err != nil {
-				return chosenRun{}, err
-			}
-			change = picked == "change"
-		}
-		if change {
-			if err := askSettings(ctx, e, &s, g); err != nil {
-				return chosenRun{}, err
-			}
-		}
+	board := newSettingsBoard(ctx, e, p, g, &s, branch, open)
+	if err := board.run(); err != nil {
+		return chosenRun{}, err
 	}
 
 	chosen, err := resolveSettings(e, s)
 	if err != nil {
+		return chosenRun{}, err
+	}
+	if err := board.saveLeases(time.Now()); err != nil {
 		return chosenRun{}, err
 	}
 	saveLast(ctx, e.root, s)
@@ -108,8 +107,13 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 	var g given
 
 	s.Harness = f.agent
-	if s.Harness == "" {
+	if s.Harness != "" {
+		g.from("harness", "from a flag")
+	} else {
 		s.Harness = p.Settings["agent"]
+		if s.Harness != "" {
+			g.from("harness", "from the plan")
+		}
 	}
 	if s.Harness != "" && e.harnesses.Get(s.Harness) == nil {
 		return s, g, fmt.Errorf("--agent must be one of %s, not %s",
@@ -117,16 +121,23 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 	}
 	fromPlan := p.Settings["agent"] != "" && p.Settings["agent"] == s.Harness
 	s.Model, s.Effort = f.model, f.effort
-	if s.Model == "" && fromPlan {
+	if s.Model != "" {
+		g.from("model", "from a flag")
+	} else if fromPlan && p.Settings["model"] != "" {
 		s.Model = p.Settings["model"]
+		g.from("model", "from the plan")
 	}
-	if s.Effort == "" && fromPlan {
+	if s.Effort != "" {
+		g.from("effort", "from a flag")
+	} else if fromPlan && p.Settings["effort"] != "" {
 		s.Effort = p.Settings["effort"]
+		g.from("effort", "from the plan")
 	}
 	g.harness, g.model, g.effort = s.Harness != "", s.Model != "", s.Effort != ""
 
 	if cmd.Flags().Changed("secondary") {
 		g.secondary = true
+		g.from("secondary", "from a flag")
 		if f.secondary != "none" {
 			agent, err := resolveAgent(e.harnesses, "--secondary", f.secondary, f.secondaryMod, f.secondaryEff, s.Effort)
 			if err != nil {
@@ -140,6 +151,7 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 			return s, g, fmt.Errorf("--peak must be wait or run, not %s", f.peak)
 		}
 		s.Peak, g.peak = f.peak, true
+		g.from("peak", "from a flag")
 	}
 	if f.subscriptions != "" {
 		set, err := subscriptionSet(e.harnesses, f.subscriptions)
@@ -147,26 +159,31 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 			return s, g, err
 		}
 		s.Subscriptions, g.subscriptions = set, true
+		g.from("subscriptions", "from a flag")
 	} else if p.Settings["subscriptions"] != "" {
 		set, err := subscriptionSet(e.harnesses, p.Settings["subscriptions"])
 		if err != nil {
 			return s, g, err
 		}
 		s.Subscriptions, g.subscriptions = set, true
+		g.from("subscriptions", "from the plan")
 	}
 	s.SpendAll = f.spendAll
 	if cmd.Flags().Changed("spend-all") {
 		g.spendAll = true
+		g.from("spendAll", "from a flag")
 	}
 	s.Push = e.cfg.Push
 	if cmd.Flags().Changed("push") {
 		s.Push, g.push = f.push, true
+		g.from("push", "from a flag")
 	}
 	if f.finish != "" {
 		if !ui.Finish(f.finish).Valid() {
 			return s, g, fmt.Errorf("--finish must be none, suspend or poweroff, not %s", f.finish)
 		}
 		s.Finish, g.finish = f.finish, true
+		g.from("finish", "from a flag")
 	}
 	return s, g, nil
 }
@@ -257,74 +274,6 @@ func validSecondary(harnesses harness.Set, agent *control.Agent, primary string)
 	}
 	h := harnesses.Get(agent.Harness)
 	return h != nil && contains(h.Efforts(), agent.Effort)
-}
-
-// askSettings puts everything not given on one page.
-func askSettings(ctx context.Context, e *env, s *runSettings, g given) error {
-	var fields []ui.Field
-	if !g.harness {
-		fields = append(fields, ui.Field{Title: "Agent", Value: &s.Harness, Choices: func() []ui.Choice {
-			return labelled(e.harnesses.Names())
-		}})
-	}
-	if !g.model {
-		firstHarness, firstModel := s.Harness, s.Model
-		fields = append(fields, ui.Field{Title: "Model", Value: &s.Model, Binding: &s.Harness, Choices: func() []ui.Choice {
-			models := e.harnesses.Get(s.Harness).Models()
-			// A model named by hand last time stays on offer.
-			if s.Harness == firstHarness && firstModel != "" && !contains(models, firstModel) {
-				models = append([]string{firstModel}, models...)
-			}
-			return labelled(models)
-		}})
-	}
-	if !g.effort {
-		fields = append(fields, ui.Field{Title: "Effort", Value: &s.Effort, Binding: &s.Harness, Choices: func() []ui.Choice {
-			return labelled(e.harnesses.Get(s.Harness).Efforts())
-		}})
-	}
-	secondary := encodeAgent(s.Secondary)
-	if !g.secondary {
-		fields = append(fields, ui.Field{Title: "On a usage limit", Value: &secondary, Binding: &s.Harness,
-			Choices: func() []ui.Choice { return secondaryChoices(e.harnesses, s.Harness) }})
-	}
-	if peaked := peakedHarness(e.harnesses); !g.peak && peaked != nil {
-		title := fmt.Sprintf("A unit due in %s's peak hours (%s)",
-			peaked.Name(), peakHours(peaked.PeakWindows(), time.Now()))
-		fields = append(fields, ui.Field{Title: title, Value: &s.Peak, Choices: func() []ui.Choice { return peakChoices }})
-	}
-	if !g.subscriptions {
-		fields = append(fields, ui.Field{Title: "Subscriptions", Value: &s.Subscriptions, Binding: &s.Harness,
-			Choices: func() []ui.Choice { return subscriptionChoices(e.harnesses, s.Harness) }})
-	}
-	spend := spendLabel(s.SpendAll)
-	if !g.spendAll {
-		fields = append(fields, ui.Field{Title: "Spending", Value: &spend,
-			Choices: func() []ui.Choice { return spendChoices }})
-	}
-	push := yesNo(s.Push)
-	if !g.push {
-		fields = append(fields, ui.Field{Title: "Push the branch when the run ends", Value: &push,
-			Choices: func() []ui.Choice { return yesNoChoices(true) }})
-	}
-	if !g.finish {
-		fields = append(fields, ui.Field{Title: "When the run ends", Value: &s.Finish,
-			Choices: func() []ui.Choice { return ui.Finishes }})
-	}
-
-	if err := ui.FormNote("How should it run?", leasesNote(ctx, e, time.Now()), fields); err != nil {
-		return err
-	}
-	if !g.secondary {
-		s.Secondary = decodeAgent(secondary)
-	}
-	if !g.spendAll {
-		s.SpendAll = spend == "all"
-	}
-	if !g.push {
-		s.Push = push == "yes"
-	}
-	return nil
 }
 
 var spendChoices = []ui.Choice{
@@ -438,31 +387,6 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 		push:          s.Push,
 		finish:        finish,
 	}, nil
-}
-
-// describe renders settings on one line. Peak hours are left out when neither
-// agent has any.
-func describe(e *env, s runSettings) string {
-	agent := control.Agent{Harness: s.Harness, Model: s.Model, Effort: s.Effort}
-	settings := control.Settings{
-		Finish: s.Finish, Peak: s.Peak, Push: &s.Push, Secondary: s.Secondary,
-		Subscriptions: s.Subscriptions, SpendAll: &s.SpendAll,
-	}
-	peaked := len(e.harnesses.Get(s.Harness).PeakWindows()) > 0
-	if secondary := e.harnesses.Get(agentHarness(s.Secondary)); secondary != nil {
-		peaked = peaked || len(secondary.PeakWindows()) > 0
-	}
-	if !peaked {
-		settings.Peak = ""
-	}
-	return agent.Label() + " · " + settings.Describe()
-}
-
-func agentHarness(agent *control.Agent) string {
-	if agent == nil {
-		return ""
-	}
-	return agent.Harness
 }
 
 // lastRunPath is in the repository's git directory, which its worktrees share

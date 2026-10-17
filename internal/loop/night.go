@@ -100,9 +100,13 @@ type Lending struct {
 	SpendAll bool    // the run keeps no reserve
 }
 
-// leaseSpan is when a lease is lent at an instant, when that ends, and whether
+// LeaseSpan is when a lease is lent at an instant, when that ends, and whether
 // it is lent at all. start is the nightly span's beginning, and zero for a
 // lease with no daily beginning.
+func LeaseSpan(lease Lease, now time.Time) (start, end time.Time, inside bool) {
+	return leaseSpan(lease, now)
+}
+
 func leaseSpan(lease Lease, now time.Time) (start, end time.Time, inside bool) {
 	switch lease.Kind {
 	case LeaseUntil:
@@ -322,6 +326,22 @@ func lendOrder(choices []lendChoice, now time.Time, spendAll bool) {
 		return lendUrgency(a.lease, a.b, now, spendAll) >
 			lendUrgency(b.lease, b.b, now, spendAll)
 	})
+}
+
+// LendOrder puts leases in the order sessions would go at an instant: one
+// whose window is already open before one opening a fresh window, the one
+// resetting first leading; fresh ones with the most week to lose first. The
+// budgets are keyed by harness name, and a missing one counts as no window.
+func LendOrder(leases []Lease, budgets map[string]*harness.Budget, now time.Time, spendAll bool) {
+	choices := make([]lendChoice, 0, len(leases))
+	for _, lease := range leases {
+		b := budgets[lease.Harness.Name()]
+		choices = append(choices, lendChoice{lease: lease, b: b, fresh: b == nil || !b.Session.Active(now)})
+	}
+	lendOrder(choices, now, spendAll)
+	for i := range choices {
+		leases[i] = choices[i].lease
+	}
 }
 
 // lendUrgency is the share of the week a fresh window would lose by waiting:

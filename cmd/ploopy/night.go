@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/history"
@@ -42,26 +40,4 @@ func windowsNow(ctx context.Context, h harness.Harness, records []history.Record
 		return nil, ""
 	}
 	return budget, " · seen " + budget.At.Local().Format("Mon 15:04")
-}
-
-// printEstimates says what units took each agent in this repository before
-// the author picks one.
-func printEstimates(records []history.Record, open int) {
-	var lines []string
-	for _, est := range history.Estimates(records) {
-		if !est.Known() {
-			continue
-		}
-		line := fmt.Sprintf("  %-38s %s", est.Agent, est.Describe())
-		if plan := est.Plan(open); plan != "" {
-			line += "\n  " + strings.Repeat(" ", 38) + " " + plan
-		}
-		lines = append(lines, line)
-	}
-	if len(lines) == 0 {
-		return
-	}
-	fmt.Println("What a landed unit took here:")
-	fmt.Println(strings.Join(lines, "\n"))
-	fmt.Println()
 }
