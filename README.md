@@ -91,16 +91,22 @@ runs it like any plan:
   order, handover and commits and writes findings with the `plan-review` skill.
   It changes nothing: a review session that commits stops the run;
 - one more session looks only at the seams between the units;
-- one triage session weighs every finding with the `review-triage` skill. Who
-  runs it is asked on a page of its own — agent, model, effort and a spending
-  cap, Opus at first and then like last time — and the `--triage-*` flags
-  answer it. Until the triage has run, `ploopy review` on the same plan offers
-  to change it. The triage writes `<NAME>_FIXES.md`, an ordinary plan for every
-  finding that holds. It makes a recommended choice for each design finding so
-  the plan can run immediately, and records each recommendation and its
-  alternatives under *For the author* at the end of the review. The author can
-  revise those choices before running the fix plan. The triage may commit those
-  two files and nothing else.
+- one board asks everything before either runs: the run's columns for the
+  collecting sessions — the bedrock, the lent subscriptions and the run's own
+  settings — with a Triage column before the Run column. The Triage column is
+  the agent, model, effort and spending cap of the session that weighs the
+  findings: Opus at first and then like last time, and the `--triage-*` flags
+  answer it and show locked. The board's values go to the review's run without
+  asking again. A review already written whose triage has not run opens with
+  its triage as that review has it, and changing it commits the change; once
+  the triage has run its column is locked.
+- the triage session weighs every finding with the `review-triage` skill. It
+  writes `<NAME>_FIXES.md`, an ordinary plan for every finding that holds. It
+  makes a recommended choice for each design finding so the plan can run
+  immediately, and records each recommendation and its alternatives under *For
+  the author* at the end of the review. The author can revise those choices
+  before running the fix plan. The triage may commit those two files and
+  nothing else.
 
 A repository adds its own review checklist at `.agents/review-checklist.md`, or
 names one with `review_checklist` in `.ploopy.toml`; collecting sessions go

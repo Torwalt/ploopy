@@ -16,6 +16,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
+	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
@@ -33,6 +34,7 @@ type settingsBoard struct {
 	adjust   bool
 	given    given
 	s        *runSettings
+	triage   *triageDraft
 	drafts   []*leaseDraft
 	records  []history.Record
 	canPush  bool
@@ -44,6 +46,31 @@ type settingsBoard struct {
 	stop      string
 	lastAgent string
 	board     *ui.Board
+}
+
+// triageDraft is the Triage column of a review's board. It stays editable
+// until the triage has run, then the whole column is locked.
+type triageDraft struct {
+	agent  string
+	model  string
+	effort string
+	budget string
+	given  map[string]bool
+	locked string
+	last   string
+}
+
+// triageRanLock is why a review's triage cannot change.
+const triageRanLock = "the triage has run"
+
+func (d *triageDraft) lock(key string) string {
+	if d.locked != "" {
+		return d.locked
+	}
+	if d.given[key] {
+		return "from a flag"
+	}
+	return ""
 }
 
 // leaseDraft is one subscription's lease and what it runs as on the board.
@@ -80,12 +107,7 @@ func newSettingsBoard(ctx context.Context, e *env, p *plan.Plan, g given, s *run
 	}
 	sb.records = loadHistory(ctx, sb.root)
 	sb.drafts, sb.leaseErr = loadLeaseDrafts(ctx, e, sb.records, time.Now())
-	sb.normalize()
-	sb.board = ui.NewBoard(sb.title(), sb.columns(), sb.footer)
-	sb.board.OnChange = func() {
-		sb.normalize()
-		sb.board.SetColumns(sb.columns())
-	}
+	sb.rebuild()
 	return sb
 }
 
@@ -146,13 +168,30 @@ func newAdjustBoard(ctx context.Context, e *env, live control.Live) *settingsBoa
 	}
 	sb.records = loadHistory(ctx, sb.root)
 	sb.drafts, sb.leaseErr = loadLeaseDrafts(ctx, e, sb.records, time.Now())
+	sb.rebuild()
+	return sb
+}
+
+// newReviewBoard is the run's board with the review's Triage column before
+// the Run column.
+func newReviewBoard(ctx context.Context, e *env, p *plan.Plan, g given, s *runSettings, branch string, open int, t review.Triage, givens map[string]bool, locked string) *settingsBoard {
+	sb := newSettingsBoard(ctx, e, p, g, s, branch, open)
+	sb.triage = &triageDraft{
+		agent: t.Agent, model: t.Model, effort: t.Effort,
+		budget: strconv.FormatFloat(t.Budget, 'f', -1, 64),
+		given:  givens, locked: locked, last: t.Agent,
+	}
 	sb.normalize()
+	sb.rebuild()
+	return sb
+}
+
+func (sb *settingsBoard) rebuild() {
 	sb.board = ui.NewBoard(sb.title(), sb.columns(), sb.footer)
 	sb.board.OnChange = func() {
 		sb.normalize()
 		sb.board.SetColumns(sb.columns())
 	}
-	return sb
 }
 
 func (sb *settingsBoard) title() string {
@@ -160,6 +199,7 @@ func (sb *settingsBoard) title() string {
 }
 
 func (sb *settingsBoard) normalize() {
+	sb.normalizeTriage()
 	sb.s.SpendAll = sb.spend == "all"
 	sb.s.Secondary = decodeAgent(sb.secondary)
 	h := sb.env.harnesses.Get(sb.s.Harness)
@@ -181,6 +221,29 @@ func (sb *settingsBoard) normalize() {
 	sb.lastAgent = sb.s.Harness
 }
 
+func (sb *settingsBoard) normalizeTriage() {
+	d := sb.triage
+	if d == nil {
+		return
+	}
+	h := sb.env.harnesses.Get(d.agent)
+	if h == nil {
+		d.agent = sb.env.harnesses[0].Name()
+		h = sb.env.harnesses.Get(d.agent)
+	}
+	if d.last != d.agent {
+		d.model = triageModels(sb.env, d.agent)[0]
+		d.effort = preferredEffort(h)
+	}
+	if !contains(h.Efforts(), d.effort) {
+		d.effort = preferredEffort(h)
+	}
+	if d.budget == "" {
+		d.budget = "0"
+	}
+	d.last = d.agent
+}
+
 func (sb *settingsBoard) columns() []ui.Column {
 	var columns []ui.Column
 	columns = append(columns, sb.bedrockColumn())
@@ -190,8 +253,37 @@ func (sb *settingsBoard) columns() []ui.Column {
 		}
 		columns = append(columns, sb.subscriptionColumn(d))
 	}
+	if sb.triage != nil {
+		columns = append(columns, sb.triageColumn())
+	}
 	columns = append(columns, sb.runColumn())
 	return columns
+}
+
+func (sb *settingsBoard) triageColumn() ui.Column {
+	d := sb.triage
+	return ui.Column{Title: "Triage", Fields: []ui.BoardField{
+		{Key: 'a', Label: "agent", Value: &d.agent, Choices: func() []ui.Choice {
+			return labelled(sb.env.harnesses.Names())
+		}, Locked: d.lock("agent")},
+		{Key: 'm', Label: "model", Value: &d.model, Choices: func() []ui.Choice {
+			return labelled(triageModelChoices(sb.env, d.agent, d.model))
+		}, Locked: d.lock("model")},
+		{Key: 'e', Label: "effort", Value: &d.effort, Choices: func() []ui.Choice {
+			return labelled(effortChoices(sb.env.harnesses.Get(d.agent), d.effort))
+		}, Locked: d.lock("effort")},
+		{Key: 'b', Label: "cap", Value: &d.budget, Choices: func() []ui.Choice {
+			return budgetOptions(d.budget)
+		}, Locked: d.lock("budget")},
+	}}
+}
+
+func triageModelChoices(e *env, agent, current string) []string {
+	models := triageModels(e, agent)
+	if current != "" && !contains(models, current) {
+		models = append([]string{current}, models...)
+	}
+	return models
 }
 
 func (sb *settingsBoard) bedrockColumn() ui.Column {
@@ -314,6 +406,43 @@ func (sb *settingsBoard) run() error {
 	}
 	sb.read()
 	return nil
+}
+
+// finish resolves the board's settings, writes the leases it changed and
+// remembers the run and the triage.
+func (sb *settingsBoard) finish(now time.Time) (chosenRun, error) {
+	chosen, err := resolveSettings(sb.env, *sb.s)
+	if err != nil {
+		return chosenRun{}, err
+	}
+	if err := sb.saveLeases(now); err != nil {
+		return chosenRun{}, err
+	}
+	saveLast(sb.ctx, sb.env.root, *sb.s)
+	if sb.triage != nil {
+		t, err := sb.triageValue()
+		if err != nil {
+			return chosenRun{}, err
+		}
+		saveLastTriage(sb.ctx, sb.env.root, t)
+	}
+	return chosen, nil
+}
+
+func (sb *settingsBoard) triageValue() (review.Triage, error) {
+	d := sb.triage
+	if d == nil {
+		return review.Triage{}, nil
+	}
+	budget, err := strconv.ParseFloat(d.budget, 64)
+	if err != nil {
+		return review.Triage{}, fmt.Errorf("the cap %q is not dollars", d.budget)
+	}
+	t := review.Triage{Agent: d.agent, Model: d.model, Effort: d.effort, Budget: budget}
+	if err := validateTriage(sb.env, t); err != nil {
+		return review.Triage{}, err
+	}
+	return t, nil
 }
 
 // read takes the board's values into the run settings.

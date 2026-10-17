@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
+	"github.com/Torwalt/ploopy/internal/ui"
 )
 
 type reviewFlags struct {
@@ -39,10 +41,11 @@ func newReview(e *env) *cobra.Command {
 			"ordinary plan for every finding that holds, applies its recommended\n" +
 			"design choices, and shows the author those choices and alternatives at\n" +
 			"the end of the review plan.\n\n" +
-			"The collecting sessions run with the agent the run settings choose. Who\n" +
-			"weighs the findings is asked on a page of its own and remembered apart;\n" +
-			"the --triage flags answer it. A review already written runs on from where\n" +
-			"it stopped, and its triage can still be changed until it has run.",
+			"One board asks everything before either runs: the run's columns for the\n" +
+			"collecting sessions and a Triage column for the session that weighs the\n" +
+			"findings, remembered apart; the --triage flags answer it. A review already\n" +
+			"written runs on from where it stopped, and its triage can still be\n" +
+			"changed until it has run.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error { return reviewPlan(cmd, e, args, &f) },
 	}
@@ -83,12 +86,18 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 		return err
 	}
 	reviewPath := review.Path(c.Plan.Path)
+	var p *plan.Plan
+	var s *state.State
+	var current *review.Triage
+	var triage review.Triage
+	var givens map[string]bool
+	var triageRan bool
 	if isFile(filepath.Join(root, reviewPath)) {
 		existing, err := plan.Load(filepath.Join(root, reviewPath), reviewPath)
 		if err != nil {
 			return err
 		}
-		s, err := state.Load(filepath.Join(root, state.PathFor(reviewPath)))
+		s, err = state.Load(filepath.Join(root, state.PathFor(reviewPath)))
 		if err != nil {
 			return err
 		}
@@ -97,11 +106,40 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 				"`ploopy close %s` before reviewing %s again", reviewPath, existing.Name(), c.Plan.Name())
 		}
 		fmt.Printf("%s is already written; running it on\n", reviewPath)
-		if err := retriage(cmd, e, root, existing, s, f); err != nil {
+		p = existing
+		triage, givens, triageRan, err = reviewTriage(ctx, cmd, e, f, p, s)
+		if err != nil {
 			return err
 		}
-	} else if err := writeReview(cmd, e, root, c.Plan, c.State, f); err != nil {
-		return err
+		if u, cur := review.TriageOf(p); u != nil {
+			current = &cur
+			if triageRan {
+				current = &triage
+			}
+		}
+		if !triageRan && current != nil && triage != *current && (!ui.Interactive() || f.writeOnly) {
+			if err := writeTriage(ctx, e, root, p, triage); err != nil {
+				return err
+			}
+			current = &triage
+		}
+	} else {
+		triage, givens, triageRan, err = reviewTriage(ctx, cmd, e, f, nil, nil)
+		if err != nil {
+			return err
+		}
+		if err := writeReview(cmd, e, root, c.Plan, c.State, f, triage); err != nil {
+			return err
+		}
+		p, err = plan.Load(filepath.Join(root, reviewPath), reviewPath)
+		if err != nil {
+			return err
+		}
+		s, err = state.Load(filepath.Join(root, state.PathFor(reviewPath)))
+		if err != nil {
+			return err
+		}
+		current = &triage
 	}
 
 	if f.writeOnly {
@@ -109,20 +147,78 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 		return nil
 	}
 	f.run.planName = reviewPath
-	return runPlan(cmd, e, &f.run)
+	if !ui.Interactive() {
+		return runPlan(cmd, e, &f.run, nil)
+	}
+
+	c, err = choosePlan(ctx, e, &f.run)
+	if err != nil {
+		return err
+	}
+	t, err := prepareTarget(ctx, e, &f.run, c)
+	if err != nil {
+		return err
+	}
+	if errs := lintReport(e, t.root, c.Plan, os.Stderr, false); len(errs) > 0 {
+		return fmt.Errorf("%s does not lint; fix it before running it", c.Plan.Path)
+	}
+	settings, g, err := givenSettings(cmd, e, c.Plan, &f.run)
+	if err != nil {
+		return err
+	}
+	if e.repo().CanPush(ctx, t.branch) != nil {
+		g.push = true
+	}
+	fill(e, &settings, g, loadLast(ctx, e.root))
+	locked := ""
+	if triageRan {
+		locked = triageRanLock
+	}
+	board := newReviewBoard(ctx, e, c.Plan, g, &settings, t.branch, openUnits(c.Plan, c.State), triage, givens, locked)
+	if err := board.run(); err != nil {
+		return err
+	}
+	chosen, err := board.finish(time.Now())
+	if err != nil {
+		return err
+	}
+	final, err := board.triageValue()
+	if err != nil {
+		return err
+	}
+	if !triageRan && current != nil && final != *current {
+		if err := writeTriage(ctx, e, root, p, final); err != nil {
+			return err
+		}
+	}
+	return runPlan(cmd, e, &f.run, &chosen)
+}
+
+// reviewTriage resolves the triage a review's board shows. A triage that has
+// run is shown as it is and locked; otherwise flags, the review's own triage,
+// the last one and the default decide, and the board may change it.
+func reviewTriage(ctx context.Context, cmd *cobra.Command, e *env, f *reviewFlags, p *plan.Plan, s *state.State) (review.Triage, map[string]bool, bool, error) {
+	var current *review.Triage
+	if p != nil {
+		if u, cur := review.TriageOf(p); u != nil {
+			current = &cur
+			status := s.Status(u.ID)
+			if status == state.Landed || status == state.Skipped {
+				return cur, nil, true, nil
+			}
+		}
+	}
+	t, err := chooseTriage(ctx, cmd, e, f, current)
+	return t, triageGivens(cmd), false, err
 }
 
 // writeReview writes the review plan beside the reviewed one and commits it,
 // so that a run in a worktree of the branch finds it.
-func writeReview(cmd *cobra.Command, e *env, root string, reviewed *plan.Plan, s *state.State, f *reviewFlags) error {
+func writeReview(cmd *cobra.Command, e *env, root string, reviewed *plan.Plan, s *state.State, f *reviewFlags, triage review.Triage) error {
 	ctx := cmd.Context()
 	fixes := review.FixesPath(reviewed.Path)
 	if isFile(filepath.Join(root, fixes)) {
 		return fmt.Errorf("%s from an earlier review still exists; run or close it before reviewing again", fixes)
-	}
-	triage, err := chooseTriage(ctx, cmd, e, f, nil)
-	if err != nil {
-		return err
 	}
 
 	cfg, err := config.Load(root)
@@ -181,7 +277,11 @@ func retriage(cmd *cobra.Command, e *env, root string, p *plan.Plan, s *state.St
 	if err != nil || chosen == current {
 		return err
 	}
+	return writeTriage(ctx, e, root, p, chosen)
+}
 
+// writeTriage rewrites a written review's triage and commits it.
+func writeTriage(ctx context.Context, e *env, root string, p *plan.Plan, chosen review.Triage) error {
 	full := filepath.Join(root, p.Path)
 	text, err := os.ReadFile(full)
 	if err != nil {

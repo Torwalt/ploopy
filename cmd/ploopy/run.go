@@ -68,7 +68,7 @@ func newRun(e *env) *cobra.Command {
 			"With nothing passed, ploopy asks for what it needs. Every choice is\n" +
 			"also a flag, for a run nobody is watching.",
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error { return runPlan(cmd, e, &f) },
+		RunE: func(cmd *cobra.Command, _ []string) error { return runPlan(cmd, e, &f, nil) },
 	}
 	addRunFlags(cmd, &f)
 	return cmd
@@ -123,7 +123,7 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	_ = flags.MarkDeprecated("weekly-reserve", "lend subscriptions with `ploopy lend`")
 }
 
-func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
+func runPlan(cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) error {
 	ctx := cmd.Context()
 	c, err := choosePlan(ctx, e, f)
 	if err != nil {
@@ -145,9 +145,15 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		return fmt.Errorf("%s does not lint; fix it before running it", p.Path)
 	}
 
-	chosen, err := chooseSettings(ctx, cmd, e, p, f, t.branch, openUnits(p, c.State))
-	if err != nil {
-		return err
+	var pick chosenRun
+	if chosen == nil {
+		settled, err := chooseSettings(ctx, cmd, e, p, f, t.branch, openUnits(p, c.State))
+		if err != nil {
+			return err
+		}
+		pick = settled
+	} else {
+		pick = *chosen
 	}
 
 	skill, err := skillsAt(t.root, cfg)
@@ -167,12 +173,12 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 
 	report := ui.NewReporter(os.Stdout, os.Stderr)
 	report.Quiet = f.quiet
-	leases := newLendingLoader(e.harnesses, chosen.agent.Harness.Name(), report)
+	leases := newLendingLoader(e.harnesses, pick.agent.Harness.Name(), report)
 	opts := loop.Options{
 		PlanPath:     p.Path,
-		Harness:      chosen.agent.Harness,
-		Model:        chosen.agent.Model,
-		Effort:       chosen.agent.Effort,
+		Harness:      pick.agent.Harness,
+		Model:        pick.agent.Model,
+		Effort:       pick.agent.Effort,
 		Start:        f.from,
 		Until:        f.until,
 		MaxUnits:     f.units,
@@ -195,8 +201,8 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		Notify:       f.notify,
 		HarnessArgs:  e.extra,
 		MaxBudgetUSD: f.budget,
-		Secondary:    chosen.secondary,
-		WaitOffPeak:  chosen.waitOffPeak,
+		Secondary:    pick.secondary,
+		WaitOffPeak:  pick.waitOffPeak,
 		History:      historyPath(ctx, e.root),
 	}
 
@@ -217,14 +223,14 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 	}
 	branch, _ := repo.New(root, nil).Branch(ctx)
 	opts.Branch = branch
-	opts.Lending = leases.load(time.Now(), chosen.subscriptions, chosen.spendAll)
+	opts.Lending = leases.load(time.Now(), pick.subscriptions, pick.spendAll)
 	steer := announce(control.Status{
 		Root: root, Plan: p.Path, Branch: branch,
-		Agent: chosen.agent.Label(),
+		Agent: pick.agent.Label(),
 		Settings: control.Settings{
-			Finish: string(chosen.finish), Peak: peakName(chosen.waitOffPeak), Push: &chosen.push,
-			Secondary:     toControlAgent(chosen.secondary),
-			Subscriptions: chosen.subscriptions, SpendAll: &chosen.spendAll,
+			Finish: string(pick.finish), Peak: peakName(pick.waitOffPeak), Push: &pick.push,
+			Secondary:     toControlAgent(pick.secondary),
+			Subscriptions: pick.subscriptions, SpendAll: &pick.spendAll,
 		},
 	}, e.harnesses, leases, report)
 	defer steer.close()
@@ -235,18 +241,18 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		return err
 	}
 
-	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, chosen.agent.Harness.Name(),
-		modelSuffix(chosen.agent.Model), chosen.agent.Effort, secondarySuffix(chosen.secondary),
-		peakSuffix(chosen), pushSuffix(chosen.push), finishSuffix(chosen.finish))
-	if chosen.subscriptions != "all" {
+	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, pick.agent.Harness.Name(),
+		modelSuffix(pick.agent.Model), pick.agent.Effort, secondarySuffix(pick.secondary),
+		peakSuffix(pick), pushSuffix(pick.push), finishSuffix(pick.finish))
+	if pick.subscriptions != "all" {
 		origin := "this run"
 		if planSet, err := subscriptionSet(e.harnesses, p.Settings["subscriptions"]); err == nil &&
-			p.Settings["subscriptions"] != "" && planSet == chosen.subscriptions {
+			p.Settings["subscriptions"] != "" && planSet == pick.subscriptions {
 			origin = "the plan"
 		}
-		report.Say("%s uses %s", origin, subscriptionText(chosen.subscriptions))
+		report.Say("%s uses %s", origin, subscriptionText(pick.subscriptions))
 	}
-	if chosen.spendAll {
+	if pick.spendAll {
 		report.Say("spending all of the subscriptions' weeks")
 	}
 	if steer.run != nil {
