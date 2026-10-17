@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -83,5 +84,23 @@ func TestTheMenuOffersAdjustExactlyWhileARunGoesOn(t *testing.T) {
 			t.Errorf("choice %d changed with a run: %c %q, was %c %q",
 				i+1, withRun[i+1].Key, withRun[i+1].Value, choice.Key, choice.Value)
 		}
+	}
+}
+
+func TestOnlyThisRepositorysRunsAreListed(t *testing.T) {
+	e, tree := worktreeRepo(t, nil)
+	other := t.TempDir()
+	if _, err := control.Register(control.Status{Root: other, Plan: "docs/plans/OTHER.md"}); err != nil {
+		t.Fatal(err)
+	}
+	if lives, err := livesIn(context.Background(), e.root); err != nil || len(lives) != 0 {
+		t.Fatalf("another repository's run is listed here: %v, %v", lives, err)
+	}
+	if _, err := control.Register(control.Status{Root: tree, Plan: "docs/plans/PASS.md"}); err != nil {
+		t.Fatal(err)
+	}
+	lives, err := livesIn(context.Background(), e.root)
+	if err != nil || len(lives) != 1 || lives[0].Plan != "docs/plans/PASS.md" {
+		t.Fatalf("the run in this repository's worktree: %v, %v", lives, err)
 	}
 }

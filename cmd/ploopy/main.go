@@ -49,7 +49,7 @@ func main() {
 
 	// `ploopy` alone asks what to do; each command then asks for what it lacks.
 	if len(argv) == 0 && len(extra) == 0 && ui.Interactive() {
-		picked, err := chooseCommand()
+		picked, err := chooseCommand(ctx)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "ploopy:", err)
 			os.Exit(2)
@@ -71,8 +71,13 @@ func main() {
 
 // chooseCommand offers what ploopy can do. A run going on comes first: it is
 // most likely what brought the author here.
-func chooseCommand() (string, error) {
-	lives, _ := control.List()
+func chooseCommand(ctx context.Context) (string, error) {
+	var lives []control.Live
+	if cwd, err := os.Getwd(); err == nil {
+		if root, err := repo.Root(ctx, cwd); err == nil {
+			lives, _ = livesIn(ctx, root)
+		}
+	}
 	return ui.PickKeyed("What now?", "help", commandChoices(lives))
 }
 

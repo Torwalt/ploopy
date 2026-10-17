@@ -13,6 +13,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/loop"
+	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
 
@@ -75,12 +76,12 @@ func newAdjust(e *env) *cobra.Command {
 }
 
 func adjust(cmd *cobra.Command, e *env, f *adjustFlags) error {
-	lives, err := control.List()
+	lives, err := livesIn(cmd.Context(), e.root)
 	if err != nil {
 		return err
 	}
 	if len(lives) == 0 {
-		return fmt.Errorf("no run is going on")
+		return fmt.Errorf("no run is going on in this repository")
 	}
 
 	change, err := changeFromFlags(cmd, e, f)
@@ -111,6 +112,30 @@ func apply(live control.Live, change control.Settings) error {
 	}
 	fmt.Printf("%s: %s\n", updated.Name(), updated.Wanted.Describe())
 	return nil
+}
+
+// livesIn is the runs going on in a checkout of the repository at root. The
+// registry holds every run on the machine, and another repository's are none
+// of this one's business.
+func livesIn(ctx context.Context, root string) ([]control.Live, error) {
+	lives, err := control.List()
+	if err != nil || len(lives) == 0 {
+		return nil, err
+	}
+	trees, err := repo.New(root, nil).Worktrees(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []control.Live
+	for _, live := range lives {
+		for _, tree := range trees {
+			if samePath(live.Root, tree.Path) {
+				out = append(out, live)
+				break
+			}
+		}
+	}
+	return out, nil
 }
 
 // pickRun finds the run to change: the one named, the only one, or the one the
