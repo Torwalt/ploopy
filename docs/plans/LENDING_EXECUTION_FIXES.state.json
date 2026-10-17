@@ -531,6 +531,30 @@
         "reasoning": 19233,
         "cache_read": 4306560
       }
+    },
+    "1.23": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:51:54+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "0e512cdda8b11954089c820f0818df6254259343",
+      "commits": [
+        "e579386f56580373dac209dc4002affc6a28caf4 Test shared forecast units across lent subscriptions"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `e579386` adds two forecast tests. The first gives claude a fresh window\n  and codex an active one in lease-file order; it asserts the footer is\n  `codex 4 · claude 16 · opencode 0 units`, so the active window leads and the\n  remaining units are shared. The second gives an open lease a metered estimate\n  with `Weekly: 0` and asserts it takes all 12 open units with the bedrock none.\n\n**Landmark drift**\n\nNone. `forecastRun`/`forecastSubscription` are where the plan places them in\n`cmd/ploopy/forecast.go`.\n\n**Deviations from the work order**\n\nNone; only tests changed, no production code was needed.\n\n**What the next session must know**\n\n- All three named mutations were checked by hand and each fails the intended\n  test: deleting the `loop.LendOrder` call leaves claude first; deleting\n  `open -= line.Units` leaves claude at 20; starting `byWeek` at 0 leaves the\n  open lease at 0 units.\n- The first test deliberately lists the parts claude-then-codex so lease-file\n  order differs from the lend order; if a future change reorders input parts,\n  keep that difference so the order assertion stays meaningful.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb53a6d40ffeDB0QUrp8Lyzwsq",
+      "cost_usd": 0.012879947999999997,
+      "harness": "opencode",
+      "elapsed_s": 90,
+      "session_s": 83,
+      "test_s": 7,
+      "tokens": {
+        "input": 34630,
+        "output": 3312,
+        "reasoning": 5355,
+        "cache_read": 828416
+      }
     }
   }
 }
