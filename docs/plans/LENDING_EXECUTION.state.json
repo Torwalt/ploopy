@@ -72,6 +72,31 @@
         "reasoning": 21459,
         "cache_read": 6509184
       }
+    },
+    "2.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T12:26:17+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "735c35ea00b7ab74888cd0eaba9c3788fba6cd07",
+      "commits": [
+        "ec7a05a4ed999fd63aed5dde3bcdd8d87dda4811 Test carrying uncommitted changes on hand-off"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `ec7a05a` completes unit 2.2's completion criteria on top of `c4384cb`\n  (which had already carried the implementation as overreach in unit 2.1).\n- `TestOtherChangesOnTheBranchMoveWithIt` now also asserts `git stash list` is\n  empty in both the main checkout and the worktree.\n- New `TestAFailedHandOffPutsTheChangesBack` makes `worktree add` fail, then\n  asserts the main checkout is back on the branch with its tracked and\n  untracked changes restored and an empty stash.\n- The README Worktrees bullet now says the author's own paths stay behind too.\n\n**Landmark drift**\n\n- None in the implementation. `handOff`, `Repo.HandOff`, `Repo.StashPaths` and\n  `Repo.StashPop` are where the plan expects them.\n\n**Deviations from the work order**\n\n- The implementation itself was already at HEAD from `c4384cb`, so this session\n  added only the missing tests and the doc clarification rather than rewriting\n  it.\n- The failure is induced with a broken symlink at the worktree target path, not\n  an occupied directory. `handOff` calls `freePath`, which moves a non-empty\n  occupied directory aside before `worktree add`, so that would not fail; a\n  broken symlink passes `clearStale` (`ReadDir` sees `ENOENT`) and then makes\n  `git worktree add` refuse the existing path deterministically, without\n  relying on permissions or running as non-root.\n\n**What the next session must know**\n\n- The stash is shared across the repository's worktrees; popping it in the new\n  worktree leaves `git stash list` empty in both.\n- `handOff`'s failure path relies on `Repo.HandOff` switching the main checkout\n  back to the branch before `StashPop` runs there.\n- Unit 2.2 has no separate state entry before this commit because its behavior\n  shipped inside 2.1's commit `c4384cb`; the state file still records only 2.1.\n\n**Open problems**\n\n- None found. The `setup` plus inherited-dirt interaction noted in 2.1's\n  handover is unchanged and remains the only doubtful spot.",
+      "session_id": "ses_eb69b2eecfferRfDwA6XVW11n1",
+      "cost_usd": 0.014150321999999998,
+      "harness": "opencode",
+      "elapsed_s": 72,
+      "session_s": 67,
+      "verify_s": 1,
+      "test_s": 4,
+      "tokens": {
+        "input": 39199,
+        "output": 3071,
+        "reasoning": 6756,
+        "cache_read": 791424
+      }
     }
   }
 }
