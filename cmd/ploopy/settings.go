@@ -22,32 +22,37 @@ import (
 // runSettings is what a run starts with beyond the plan and where it runs.
 // The last run's are remembered, so the next can start the same way.
 type runSettings struct {
-	Harness   string         `json:"harness"`
-	Model     string         `json:"model,omitempty"`
-	Effort    string         `json:"effort,omitempty"`
-	Secondary *control.Agent `json:"secondary,omitempty"`
-	Peak      string         `json:"peak,omitempty"` // wait or run
-	Push      bool           `json:"push,omitempty"`
-	Finish    string         `json:"finish,omitempty"`
+	Harness       string         `json:"harness"`
+	Model         string         `json:"model,omitempty"`
+	Effort        string         `json:"effort,omitempty"`
+	Secondary     *control.Agent `json:"secondary,omitempty"`
+	Peak          string         `json:"peak,omitempty"` // wait or run
+	Subscriptions string         `json:"subscriptions,omitempty"`
+	SpendAll      bool           `json:"spendAll,omitempty"`
+	Push          bool           `json:"push,omitempty"`
+	Finish        string         `json:"finish,omitempty"`
 }
 
 // given is which settings the author already gave, as flags or in the plan's
 // front matter. Those are never asked.
 type given struct {
-	harness, model, effort, secondary, peak, push, finish bool
+	harness, model, effort, secondary, peak, subscriptions, spendAll, push, finish bool
 }
 
 func (g given) all() bool {
-	return g.harness && g.model && g.effort && g.secondary && g.peak && g.push && g.finish
+	return g.harness && g.model && g.effort && g.secondary && g.peak &&
+		g.subscriptions && g.spendAll && g.push && g.finish
 }
 
 // chosenRun is the settings, resolved.
 type chosenRun struct {
-	agent       loop.Agent
-	secondary   *loop.Agent
-	waitOffPeak bool
-	push        bool
-	finish      ui.Finish
+	agent         loop.Agent
+	secondary     *loop.Agent
+	waitOffPeak   bool
+	subscriptions string
+	spendAll      bool
+	push          bool
+	finish        ui.Finish
 }
 
 // chooseSettings takes what the flags and the plan's front matter say, then
@@ -136,6 +141,23 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		}
 		s.Peak, g.peak = f.peak, true
 	}
+	if f.subscriptions != "" {
+		set, err := subscriptionSet(e.harnesses, f.subscriptions)
+		if err != nil {
+			return s, g, err
+		}
+		s.Subscriptions, g.subscriptions = set, true
+	} else if p.Settings["subscriptions"] != "" {
+		set, err := subscriptionSet(e.harnesses, p.Settings["subscriptions"])
+		if err != nil {
+			return s, g, err
+		}
+		s.Subscriptions, g.subscriptions = set, true
+	}
+	s.SpendAll = f.spendAll
+	if cmd.Flags().Changed("spend-all") {
+		g.spendAll = true
+	}
 	s.Push = e.cfg.Push
 	if cmd.Flags().Changed("push") {
 		s.Push, g.push = f.push, true
@@ -200,6 +222,17 @@ func fill(e *env, s *runSettings, g given, last *runSettings) {
 			s.Peak = last.Peak
 		}
 	}
+	if !g.subscriptions {
+		s.Subscriptions = "all"
+		if last != nil {
+			if set, err := subscriptionSet(e.harnesses, last.Subscriptions); err == nil {
+				s.Subscriptions = set
+			}
+		}
+	}
+	if !g.spendAll && last != nil {
+		s.SpendAll = last.SpendAll
+	}
 	if !g.push && last != nil {
 		s.Push = last.Push
 	}
@@ -260,6 +293,15 @@ func askSettings(ctx context.Context, e *env, s *runSettings, g given) error {
 			peaked.Name(), peakHours(peaked.PeakWindows(), time.Now()))
 		fields = append(fields, ui.Field{Title: title, Value: &s.Peak, Choices: func() []ui.Choice { return peakChoices }})
 	}
+	if !g.subscriptions {
+		fields = append(fields, ui.Field{Title: "Subscriptions", Value: &s.Subscriptions, Binding: &s.Harness,
+			Choices: func() []ui.Choice { return subscriptionChoices(e.harnesses, s.Harness) }})
+	}
+	spend := spendLabel(s.SpendAll)
+	if !g.spendAll {
+		fields = append(fields, ui.Field{Title: "Spending", Value: &spend,
+			Choices: func() []ui.Choice { return spendChoices }})
+	}
 	push := yesNo(s.Push)
 	if !g.push {
 		fields = append(fields, ui.Field{Title: "Push the branch when the run ends", Value: &push,
@@ -276,10 +318,86 @@ func askSettings(ctx context.Context, e *env, s *runSettings, g given) error {
 	if !g.secondary {
 		s.Secondary = decodeAgent(secondary)
 	}
+	if !g.spendAll {
+		s.SpendAll = spend == "all"
+	}
 	if !g.push {
 		s.Push = push == "yes"
 	}
 	return nil
+}
+
+var spendChoices = []ui.Choice{
+	{Label: "keep reserves", Value: "keep"},
+	{Label: "spend all", Value: "all"},
+}
+
+func spendLabel(spendAll bool) string {
+	if spendAll {
+		return "all"
+	}
+	return "keep"
+}
+
+// subscriptionSet normalizes a subscription set. Empty means all; names may be
+// separated by commas or spaces. A named harness must have a subscription.
+func subscriptionSet(harnesses harness.Set, value string) (string, error) {
+	value = strings.TrimSpace(strings.ReplaceAll(value, ",", " "))
+	switch value {
+	case "", "all":
+		return "all", nil
+	case "none":
+		return "none", nil
+	}
+	seen := map[string]bool{}
+	var names []string
+	for _, name := range strings.Fields(value) {
+		if seen[name] {
+			continue
+		}
+		h := harnesses.Get(name)
+		if h == nil {
+			return "", fmt.Errorf("%s is not a harness; use all, none, or %s",
+				name, strings.Join(harnesses.Names(), ", "))
+		}
+		if _, metered := h.(harness.Metered); !metered {
+			return "", fmt.Errorf("%s has no subscription to lend", name)
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return strings.Join(names, " "), nil
+}
+
+// subscriptionChoices offers every set the page can choose: all lent, one
+// subscription alone, or the bedrock only.
+func subscriptionChoices(harnesses harness.Set, except string) []ui.Choice {
+	choices := []ui.Choice{{Label: "all lent", Value: "all"}}
+	for _, h := range harnesses {
+		if h.Name() == except {
+			continue
+		}
+		if _, metered := h.(harness.Metered); !metered {
+			continue
+		}
+		choices = append(choices, ui.Choice{Label: h.Name() + " only", Value: h.Name()})
+	}
+	return append(choices, ui.Choice{Label: "bedrock only", Value: "none"})
+}
+
+// subscriptionText names a subscription set for a person.
+func subscriptionText(set string) string {
+	if set == "" || set == "all" {
+		return "all lent"
+	}
+	if set == "none" {
+		return "the bedrock only"
+	}
+	names := strings.Fields(set)
+	if len(names) == 1 {
+		return names[0] + " only"
+	}
+	return strings.Join(names, " and ") + " only"
 }
 
 // peakedHarness is a harness with peak hours, or nil.
@@ -303,16 +421,22 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 		return chosenRun{}, fmt.Errorf("--effort for %s must be one of %s",
 			h.Name(), strings.Join(h.Efforts(), ", "))
 	}
+	subscriptions, err := subscriptionSet(e.harnesses, s.Subscriptions)
+	if err != nil {
+		return chosenRun{}, err
+	}
 	finish := ui.Finish(s.Finish)
 	if finish == "" {
 		finish = ui.FinishNone
 	}
 	return chosenRun{
-		agent:       loop.Agent{Harness: h, Model: s.Model, Effort: s.Effort},
-		secondary:   toLoopAgent(e.harnesses, s.Secondary),
-		waitOffPeak: s.Peak == "wait",
-		push:        s.Push,
-		finish:      finish,
+		agent:         loop.Agent{Harness: h, Model: s.Model, Effort: s.Effort},
+		secondary:     toLoopAgent(e.harnesses, s.Secondary),
+		waitOffPeak:   s.Peak == "wait",
+		subscriptions: subscriptions,
+		spendAll:      s.SpendAll,
+		push:          s.Push,
+		finish:        finish,
 	}, nil
 }
 
@@ -320,7 +444,10 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 // agent has any.
 func describe(e *env, s runSettings) string {
 	agent := control.Agent{Harness: s.Harness, Model: s.Model, Effort: s.Effort}
-	settings := control.Settings{Finish: s.Finish, Peak: s.Peak, Push: &s.Push, Secondary: s.Secondary}
+	settings := control.Settings{
+		Finish: s.Finish, Peak: s.Peak, Push: &s.Push, Secondary: s.Secondary,
+		Subscriptions: s.Subscriptions, SpendAll: &s.SpendAll,
+	}
 	peaked := len(e.harnesses.Get(s.Harness).PeakWindows()) > 0
 	if secondary := e.harnesses.Get(agentHarness(s.Secondary)); secondary != nil {
 		peaked = peaked || len(secondary.PeakWindows()) > 0

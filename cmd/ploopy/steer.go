@@ -74,7 +74,8 @@ func (s *steering) Steer() loop.Steer {
 	wanted := s.wanted()
 	var lending *loop.Lending
 	if s.leases != nil {
-		lending = s.leases.load(time.Now())
+		spendAll := wanted.SpendAll != nil && *wanted.SpendAll
+		lending = s.leases.load(time.Now(), wanted.Subscriptions, spendAll)
 	}
 	return loop.Steer{
 		WaitOffPeak: wanted.Peak == "wait",

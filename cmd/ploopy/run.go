@@ -22,39 +22,41 @@ import (
 )
 
 type runFlags struct {
-	planName     string
-	all          bool
-	agent        string
-	effort       string
-	model        string
-	from         string
-	until        string
-	units        int
-	retries      int
-	blockRetries int
-	timeout      time.Duration
-	backoff      time.Duration
-	tests        bool
-	noTests      bool
-	verify       string
-	testCmd      string
-	context      string
-	notify       string
-	allowDirty   bool
-	worktree     bool
-	dryRun       bool
-	finish       string
-	push         bool
-	budget       float64
-	secondary    string
-	secondaryMod string
-	secondaryEff string
-	peak         string
-	quiet        bool
-	grace        time.Duration
-	away         string
-	night        string
-	reserve      int
+	planName      string
+	all           bool
+	agent         string
+	effort        string
+	model         string
+	from          string
+	until         string
+	units         int
+	retries       int
+	blockRetries  int
+	timeout       time.Duration
+	backoff       time.Duration
+	tests         bool
+	noTests       bool
+	verify        string
+	testCmd       string
+	context       string
+	notify        string
+	allowDirty    bool
+	worktree      bool
+	dryRun        bool
+	finish        string
+	push          bool
+	budget        float64
+	secondary     string
+	secondaryMod  string
+	secondaryEff  string
+	peak          string
+	subscriptions string
+	spendAll      bool
+	quiet         bool
+	grace         time.Duration
+	away          string
+	night         string
+	reserve       int
 }
 
 func newRun(e *env) *cobra.Command {
@@ -108,6 +110,9 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	flags.StringVar(&f.secondaryMod, "secondary-model", "", "model for the secondary harness")
 	flags.StringVar(&f.secondaryEff, "secondary-effort", "", "effort for the secondary harness")
 	flags.StringVar(&f.peak, "peak", "", "a unit due in the harness's peak hours: wait or run")
+	flags.StringVar(&f.subscriptions, "subscriptions", "",
+		"lent subscriptions to use: all, none, or names such as claude,codex")
+	flags.BoolVar(&f.spendAll, "spend-all", false, "spend the subscriptions' weeks, keeping no reserve")
 	flags.BoolVar(&f.quiet, "quiet", false, "report decisions only, without the session feed")
 	flags.DurationVar(&f.grace, "grace", time.Minute, "countdown before the end action")
 	flags.StringVar(&f.away, "away", "", "")
@@ -212,13 +217,14 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 	}
 	branch, _ := repo.New(root, nil).Branch(ctx)
 	opts.Branch = branch
-	opts.Lending = leases.load(time.Now())
+	opts.Lending = leases.load(time.Now(), chosen.subscriptions, chosen.spendAll)
 	steer := announce(control.Status{
 		Root: root, Plan: p.Path, Branch: branch,
 		Agent: chosen.agent.Label(),
 		Settings: control.Settings{
 			Finish: string(chosen.finish), Peak: peakName(chosen.waitOffPeak), Push: &chosen.push,
-			Secondary: toControlAgent(chosen.secondary),
+			Secondary:     toControlAgent(chosen.secondary),
+			Subscriptions: chosen.subscriptions, SpendAll: &chosen.spendAll,
 		},
 	}, e.harnesses, leases, report)
 	defer steer.close()
@@ -232,6 +238,17 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, chosen.agent.Harness.Name(),
 		modelSuffix(chosen.agent.Model), chosen.agent.Effort, secondarySuffix(chosen.secondary),
 		peakSuffix(chosen), pushSuffix(chosen.push), finishSuffix(chosen.finish))
+	if chosen.subscriptions != "all" {
+		origin := "this run"
+		if planSet, err := subscriptionSet(e.harnesses, p.Settings["subscriptions"]); err == nil &&
+			p.Settings["subscriptions"] != "" && planSet == chosen.subscriptions {
+			origin = "the plan"
+		}
+		report.Say("%s uses %s", origin, subscriptionText(chosen.subscriptions))
+	}
+	if chosen.spendAll {
+		report.Say("spending all of the subscriptions' weeks")
+	}
 	if steer.run != nil {
 		report.Say("change what happens next from another terminal with `ploopy adjust`")
 	}

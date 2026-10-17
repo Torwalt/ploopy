@@ -15,17 +15,19 @@ import (
 )
 
 type adjustFlags struct {
-	run          string
-	finish       string
-	peak         string
-	push         bool
-	stop         bool
-	secondary    string
-	secondaryMod string
-	secondaryEff string
-	away         string
-	night        string
-	reserve      int
+	run           string
+	finish        string
+	peak          string
+	push          bool
+	stop          bool
+	secondary     string
+	secondaryMod  string
+	secondaryEff  string
+	subscriptions string
+	spendAll      bool
+	away          string
+	night         string
+	reserve       int
 }
 
 func newAdjust(e *env) *cobra.Command {
@@ -35,7 +37,8 @@ func newAdjust(e *env) *cobra.Command {
 		Short: "Change what a running run does next",
 		Long: "Change what a running run does next: its end action, whether it\n" +
 			"pushes, whether it stops after the current unit, the agent that takes\n" +
-			"over on a usage limit, and what a unit due in peak hours does.\n\n" +
+			"over on a usage limit, what a unit due in peak hours does, which lent\n" +
+			"subscriptions it may use, and whether it keeps a reserve.\n\n" +
 			"With nothing passed, ploopy asks. It works from any directory.",
 		Args: cobra.NoArgs,
 		// A run is adjusted from anywhere, not only from inside its repository.
@@ -54,6 +57,9 @@ func newAdjust(e *env) *cobra.Command {
 	flags.StringVar(&f.secondary, "secondary", "", "harness that takes over on a usage limit, or none")
 	flags.StringVar(&f.secondaryMod, "secondary-model", "", "model for the secondary harness")
 	flags.StringVar(&f.secondaryEff, "secondary-effort", "", "effort for the secondary harness")
+	flags.StringVar(&f.subscriptions, "subscriptions", "",
+		"lent subscriptions to use: all, none, or names such as claude,codex")
+	flags.BoolVar(&f.spendAll, "spend-all", false, "spend the subscriptions' weeks, keeping no reserve")
 	flags.StringVar(&f.away, "away", "", "")
 	_ = flags.MarkDeprecated("away", "lend subscriptions with `ploopy lend`")
 	flags.StringVar(&f.night, "night", "", "")
@@ -175,17 +181,37 @@ func changeFromFlags(cmd *cobra.Command, e *env, f *adjustFlags) (control.Settin
 			change.Secondary = toControlAgent(agent)
 		}
 	}
+	if flags.Changed("subscriptions") {
+		set, err := subscriptionSet(e.harnesses, f.subscriptions)
+		if err != nil {
+			return change, err
+		}
+		change.Subscriptions = set
+	}
+	if flags.Changed("spend-all") {
+		change.SpendAll = &f.spendAll
+	}
 	return change, nil
 }
 
 func adjustInteractively(e *env, live control.Live) error {
 	wanted := live.Wanted
+	subscriptions := wanted.Subscriptions
+	if subscriptions == "" {
+		subscriptions = "all"
+	}
+	spend := "keep reserves"
+	if wanted.SpendAll != nil && *wanted.SpendAll {
+		spend = "spend all"
+	}
 	choices := []ui.Choice{
 		{Label: "when the run ends: " + finishLabel(wanted.Finish), Value: "finish"},
 		{Label: "push when the run ends: " + yesNo(wanted.Pushes()), Value: "push"},
 		{Label: "stop after the current unit: " + yesNo(wanted.Stops()), Value: "stop"},
 		{Label: "on a usage limit: " + secondaryLabel(wanted.SecondaryAgent()), Value: "secondary"},
 		{Label: "a unit due in peak hours: " + peakLabel(wanted.Peak), Value: "peak"},
+		{Label: "subscriptions: " + subscriptionText(subscriptions), Value: "subscriptions"},
+		{Label: "spending: " + spend, Value: "spend"},
 	}
 	setting, err := ui.Pick(live.Name()+": change what?", "finish", choices)
 	if err != nil {
@@ -232,6 +258,23 @@ func adjustInteractively(e *env, live control.Live) error {
 		if change.Peak, err = ui.Pick("A unit due to start in peak hours?", "peak", peakChoices); err != nil {
 			return err
 		}
+	case "subscriptions":
+		primary := strings.Fields(live.Agent)
+		except := ""
+		if len(primary) > 0 {
+			except = primary[0]
+		}
+		if change.Subscriptions, err = ui.Pick("Which subscriptions may the run use?", "subscriptions",
+			subscriptionChoices(e.harnesses, except)); err != nil {
+			return err
+		}
+	case "spend":
+		picked, err := ui.Pick("Keep a reserve of the subscriptions' weeks?", "spend", spendChoices)
+		if err != nil {
+			return err
+		}
+		spendAll := picked == "all"
+		change.SpendAll = &spendAll
 	}
 	return apply(live, change)
 }

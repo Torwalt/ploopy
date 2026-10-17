@@ -192,9 +192,9 @@ func TestDiscoverySkipsAuthoritiesAndDocumentsWithoutStages(t *testing.T) {
 
 type harnesses struct{}
 
-func (harnesses) Known(name string) bool  { return name == "claude" }
+func (harnesses) Known(name string) bool  { return name == "claude" || name == "codex" }
 func (harnesses) Efforts(string) []string { return []string{"high"} }
-func (harnesses) Names() []string         { return []string{"claude"} }
+func (harnesses) Names() []string         { return []string{"claude", "codex"} }
 
 func TestLintReportsWhatTheLoopCannotRun(t *testing.T) {
 	root := t.TempDir()
@@ -230,6 +230,25 @@ Context: missing.md
 	}
 	if !strings.Contains(strings.Join(warnings, "\n"), "sits under Stage") {
 		t.Fatalf("warnings %v", warnings)
+	}
+}
+
+func TestLintChecksTheSubscriptionsKey(t *testing.T) {
+	plan := func(value string) *Plan {
+		return Parse("---\nsubscriptions: "+value+"\n---\n\n"+
+			"## Stage 1 — S\n\n### 1.1 One\n\n**Goal:** x\n", "P.md")
+	}
+	root := t.TempDir()
+	for _, ok := range []string{"all", "none", "codex claude"} {
+		if errs, _ := Lint(plan(ok), root, harnesses{}, nil); len(errs) != 0 {
+			t.Fatalf("subscriptions %q has errors: %v", ok, errs)
+		}
+	}
+	for _, bad := range []string{"", "gemini"} {
+		errs, _ := Lint(plan(bad), root, harnesses{}, nil)
+		if len(errs) == 0 || !strings.Contains(strings.Join(errs, "\n"), "subscriptions:") {
+			t.Fatalf("subscriptions %q linted as %v", bad, errs)
+		}
 	}
 }
 
