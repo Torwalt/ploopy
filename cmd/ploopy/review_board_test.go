@@ -90,7 +90,8 @@ func TestAWrittenReviewsPendingTriageIsPrefilledAndChangesCommit(t *testing.T) {
 	s := &state.State{Units: map[string]*state.Entry{"1.1": {
 		Status: state.Landed, Outcome: "done", Base: "aaa", Commits: []string{"bbb one"},
 	}}}
-	text, err := review.Generate(reviewed, s, review.Options{Triage: defaultTriage})
+	own := review.Triage{Agent: "claude", Model: "sonnet", Effort: "medium"}
+	text, err := review.Generate(reviewed, s, review.Options{Triage: own})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,8 +106,8 @@ func TestAWrittenReviewsPendingTriageIsPrefilledAndChangesCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ran || tri != defaultTriage {
-		t.Fatalf("the pending triage is %+v, ran %v", tri, ran)
+	if ran || tri != own {
+		t.Fatalf("the pending triage is %+v, ran %v; want %+v", tri, ran, own)
 	}
 
 	board := reviewBoard(t, e, p, tri, givens, "")
@@ -116,8 +117,11 @@ func TestAWrittenReviewsPendingTriageIsPrefilledAndChangesCommit(t *testing.T) {
 			t.Fatalf("%c is locked with %q before the triage has run", field.Key, field.Locked)
 		}
 	}
-	if got := *fieldByKey(t, column, 'm').Value; got != defaultTriage.Model {
-		t.Fatalf("the board shows %q, want the review's %q", got, defaultTriage.Model)
+	if got := *fieldByKey(t, column, 'm').Value; got != own.Model {
+		t.Fatalf("the board shows %q, want the review's %q", got, own.Model)
+	}
+	if got := *fieldByKey(t, column, 'e').Value; got != own.Effort {
+		t.Fatalf("the board shows effort %q, want the review's %q", got, own.Effort)
 	}
 
 	key(board.board, rune('1'+at))
@@ -126,7 +130,7 @@ func TestAWrittenReviewsPendingTriageIsPrefilledAndChangesCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if final == defaultTriage {
+	if final == own {
 		t.Fatal("the board did not change the triage")
 	}
 	if err := writeTriage(context.Background(), e, tree, p, final); err != nil {
@@ -143,7 +147,7 @@ func TestAWrittenReviewsPendingTriageIsPrefilledAndChangesCommit(t *testing.T) {
 		t.Fatalf("the change is committed:\n%s", out)
 	}
 	if got := strings.TrimSpace(gitOut(t, tree, "log", "-1", "--format=%s")); got != "plans: triage PASS_REVIEW with "+final.Agent {
-		t.Fatalf("the change commits as a retriage, last commit %q", got)
+		t.Fatalf("the change commits, last commit %q", got)
 	}
 }
 
@@ -153,7 +157,8 @@ func TestAReviewWhoseTriageRanHasALockedTriageColumn(t *testing.T) {
 	s := &state.State{Units: map[string]*state.Entry{"1.1": {
 		Status: state.Landed, Outcome: "done", Base: "aaa", Commits: []string{"bbb one"},
 	}}}
-	text, err := review.Generate(reviewed, s, review.Options{Triage: defaultTriage})
+	own := review.Triage{Agent: "claude", Model: "sonnet", Effort: "medium"}
+	text, err := review.Generate(reviewed, s, review.Options{Triage: own})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,8 +171,8 @@ func TestAReviewWhoseTriageRanHasALockedTriageColumn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !hasRun || tri != defaultTriage {
-		t.Fatalf("a review whose triage ran reads %+v, ran %v", tri, hasRun)
+	if !hasRun || tri != own {
+		t.Fatalf("a review whose triage ran reads %+v, ran %v; want %+v", tri, hasRun, own)
 	}
 
 	board := reviewBoard(t, e, p, tri, givens, triageRanLock)

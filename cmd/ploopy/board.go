@@ -61,8 +61,11 @@ type triageDraft struct {
 	last   string
 }
 
-// triageRanLock is why a review's triage cannot change.
-const triageRanLock = "the triage has run"
+// triageRanLock and triageLiveLock are why a review's triage cannot change.
+const (
+	triageRanLock  = "the triage has run"
+	triageLiveLock = "the review is running"
+)
 
 func (d *triageDraft) lock(key string) string {
 	if d.locked != "" {

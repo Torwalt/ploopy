@@ -120,11 +120,14 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 				current = &triage
 			}
 		}
-		if !triageRan && current != nil && triage != *current && (!ui.Interactive() || f.writeOnly) {
-			if err := writeTriage(ctx, e, root, p, triage); err != nil {
+		if !triageRan && current != nil && (!ui.Interactive() || f.writeOnly) {
+			changed, err := changeTriage(ctx, e, root, p, s, *current, triage)
+			if err != nil {
 				return err
 			}
-			current = &triage
+			if changed {
+				current = &triage
+			}
 		}
 	} else {
 		triage, givens, triageRan, err = reviewTriage(ctx, cmd, e, f, nil, nil)
@@ -173,10 +176,7 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 		g.push = true
 	}
 	fill(e, &settings, g, loadLast(ctx, e.root))
-	locked := ""
-	if triageRan {
-		locked = triageRanLock
-	}
+	locked := triageLock(ctx, e, p, s)
 	board := newReviewBoard(ctx, e, c.Plan, g, &settings, t.branch, openUnits(c.Plan, c.State), triage, givens, locked)
 	chosen, err := board.start(func() error {
 		_, err := board.board.Run()
@@ -189,8 +189,8 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 	if err != nil {
 		return err
 	}
-	if !triageRan && current != nil && final != *current {
-		if err := writeTriage(ctx, e, root, p, final); err != nil {
+	if !triageRan && current != nil {
+		if _, err := changeTriage(ctx, e, root, p, s, *current, final); err != nil {
 			return err
 		}
 	}
@@ -262,25 +262,27 @@ func writeReview(cmd *cobra.Command, e *env, root string, reviewed *plan.Plan, s
 	return nil
 }
 
-// retriage offers to change who weighs the findings of a review that is
-// written but whose triage has not run, and commits the change.
-func retriage(cmd *cobra.Command, e *env, root string, p *plan.Plan, s *state.State, f *reviewFlags) error {
-	ctx := cmd.Context()
-	u, current := review.TriageOf(p)
-	if u == nil {
-		return nil
-	}
-	if status := s.Status(u.ID); status == state.Landed || status == state.Skipped {
-		return nil
+// triageLock says why a written review's triage cannot change; empty means it
+// may. A triage that has run is final, and a review being run keeps its own.
+func triageLock(ctx context.Context, e *env, p *plan.Plan, s *state.State) string {
+	if u, _ := review.TriageOf(p); u != nil {
+		if status := s.Status(u.ID); status == state.Landed || status == state.Skipped {
+			return triageRanLock
+		}
 	}
 	if live, err := e.find(ctx, p.Path); err == nil && live.Live != nil {
-		return nil
+		return triageLiveLock
 	}
-	chosen, err := chooseTriage(ctx, cmd, e, f, &current)
-	if err != nil || chosen == current {
-		return err
+	return ""
+}
+
+// changeTriage writes a written review's triage when it may change, and
+// reports whether it did.
+func changeTriage(ctx context.Context, e *env, root string, p *plan.Plan, s *state.State, current, chosen review.Triage) (bool, error) {
+	if chosen == current || triageLock(ctx, e, p, s) != "" {
+		return false, nil
 	}
-	return writeTriage(ctx, e, root, p, chosen)
+	return true, writeTriage(ctx, e, root, p, chosen)
 }
 
 // writeTriage rewrites a written review's triage and commits it.

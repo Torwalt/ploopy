@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
@@ -80,54 +81,128 @@ func TestAnotherTriageAgentTakesItsOwnDefaults(t *testing.T) {
 	}
 }
 
-func TestAWrittenReviewsTriageCanStillBeChanged(t *testing.T) {
-	e, _ := worktreeRepo(t, nil)
-	root := e.root
+func TestAWrittenReviewsTriageChangesUntilItRuns(t *testing.T) {
+	e, tree := worktreeRepo(t, nil)
 	reviewed := plan.Parse(finishedPlan, "docs/plans/PASS.md")
 	s := &state.State{Units: map[string]*state.Entry{"1.1": {
 		Status: state.Landed, Outcome: "done", Base: "aaa", Commits: []string{"bbb one"},
 	}}}
-	text, err := review.Generate(reviewed, s, review.Options{Triage: defaultTriage})
+	own := review.Triage{Agent: "claude", Model: "sonnet", Effort: "medium"}
+	text, err := review.Generate(reviewed, s, review.Options{Triage: own})
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := "docs/plans/PASS_REVIEW.md"
-	write(t, root, path, text)
-	git(t, root, "add", "-A")
-	git(t, root, "commit", "-q", "-m", "plans: review PASS")
+	path := review.Path(reviewed.Path)
+	write(t, tree, path, text)
+	git(t, tree, "add", "-A")
+	git(t, tree, "commit", "-q", "-m", "plans: review PASS")
 
 	p := plan.Parse(text, path)
-	cmd, f := triageCommand(t, "--triage-model", "sonnet", "--triage-budget", "5")
-	cmd.SetContext(context.Background())
-	if err := retriage(cmd, e, root, p, &state.State{Units: map[string]*state.Entry{}}, f); err != nil {
-		t.Fatal(err)
+	pending := &state.State{Units: map[string]*state.Entry{}}
+	if got := triageLock(context.Background(), e, p, pending); got != "" {
+		t.Fatalf("a pending review's triage is locked with %q", got)
 	}
-	changed, err := plan.Load(filepath.Join(root, path), path)
+
+	cmd, f := triageCommand(t)
+	cmd.SetContext(context.Background())
+	chosen, _, ran, err := reviewTriage(context.Background(), cmd, e, f, p, pending)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if ran || chosen != own {
+		t.Fatalf("the pending triage is %+v, ran %v; want %+v", chosen, ran, own)
+	}
+	if changed, err := changeTriage(context.Background(), e, tree, p, pending, own, chosen); err != nil || changed {
+		t.Fatalf("an unchanged triage changed %v, %v", changed, err)
+	}
+
 	want := review.Triage{Agent: "claude", Model: "sonnet", Effort: "high", Budget: 5}
-	if _, got := review.TriageOf(changed); got != want {
+	changed, err := changeTriage(context.Background(), e, tree, p, pending, own, want)
+	if err != nil || !changed {
+		t.Fatalf("changing a pending triage: %v, %v", changed, err)
+	}
+	updated, err := plan.Load(filepath.Join(tree, path), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, got := review.TriageOf(updated); got != want {
 		t.Fatalf("triage %+v", got)
 	}
-	if errs, _ := plan.Lint(changed, root, e.harnesses, nil); len(errs) != 1 || !strings.Contains(errs[0], "does not exist") {
-		t.Fatalf("the changed review should lint but for the plan it reviews: %v", errs)
-	}
-	if out := gitOut(t, root, "status", "--porcelain"); strings.TrimSpace(out) != "" {
+	if out := gitOut(t, tree, "status", "--porcelain"); strings.TrimSpace(out) != "" {
 		t.Fatalf("the change is committed:\n%s", out)
 	}
 
-	landed := &state.State{Units: map[string]*state.Entry{"2.1": {Status: state.Landed}}}
-	cmd, f = triageCommand(t, "--triage-model", "opus")
-	cmd.SetContext(context.Background())
-	if err := retriage(cmd, e, root, changed, landed, f); err != nil {
-		t.Fatal(err)
+	u, _ := review.TriageOf(updated)
+	landed := &state.State{Units: map[string]*state.Entry{u.ID: {Status: state.Landed}}}
+	if got := triageLock(context.Background(), e, updated, landed); got != triageRanLock {
+		t.Fatalf("a triage that has run is locked with %q, want %q", got, triageRanLock)
 	}
-	again, err := plan.Load(filepath.Join(root, path), path)
+	if again, err := changeTriage(context.Background(), e, tree, updated, landed, want, own); err != nil || again {
+		t.Fatalf("a triage that has run changed %v, %v", again, err)
+	}
+	final, err := plan.Load(filepath.Join(tree, path), path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, got := review.TriageOf(again); got != want {
+	if _, got := review.TriageOf(final); got != want {
 		t.Fatalf("a triage that has run is not changed, but it is now %+v", got)
+	}
+}
+
+// liveReview announces that a review plan in root is being run.
+func liveReview(t *testing.T, e *env, root, path string) {
+	t.Helper()
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	if _, err := control.Register(control.Status{
+		Root: root, Plan: path, Branch: "pass",
+		Agent: "claude sonnet medium",
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestALiveReviewsTriageIsLockedAndAFlagCommitsNothing(t *testing.T) {
+	e, tree := worktreeRepo(t, nil)
+	reviewed := plan.Parse(finishedPlan, "docs/plans/PASS.md")
+	s := &state.State{Units: map[string]*state.Entry{"1.1": {
+		Status: state.Landed, Outcome: "done", Base: "aaa", Commits: []string{"bbb one"},
+	}}}
+	own := review.Triage{Agent: "claude", Model: "sonnet", Effort: "medium"}
+	text, err := review.Generate(reviewed, s, review.Options{Triage: own})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := review.Path(reviewed.Path)
+	write(t, tree, path, text)
+	git(t, tree, "add", "-A")
+	git(t, tree, "commit", "-q", "-m", "plans: review PASS")
+	head := strings.TrimSpace(gitOut(t, tree, "rev-parse", "HEAD"))
+
+	p := plan.Parse(text, path)
+	pending := &state.State{Units: map[string]*state.Entry{}}
+	liveReview(t, e, tree, path)
+	if got := triageLock(context.Background(), e, p, pending); got != triageLiveLock {
+		t.Fatalf("a running review's triage is locked with %q, want %q", got, triageLiveLock)
+	}
+
+	cmd, f := triageCommand(t, "--triage-model", "opus")
+	cmd.SetContext(context.Background())
+	f.writeOnly = true
+	if err := reviewPlan(cmd, e, []string{"PASS"}, f); err != nil {
+		t.Fatal(err)
+	}
+
+	unchanged, err := plan.Load(filepath.Join(tree, path), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, got := review.TriageOf(unchanged); got != own {
+		t.Fatalf("a running review's triage changed to %+v", got)
+	}
+	if out := strings.TrimSpace(gitOut(t, tree, "status", "--porcelain")); out != "" {
+		t.Fatalf("a running review's triage committed:\n%s", out)
+	}
+	if got := strings.TrimSpace(gitOut(t, tree, "rev-parse", "HEAD")); got != head {
+		t.Fatalf("the review's head moved from %s to %s", head, got)
 	}
 }

@@ -103,7 +103,8 @@ runs it like any plan:
   answer it and show locked. The board's values go to the review's run without
   asking again. A review already written whose triage has not run opens with
   its triage as that review has it, and changing it commits the change; once
-  the triage has run its column is locked. The Run column's `n` says what
+  the triage has run, or while the review is running, its column is locked.
+  The Run column's `n` says what
   follows the review: stop, or run the fix plan it writes.
 - the triage session weighs every finding with the `review-triage` skill. It
   writes `<NAME>_FIXES.md`, an ordinary plan for every finding that holds. It
