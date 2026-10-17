@@ -555,6 +555,30 @@
         "reasoning": 5355,
         "cache_read": 828416
       }
+    },
+    "1.24": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:53:05+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "637f3275a937899bb8108827ba2aea7a9ae72c27",
+      "commits": [
+        "642a07ba30c0dc087a9cdf5c5e92ba54bdc7d921 Test the main menu's letters and cancel keys"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `642a07b` adds the missing tests. `internal/ui/pick_test.go` now drives Esc\n  and ctrl-c and asserts each closes the picker with `huh.ErrUserAborted` and\n  no value. `cmd/ploopy/main_test.go` reads the README *Start* menu, compares\n  its letters and labels with the real menu, rejects duplicate letters, and\n  checks `a adjust` appears first exactly when a live run is passed in.\n- `chooseCommand` now takes its choices from a new `commandChoices(lives\n  []control.Live) []ui.Choice`, so the test does not need a process on disk.\n\n**Landmark drift**\n\nNone. `chooseCommand` was at `cmd/ploopy/main.go:74` and the picker's cancel\npath at `internal/ui/pick.go:57-58`, `:98-102` as the plan said.\n\n**Deviations from the work order**\n\n- The menu test parses the README listing instead of repeating its values.\n  That keeps the letters and labels pinned to the document the unit names, and\n  makes a README/menu mismatch fail.\n- No production behaviour changed for Esc/ctrl-c; those tests were green\n  against existing code. The menu test is the one that would catch a duplicate\n  letter or an unconditional `adjust`.\n\n**What the next session must know**\n\n- `q` still cancels the picker even though it is not a declared choice (the\n  review finding F1 from `LENDING_EXECUTION_REVIEW`). This unit did not change\n  it; a later unit may.\n- `commandChoices` is the seam to extend if the menu gains or loses a command,\n  and the README listing must move with it.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb5390b70ffe7XuPZDuk0Ye6AC",
+      "cost_usd": 0.011365038,
+      "harness": "opencode",
+      "elapsed_s": 71,
+      "session_s": 64,
+      "test_s": 7,
+      "tokens": {
+        "input": 29997,
+        "output": 4172,
+        "reasoning": 3730,
+        "cache_read": 708096
+      }
     }
   }
 }
