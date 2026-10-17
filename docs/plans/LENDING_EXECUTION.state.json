@@ -97,6 +97,31 @@
         "reasoning": 6756,
         "cache_read": 791424
       }
+    },
+    "3.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T12:27:58+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "15573c7865af4c48cad18db7594285845f07f28c",
+      "commits": [
+        "a1f163efb315de093a3004568f8645278ef6bce1 Add the machine's lease file package"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `a1f163e` adds `internal/lease`. `Path` resolves\n  `$XDG_STATE_HOME/ploopy/leases.json`, falling back to\n  `$HOME/.local/state/ploopy/leases.json`.\n- `Load` treats a missing file as nothing lent, validates harness, kind\n  (`until`, `nightly`, `open`), keep range and uniqueness, and sorts by harness\n  in memory. `Save` creates the state directory `0700` and replaces the file\n  whole through a temp file and rename, copied from `control.writeJSON`.\n- `File.Set` replaces a harness's lease, `Reclaim` removes it, both keeping name\n  order. `Active(now)` leaves out an until lease at or past its instant while\n  `Load` keeps it in the file.\n- Tests cover every done-when bullet, plus that `until`/`span` are only written\n  for the kinds that use them. `AGENTS.md` lists the new package. Nothing calls\n  it yet.\n\n**Landmark drift**\n\n- None. `control.Dir` and `control.writeJSON` are where the plan expected them.\n- `internal/lease` is new; there was no earlier location to compare.\n\n**Deviations from the work order**\n\n- The suggested API is implemented as written.\n- `Until` uses `time.Time` with `json:\"until,omitzero\"` (Go 1.26) rather than a\n  pointer or a zero timestamp on every lease. The saved file matches §4's\n  example: only an until lease carries `until`.\n- `Load` rejects an empty harness, an unknown kind, keep outside 0–100 and two\n  leases for one harness as invalid, naming the path. The authority calls an\n  invalid file an error but does not enumerate these; they are the format's own\n  invariants.\n- `Load` sorts the leases it returns, so `Active` is name-ordered even if a\n  hand-edited file is not. It does not rewrite the file.\n\n**What the next session must know**\n\n- `Load` returns expired until leases; only `Active(now)` hides them. Do not use\n  `Load().Leases` directly as the active set in 3.2/3.4.\n- The package uses no `loop` or `harness` import; the span stays an opaque\n  string and must be validated by `cmd/ploopy` with `loop.ParseAway`.\n- `Save` always emits `\"leases\": []` for an empty file, never `null`.\n- `Set` and `Reclaim` return new values; they do not mutate the receiver's\n  slice. `Save` copies before sorting for the same reason.\n\n**Open problems**\n\n- None found.",
+      "session_id": "ses_eb69a136bffeMvT9B1xymcDL6J",
+      "cost_usd": 0.025544958000000006,
+      "harness": "opencode",
+      "elapsed_s": 101,
+      "session_s": 98,
+      "verify_s": 1,
+      "test_s": 1,
+      "tokens": {
+        "input": 80581,
+        "output": 6167,
+        "reasoning": 11439,
+        "cache_read": 964736
+      }
     }
   }
 }
