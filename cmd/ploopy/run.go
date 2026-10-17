@@ -134,7 +134,7 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 			return fmt.Errorf("%s is already running in %s; change it with `ploopy adjust`", c.Plan.Path, c.Live.Root)
 		}
 		fmt.Printf("%s is already running in %s.\n", c.Plan.Path, c.Live.Root)
-		return adjustInteractively(e, *c.Live)
+		return adjustInteractively(ctx, e, *c.Live)
 	}
 	t, err := prepareTarget(ctx, e, f, c)
 	if err != nil {

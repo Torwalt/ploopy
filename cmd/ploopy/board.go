@@ -4,15 +4,19 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/history"
 	"github.com/Torwalt/ploopy/internal/lease"
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
+	"github.com/Torwalt/ploopy/internal/repo"
+	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
 
@@ -25,6 +29,8 @@ type settingsBoard struct {
 	plan     *plan.Plan
 	branch   string
 	open     int
+	root     string
+	adjust   bool
 	given    given
 	s        *runSettings
 	drafts   []*leaseDraft
@@ -35,6 +41,7 @@ type settingsBoard struct {
 	secondary string
 	spend     string
 	push      string
+	stop      string
 	lastAgent string
 	board     *ui.Board
 }
@@ -67,11 +74,77 @@ const (
 
 func newSettingsBoard(ctx context.Context, e *env, p *plan.Plan, g given, s *runSettings, branch string, open int) *settingsBoard {
 	sb := &settingsBoard{
-		ctx: ctx, env: e, plan: p, branch: branch, open: open, given: g, s: s,
+		ctx: ctx, env: e, plan: p, branch: branch, open: open, root: e.root, given: g, s: s,
 		secondary: encodeAgent(s.Secondary), spend: spendLabel(s.SpendAll), push: yesNo(s.Push),
-		lastAgent: s.Harness, canPush: e.repo().CanPush(ctx, branch) == nil,
+		lastAgent: s.Harness, canPush: repo.New(e.root, nil).CanPush(ctx, branch) == nil,
 	}
-	sb.records = loadHistory(ctx, e.root)
+	sb.records = loadHistory(ctx, sb.root)
+	sb.drafts, sb.leaseErr = loadLeaseDrafts(ctx, e, sb.records, time.Now())
+	sb.normalize()
+	sb.board = ui.NewBoard(sb.title(), sb.columns(), sb.footer)
+	sb.board.OnChange = func() {
+		sb.normalize()
+		sb.board.SetColumns(sb.columns())
+	}
+	return sb
+}
+
+// adjustLock is why a running run's bedrock cannot change.
+const adjustLock = "a running run keeps its agent"
+
+// newAdjustBoard builds the same board for a run that is going. The bedrock's
+// agent, model and effort are locked; everything else is applied on Enter.
+func newAdjustBoard(ctx context.Context, e *env, live control.Live) *settingsBoard {
+	wanted := live.Wanted
+	s := runSettings{
+		Secondary:     wanted.Secondary,
+		Peak:          wanted.Peak,
+		Subscriptions: wanted.Subscriptions,
+		SpendAll:      wanted.SpendAll != nil && *wanted.SpendAll,
+		Push:          wanted.Pushes(),
+		Finish:        wanted.Finish,
+	}
+	if fields := strings.Fields(live.Agent); len(fields) > 0 {
+		s.Harness = fields[0]
+		if len(fields) > 1 {
+			s.Model = fields[1]
+		}
+		if len(fields) > 2 {
+			s.Effort = fields[2]
+		}
+	}
+	if s.Subscriptions == "" {
+		s.Subscriptions = "all"
+	}
+	if s.Peak == "" {
+		s.Peak = "run"
+	}
+	if s.Finish == "" {
+		s.Finish = string(ui.FinishNone)
+	}
+	var g given
+	g.harness, g.model, g.effort = true, true, true
+	g.from("harness", adjustLock)
+	g.from("model", adjustLock)
+	g.from("effort", adjustLock)
+
+	p := plan.Parse("", live.Plan)
+	open := 0
+	if loaded, err := plan.Load(filepath.Join(live.Root, live.Plan), live.Plan); err == nil {
+		p = loaded
+		if st, err := state.Load(filepath.Join(live.Root, state.PathFor(live.Plan))); err == nil {
+			open = openUnits(p, st)
+		}
+	}
+
+	sb := &settingsBoard{
+		ctx: ctx, env: e, plan: p, branch: live.Branch, open: open, root: live.Root,
+		adjust: true, given: g, s: &s,
+		secondary: encodeAgent(wanted.SecondaryAgent()), spend: spendLabel(s.SpendAll),
+		push: yesNo(s.Push), stop: yesNo(wanted.Stops()), lastAgent: s.Harness,
+		canPush: repo.New(live.Root, nil).CanPush(ctx, live.Branch) == nil,
+	}
+	sb.records = loadHistory(ctx, sb.root)
 	sb.drafts, sb.leaseErr = loadLeaseDrafts(ctx, e, sb.records, time.Now())
 	sb.normalize()
 	sb.board = ui.NewBoard(sb.title(), sb.columns(), sb.footer)
@@ -189,6 +262,10 @@ func (sb *settingsBoard) runColumn() ui.Column {
 	}
 	fields = append(fields, ui.BoardField{Key: 'f', Label: "end", Value: &s.Finish,
 		Choices: func() []ui.Choice { return ui.Finishes }, Locked: sb.given.why("finish")})
+	if sb.adjust {
+		fields = append(fields, ui.BoardField{Key: 'x', Label: "stop", Value: &sb.stop,
+			Choices: func() []ui.Choice { return yesNoChoices(sb.stop == "yes") }})
+	}
 	return ui.Column{Title: "Run", Fields: fields}
 }
 
@@ -235,9 +312,47 @@ func (sb *settingsBoard) run() error {
 	if _, err := sb.board.Run(); err != nil {
 		return err
 	}
+	sb.read()
+	return nil
+}
+
+// read takes the board's values into the run settings.
+func (sb *settingsBoard) read() {
 	sb.s.Secondary = decodeAgent(sb.secondary)
 	sb.s.SpendAll = sb.spend == "all"
 	sb.s.Push = sb.push == "yes"
+}
+
+// adjustChange is everything the adjust board shows, as a change. Every field
+// is sent, so the board's state is what the run gets, not a partial overlay.
+func (sb *settingsBoard) adjustChange() control.Settings {
+	secondary := sb.s.Secondary
+	if secondary == nil {
+		secondary = &control.Agent{}
+	}
+	stop := sb.stop == "yes"
+	return control.Settings{
+		Finish:        sb.s.Finish,
+		Peak:          sb.s.Peak,
+		Push:          &sb.s.Push,
+		Stop:          &stop,
+		Secondary:     secondary,
+		Subscriptions: sb.s.Subscriptions,
+		SpendAll:      &sb.s.SpendAll,
+	}
+}
+
+// applyAdjust writes the changed leases and lays the board's settings over
+// the running run.
+func (sb *settingsBoard) applyAdjust(live control.Live, now time.Time) error {
+	if err := sb.saveLeases(now); err != nil {
+		return err
+	}
+	updated, err := control.Adjust(live.PID, sb.adjustChange())
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s: %s\n", updated.Name(), updated.Wanted.Describe())
 	return nil
 }
 

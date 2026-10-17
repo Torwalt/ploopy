@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -94,7 +96,7 @@ func adjust(cmd *cobra.Command, e *env, f *adjustFlags) error {
 		return err
 	}
 	if change.Empty() {
-		return adjustInteractively(e, live)
+		return adjustInteractively(cmd.Context(), e, live)
 	}
 	return apply(live, change)
 }
@@ -194,89 +196,12 @@ func changeFromFlags(cmd *cobra.Command, e *env, f *adjustFlags) (control.Settin
 	return change, nil
 }
 
-func adjustInteractively(e *env, live control.Live) error {
-	wanted := live.Wanted
-	subscriptions := wanted.Subscriptions
-	if subscriptions == "" {
-		subscriptions = "all"
-	}
-	spend := "keep reserves"
-	if wanted.SpendAll != nil && *wanted.SpendAll {
-		spend = "spend all"
-	}
-	choices := []ui.Choice{
-		{Label: "when the run ends: " + finishLabel(wanted.Finish), Value: "finish"},
-		{Label: "push when the run ends: " + yesNo(wanted.Pushes()), Value: "push"},
-		{Label: "stop after the current unit: " + yesNo(wanted.Stops()), Value: "stop"},
-		{Label: "on a usage limit: " + secondaryLabel(wanted.SecondaryAgent()), Value: "secondary"},
-		{Label: "a unit due in peak hours: " + peakLabel(wanted.Peak), Value: "peak"},
-		{Label: "subscriptions: " + subscriptionText(subscriptions), Value: "subscriptions"},
-		{Label: "spending: " + spend, Value: "spend"},
-	}
-	setting, err := ui.Pick(live.Name()+": change what?", "finish", choices)
-	if err != nil {
+func adjustInteractively(ctx context.Context, e *env, live control.Live) error {
+	board := newAdjustBoard(ctx, e, live)
+	if err := board.run(); err != nil {
 		return err
 	}
-
-	var change control.Settings
-	switch setting {
-	case "finish":
-		if change.Finish, err = ui.Pick("When the run ends?", "finish", ui.Finishes); err != nil {
-			return err
-		}
-	case "push":
-		picked, err := ui.Pick("Push the branch when the run ends?", "push", yesNoChoices(wanted.Pushes()))
-		if err != nil {
-			return err
-		}
-		push := picked == "yes"
-		change.Push = &push
-	case "stop":
-		picked, err := ui.Pick("Stop once the current unit is done?", "stop", yesNoChoices(wanted.Stops()))
-		if err != nil {
-			return err
-		}
-		stop := picked == "yes"
-		change.Stop = &stop
-	case "secondary":
-		primary := strings.Fields(live.Agent)
-		except := ""
-		if len(primary) > 0 {
-			except = primary[0]
-		}
-		picked, err := ui.Pick("When "+except+" hits its usage limit?", "secondary",
-			secondaryChoices(e.harnesses, except))
-		if err != nil {
-			return err
-		}
-		agent := decodeAgent(picked)
-		if agent == nil {
-			agent = &control.Agent{}
-		}
-		change.Secondary = agent
-	case "peak":
-		if change.Peak, err = ui.Pick("A unit due to start in peak hours?", "peak", peakChoices); err != nil {
-			return err
-		}
-	case "subscriptions":
-		primary := strings.Fields(live.Agent)
-		except := ""
-		if len(primary) > 0 {
-			except = primary[0]
-		}
-		if change.Subscriptions, err = ui.Pick("Which subscriptions may the run use?", "subscriptions",
-			subscriptionChoices(e.harnesses, except)); err != nil {
-			return err
-		}
-	case "spend":
-		picked, err := ui.Pick("Keep a reserve of the subscriptions' weeks?", "spend", spendChoices)
-		if err != nil {
-			return err
-		}
-		spendAll := picked == "all"
-		change.SpendAll = &spendAll
-	}
-	return apply(live, change)
+	return board.applyAdjust(live, time.Now())
 }
 
 var peakChoices = []ui.Choice{
@@ -355,28 +280,4 @@ func yesNo(v bool) string {
 		return "yes"
 	}
 	return "no"
-}
-
-func finishLabel(finish string) string {
-	switch ui.Finish(finish) {
-	case ui.FinishSuspend:
-		return "suspend"
-	case ui.FinishPoweroff:
-		return "power off"
-	}
-	return "nothing"
-}
-
-func secondaryLabel(agent *control.Agent) string {
-	if agent == nil {
-		return "wait it out"
-	}
-	return "switch to " + agent.Label()
-}
-
-func peakLabel(peak string) string {
-	if peak == "wait" {
-		return "wait for off-peak"
-	}
-	return "run anyway"
 }
