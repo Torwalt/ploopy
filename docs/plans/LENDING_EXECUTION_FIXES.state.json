@@ -363,6 +363,30 @@
         "reasoning": 4704,
         "cache_read": 877696
       }
+    },
+    "1.16": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:39:51+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "77678ed77465c739326e12e44b6602d591f056b4",
+      "commits": [
+        "81ca46d92693ba44eac21fe2ec547fb5fd860cc3 Treat an empty --subscriptions on run as all"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `81ca46d` makes `givenSettings` test `cmd.Flags().Changed(\"subscriptions\")`\n  instead of the flag's value, so `run --subscriptions=` resolves to `all`\n  and is given from a flag, matching `adjust`.\n- `TestAnEmptySubscriptionsFlagMeansAll` pins a plan saying\n  `subscriptions: none` plus `--subscriptions=`; it failed before the change.\n- The README's Subscriptions section now says an empty `--subscriptions=`\n  means `all` on run and adjust.\n\n**Landmark drift**\n\n`cmd/ploopy/settings.go:150` was still the `f.subscriptions != \"\"` test, as\nthe work order said; `cmd/ploopy/adjust.go:189` still uses `Changed`.\n\n**Deviations from the work order**\n\nUpdated the README as the work order's preamble requires for a change the\nauthor can see. The test checks `givenSettings` directly rather than the\nresulting `Lending`; the set and its given source are the contract here, and\nthe existing lending tests cover the filtering.\n\n**What the next session must know**\n\n- `subscriptionSet` treats empty as `all`, so `Changed` plus an empty value is\n  exactly the intended path; no validation exception was needed.\n- `--subscriptions=` without other flags is still resolved through the normal\n  `resolveSettings` path, so unattended runs need agent/effort as before.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb5451a2cffegxA57MKPeOqCFy",
+      "cost_usd": 0.008117784,
+      "harness": "opencode",
+      "elapsed_s": 68,
+      "session_s": 61,
+      "test_s": 6,
+      "tokens": {
+        "input": 29876,
+        "output": 1985,
+        "reasoning": 1355,
+        "cache_read": 544128
+      }
     }
   }
 }
