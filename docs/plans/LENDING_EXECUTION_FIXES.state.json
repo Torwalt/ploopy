@@ -1,0 +1,28 @@
+{
+  "units": {
+    "1.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:17:40+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "dc99f165934bbd32fa94d73db09becc5ed6a3603",
+      "commits": [
+        "58234fdf31611ac7d86d2aa921d9be7b8af5406d Take the fake agent's handover path from the session block"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `58234fd` adds `quotedInSection` in `dev/fakeagent/act.go` and has the\n  implementing role read its handover path from the `## This session` section.\n- A new test in `dev/fakeagent/main_test.go` puts the phrase in the skill text\n  before the session block and in a previous-handover section after it\n  (pointing inside the repository), then asserts the real handover exists and\n  the tree is clean.\n\n**Landmark drift**\n\nNone. `quotedAfter` and `implement` were where the plan said.\n\n**Deviations from the work order**\n\nNone. When the prompt has no `## This session` section, the helper falls back\nto the old whole-prompt lookup so the existing role test still passes.\n\n**What the next session must know**\n\n- The section runs from `## This session` to the next line beginning `## `.\n  The fallback only applies when that heading is absent; if the heading is\n  present but has no quoted path, the fake reports \"the prompt names no\n  handover path\" rather than falling back to a decoy.\n- Collect and triage still use the whole-prompt `quotedAfter`; this unit only\n  moved the implementing handover path.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb55932d3ffe2M5HalL17mXJAE",
+      "cost_usd": 0.00947727,
+      "harness": "opencode",
+      "elapsed_s": 54,
+      "session_s": 44,
+      "test_s": 10,
+      "tokens": {
+        "input": 27885,
+        "output": 2700,
+        "reasoning": 3369,
+        "cache_read": 551040
+      }
+    }
+  }
+}
