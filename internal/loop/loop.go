@@ -290,7 +290,6 @@ func (l *Loop) uncommitted(ctx context.Context, u plan.Unit) (string, error) {
 		return "", err
 	}
 	red := l.preflightRed
-	l.preflightRed = ""
 	if len(dirt) == 0 {
 		return "", nil
 	}
@@ -871,6 +870,7 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 				l.benched(agent, "could not start: "+firstLine(err.Error()))
 				continue
 			}
+			l.preflightRed = ""
 			if fresh {
 				l.opening(agent, info.Started)
 			}

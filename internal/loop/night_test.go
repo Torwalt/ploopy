@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -516,6 +517,43 @@ func TestALentSubscriptionThatCannotRunHandsOver(t *testing.T) {
 		}
 		if claude.Started() != 1 || f.h.Started() != 2 {
 			t.Fatalf("claude ran %d sessions, the primary %d", claude.Started(), f.h.Started())
+		}
+	}
+}
+
+// A lent agent that cannot start must not consume the red preflight's tail:
+// the bedrock's first prompt is the first session that actually starts.
+func TestAnInheritedRedPreflightSurvivesALentAgentThatCannotStart(t *testing.T) {
+	f, claude, _ := nightFixture(t, []fake.Step{
+		{Do: func(dir string) error {
+			if err := os.Remove(filepath.Join(dir, "inherited.txt")); err != nil {
+				return err
+			}
+			return commits("one.go", "first")(dir)
+		}, Outcome: done()},
+		{Do: commits("two.go", "second"), Outcome: done()},
+	}, []fake.Step{{Err: errors.New(`exec: "claude": executable file not found in $PATH`)}}, at(15, 22, 0))
+	writeFile(t, f.root, "inherited.txt", "uncommitted\n")
+	f.opts.VerifyCmd = `test ! -f inherited.txt || { echo "inherited.txt is in the way"; exit 1; }`
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if claude.Started() != 1 {
+		t.Fatalf("the lent agent was asked for %d sessions", claude.Started())
+	}
+	if f.h.Started() < 1 {
+		t.Fatal("no bedrock session ran")
+	}
+	prompt := f.h.Prompts[0]
+	for _, want := range []string{
+		"## Uncommitted changes in the tree",
+		"?? inherited.txt",
+		"Verify is red with these changes:",
+		"inherited.txt is in the way",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("the first bedrock prompt lacks %q:\n%s", want, prompt)
 		}
 	}
 }
