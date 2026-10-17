@@ -190,6 +190,9 @@ func newReviewBoard(ctx context.Context, e *env, p *plan.Plan, g given, s *runSe
 
 func (sb *settingsBoard) rebuild() {
 	sb.board = ui.NewBoard(sb.title(), sb.columns(), sb.footer)
+	if sb.adjust {
+		sb.board.Action = "apply"
+	}
 	sb.board.OnChange = func() {
 		sb.normalize()
 		sb.board.SetColumns(sb.columns())

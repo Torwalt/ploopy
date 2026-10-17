@@ -143,6 +143,20 @@ func TestTheAdjustBoardLocksTheBedrockAndOffersStop(t *testing.T) {
 	}
 }
 
+func TestTheAdjustBoardSaysEnterApplies(t *testing.T) {
+	e := boardEnv(t)
+	live := liveRun(t, e, control.Settings{})
+	board := newAdjustBoard(context.Background(), e, live)
+
+	view := board.board.View()
+	if !strings.Contains(view, "enter apply") {
+		t.Fatalf("the adjust board does not say enter applies:\n%s", view)
+	}
+	if strings.Contains(view, "enter start") {
+		t.Fatalf("the adjust board still says enter starts:\n%s", view)
+	}
+}
+
 func TestTheAdjustBoardAppliesItsSettingsAndLeases(t *testing.T) {
 	e := boardEnv(t)
 	live := liveRun(t, e, control.Settings{Subscriptions: "all"})

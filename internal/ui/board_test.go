@@ -7,6 +7,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 func press(b *Board, msg tea.Msg) {
@@ -143,6 +145,29 @@ func TestALockedFieldKeepsItsValueAndSaysWhy(t *testing.T) {
 	}
 	if !strings.Contains(board.View(), "from a flag") {
 		t.Fatalf("an arrow did not give the lock reason:\n%s", board.View())
+	}
+}
+
+func TestFocusOutranksDimAndLock(t *testing.T) {
+	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
+	lipgloss.SetColorProfile(termenv.ANSI)
+
+	lent := "mine"
+	field := choiceField('u', "lent", &lent, "mine", "until 09:00")
+	field.Locked = "from a flag"
+	board := NewBoard("board", []Column{
+		{Title: "Bedrock"},
+		{Title: "claude", Fields: []BoardField{field}, Dim: true},
+	}, nil)
+	press(board, letter('2'))
+
+	st := styles()
+	view := board.View()
+	if want := st.focusedColumn.Render("2 claude"); !strings.Contains(view, want) {
+		t.Fatalf("the focused dim column's title is not in the focused style:\n%q\n%s", want, view)
+	}
+	if want := st.focusedField.Render(" u lent  mine"); !strings.Contains(view, want) {
+		t.Fatalf("the cursor's locked field is not in the focused style:\n%q\n%s", want, view)
 	}
 }
 

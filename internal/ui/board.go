@@ -38,6 +38,7 @@ type Board struct {
 	Columns  []Column
 	Footer   func() []string
 	OnChange func() // runs before the footer after focus, cursor or a value changes
+	Action   string // what Enter does, named in the help line; start by default
 
 	width  int
 	focus  int
@@ -416,7 +417,11 @@ func (b *Board) View() string {
 	if b.notice != "" {
 		out = append(out, st.notice.Render(b.notice))
 	}
-	out = append(out, st.help.Render("enter start   1–9 column   letter next   shift+letter back   +/- hour   esc"))
+	action := b.Action
+	if action == "" {
+		action = "start"
+	}
+	out = append(out, st.help.Render("enter "+action+"   1–9 column   letter next   shift+letter back   +/- hour   esc"))
 	return strings.Join(out, "\n")
 }
 
@@ -475,10 +480,10 @@ func (b *Board) columnLines(index int, st boardStyles) []string {
 	focused := index == b.focus
 	title := fmt.Sprintf("%d %s", index+1, column.Title)
 	switch {
-	case column.Dim:
-		title = st.dim.Render(title)
 	case focused:
 		title = st.focusedColumn.Render(title)
+	case column.Dim:
+		title = st.dim.Render(title)
 	default:
 		title = st.column.Render(title)
 	}
@@ -486,12 +491,12 @@ func (b *Board) columnLines(index int, st boardStyles) []string {
 	for i, field := range column.Fields {
 		text := fmt.Sprintf(" %c %s  %s", field.Key, field.Label, fieldLabel(field))
 		switch {
+		case focused && i == b.cursor[index]:
+			text = st.focusedField.Render(text)
 		case field.Locked != "":
 			text = st.locked.Render(text)
 		case column.Dim:
 			text = st.dim.Render(text)
-		case focused && i == b.cursor[index]:
-			text = st.focusedField.Render(text)
 		default:
 			text = st.field.Render(text)
 		}
