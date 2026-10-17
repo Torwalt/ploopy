@@ -292,6 +292,30 @@
         "reasoning": 13314,
         "cache_read": 2285312
       }
+    },
+    "4.4": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T13:00:43+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "2c86d9cea473b46b6f6e109c8e3efb4c42140a81",
+      "commits": [
+        "2dc8a3fd5283930ca42b01c78aa4afacf9b6c82e Add one-key shortcuts to the main menu"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `2dc8a3f` adds `ui.PickKeyed`, a small bubbletea list with a letter on each\n  `ui.Choice`. A letter picks at once, arrows plus Enter still work, unknown\n  letters do nothing, and Esc/q/ctrl-c cancel with `huh.ErrUserAborted`.\n- `chooseCommand` uses it with the suggested letters: `a` adjust (only when a\n  run is going on), `r`, `v`, `s`, `p`, `h`, `n`, `c`, `l`, `w`, `y`, `m`, `t`.\n- `internal/ui/pick_test.go` covers a letter picking, an unknown letter doing\n  nothing, Enter picking the highlighted command, and the letters in the view.\n  The README *Start* listing now shows the full menu with its letters.\n\n**Landmark drift**\n\n- None. `chooseCommand` and `ui.Pick` were where the unit said. `ui.Pick` and\n  all its other callers are untouched.\n\n**Deviations from the work order**\n\n- Added `Key rune` to `ui.Choice` and a separate `PickKeyed`, rather than\n  making `Pick` itself keyed. That keeps the other pickers (plan, run, branch,\n  triage, repair, status) exactly as they were.\n- The picker reuses the board's lipgloss styles, so the menu and board look\n  alike.\n- The README listing omitted `history` and `lend` before; it now lists every\n  command in menu order.\n\n**What the next session must know**\n\n- `PickKeyed` matching is case-insensitive, so shifted letters also pick.\n  `q` cancels when it is not a choice's own letter.\n- The cursor wraps on up/down; Enter takes the highlighted choice.\n- The picker is a plain `tea.Model` in `internal/ui/pick.go`; its tests drive\n  `Update` directly, so no pty is needed.\n\n**Open problems**\n\n- The README shows the menu without a live run, so the `a` line is described in\n  prose rather than in the listing. A run going on inserts it first.",
+      "session_id": "ses_eb67bbe3cffeJshmHqQwesPjc2",
+      "cost_usd": 0.015254676000000003,
+      "harness": "opencode",
+      "elapsed_s": 77,
+      "session_s": 75,
+      "test_s": 2,
+      "tokens": {
+        "input": 37814,
+        "output": 5285,
+        "reasoning": 6213,
+        "cache_read": 894592
+      }
     }
   }
 }
