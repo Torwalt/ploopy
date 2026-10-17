@@ -77,7 +77,6 @@ type Options struct {
 	StateCommit string
 
 	Notify       string
-	AllowDirty   bool
 	HarnessArgs  []string
 	MaxBudgetUSD float64
 
@@ -185,6 +184,11 @@ type Loop struct {
 	unit      string
 	peakSaid  time.Time // the peak window already reported as run through
 
+	// inheritedDirty is uncommitted work the loop did not leave, which a red
+	// preflight hands to the first session instead of stopping the run.
+	inheritedDirty bool
+	preflightRed   string // the failing tail of the preflight, for that session
+
 	onSecondary bool
 	primaryFree time.Time // when the usage limit that moved the run to the secondary resets
 
@@ -258,19 +262,54 @@ func (l *Loop) prompt(ctx context.Context, p *plan.Plan, s *state.State, u plan.
 	if u.Role() != plan.Implement {
 		return l.reviewPrompt(ctx, p, s, u, failure)
 	}
+	uncommitted, err := l.uncommitted(ctx, u)
+	if err != nil {
+		return "", err
+	}
 	handover, _ := filepath.Rel(l.root, l.handoverPath(u))
 	return renderPrompt(promptArgs{
-		Skill:      l.opts.Skill,
-		Plan:       p,
-		Unit:       u,
-		Context:    l.context(p, u),
-		Handover:   handover,
-		Previous:   l.previousHandover(p, s, u),
-		Failure:    failure,
-		WantsTests: l.wantsTests(p, u),
-		Verify:     l.opts.VerifyCmd,
-		Test:       l.opts.TestCmd,
+		Skill:       l.opts.Skill,
+		Plan:        p,
+		Unit:        u,
+		Context:     l.context(p, u),
+		Handover:    handover,
+		Previous:    l.previousHandover(p, s, u),
+		Failure:     failure,
+		Uncommitted: uncommitted,
+		WantsTests:  l.wantsTests(p, u),
+		Verify:      l.opts.VerifyCmd,
+		Test:        l.opts.TestCmd,
 	}), nil
+}
+
+// uncommitted is the section a session gets when the tree is not clean: what
+// is there, whose it is, and where a red preflight left the check.
+func (l *Loop) uncommitted(ctx context.Context, u plan.Unit) (string, error) {
+	dirt, err := l.repo.DirtLines(ctx)
+	if err != nil {
+		return "", err
+	}
+	red := l.preflightRed
+	l.preflightRed = ""
+	if len(dirt) == 0 {
+		return "", nil
+	}
+	origin := "These were in the worktree before this run started. Nobody has committed them."
+	if l.progress.forUnit(u.ID) && l.progress.LeftDirty {
+		origin = "An earlier attempt at this unit left these uncommitted."
+	}
+	var text strings.Builder
+	text.WriteString("## Uncommitted changes in the tree\n\n")
+	text.WriteString(origin + "\n\n```\n")
+	text.WriteString(strings.Join(dirt, "\n"))
+	text.WriteString("\n```\n\nThey are part of this branch's work. Finish them as part of this unit, or\n")
+	text.WriteString("discard what does not belong to it. Leave the tree clean when you finish.")
+	if red != "" {
+		text.WriteString("\n\nVerify is red with these changes:\n\n```\n")
+		text.WriteString(strings.TrimRight(red, "\n"))
+		text.WriteString("\n```")
+	}
+	return text.String(), nil
 }
 
 func (l *Loop) context(p *plan.Plan, u plan.Unit) []string {
@@ -590,7 +629,8 @@ func (l *Loop) firstUnit(p *plan.Plan, s *state.State) *plan.Unit {
 	return unit
 }
 
-// checkTree refuses to start on top of changes the loop did not make.
+// checkTree hands an implementing plan's uncommitted changes to the session,
+// and refuses to start a review on top of any of them.
 func (l *Loop) checkTree(ctx context.Context, unit plan.Unit) (Result, bool) {
 	dirt, err := l.repo.DirtLines(ctx)
 	if err != nil {
@@ -599,13 +639,18 @@ func (l *Loop) checkTree(ctx context.Context, unit plan.Unit) (Result, bool) {
 	if len(dirt) == 0 {
 		return Result{}, false
 	}
-	ours := l.progress.forUnit(unit.ID) && l.progress.LeftDirty
-	if !ours && !l.opts.AllowDirty {
+	if unit.Role() != plan.Implement {
 		l.unit = unit.ID
-		return l.failRun("the working tree is dirty and the loop did not leave it so; " +
-			"commit or stash it, or pass --allow-dirty to hand it to the session"), true
+		return l.failRun("the working tree is dirty, and a review changes nothing; " +
+			"commit or stash it first"), true
 	}
-	l.report.Say("continuing with the uncommitted work an earlier attempt left in the tree")
+	ours := l.progress.forUnit(unit.ID) && l.progress.LeftDirty
+	l.inheritedDirty = !ours
+	if ours {
+		l.report.Say("continuing with the uncommitted work an earlier attempt left in the tree")
+	} else {
+		l.report.Say("handing the tree's uncommitted changes to the first session")
+	}
 	return Result{}, false
 }
 
@@ -646,6 +691,12 @@ func (l *Loop) preflight(ctx context.Context) error {
 	if err := l.timedCheck(ctx, "preflight", l.opts.VerifyCmd, logPath); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+		if l.inheritedDirty {
+			l.preflightRed = logTail(logPath)
+			l.report.Say("preflight: `%s` is red on the uncommitted changes already in the tree; "+
+				"handing them to the first session", l.opts.VerifyCmd)
+			return nil
 		}
 		return fmt.Errorf("preflight failed: `%s` is already red before the first unit:\n%s",
 			l.opts.VerifyCmd, logTail(logPath))

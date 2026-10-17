@@ -94,7 +94,9 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	flags.StringVar(&f.testCmd, "test-cmd", "", "command run when a unit wants tests")
 	flags.StringVar(&f.context, "context", "", `documents every session reads first, e.g. "A.md B.md"`)
 	flags.StringVar(&f.notify, "notify", "", "command run when the loop stops")
-	flags.BoolVar(&f.allowDirty, "allow-dirty", false, "hand a dirty working tree to the first session")
+	const allowDirty = "allow-dirty"
+	flags.BoolVar(&f.allowDirty, allowDirty, false, "")
+	_ = flags.MarkDeprecated(allowDirty, "uncommitted changes always go to the session")
 	flags.BoolVar(&f.worktree, "worktree", false, "")
 	_ = flags.MarkDeprecated("worktree", "every run goes to a worktree of its branch")
 	flags.BoolVar(&f.dryRun, "dry-run", false, "print the first session's prompt and stop")
@@ -182,7 +184,6 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		AuthorPaths:  cfg.AuthorPaths,
 		StateCommit:  cfg.StateCommit,
 		Notify:       f.notify,
-		AllowDirty:   f.allowDirty,
 		HarnessArgs:  e.extra,
 		MaxBudgetUSD: f.budget,
 		Secondary:    chosen.secondary,

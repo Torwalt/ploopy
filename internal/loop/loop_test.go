@@ -267,16 +267,45 @@ func TestADirtyTreeAfterASessionFails(t *testing.T) {
 	}
 }
 
-func TestADirtyTreeTheLoopDidNotLeaveIsRefused(t *testing.T) {
-	f := setup(t, twoUnits, fake.Step{Do: commits("one.go", "first"), Outcome: done()})
-	writeFile(t, f.root, "the-author-was-here.txt", "mine\n")
+func TestInheritedChangesAreHandedToTheFirstSession(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Do: commits("one.go", "first"), Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	writeFile(t, f.root, "half-done.txt", "uncommitted\n")
 
 	result := f.run()
-	if result.Status != "failed" || !strings.Contains(result.Message, "did not leave it so") {
+	if result.Status != "done" {
 		t.Fatalf("run %+v", result)
 	}
-	if f.h.Started() != 0 {
-		t.Fatal("no session should have started")
+	if f.h.Started() == 0 {
+		t.Fatal("the run refused the inherited changes instead of handing them over")
+	}
+	prompt := f.h.Prompts[0]
+	for _, want := range []string{
+		"## Uncommitted changes in the tree",
+		"?? half-done.txt",
+		"These were in the worktree before this run started. Nobody has committed them.",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("the first prompt lacks %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "An earlier attempt at this unit left these uncommitted.") {
+		t.Fatal("inherited changes were described as an earlier attempt's")
+	}
+}
+
+func TestACleanTreePromptHasNoUncommittedSection(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Do: commits("one.go", "first"), Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if strings.Contains(f.h.Prompts[0], "## Uncommitted changes in the tree") {
+		t.Fatal("a clean tree was described as having uncommitted changes")
 	}
 }
 
@@ -542,6 +571,39 @@ func TestPreflightStopsARunOnAnAlreadyRedRepository(t *testing.T) {
 	}
 }
 
+func TestAnInheritedRedPreflightGoesToTheFirstSession(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Do: func(dir string) error {
+			if err := os.Remove(filepath.Join(dir, "inherited.txt")); err != nil {
+				return err
+			}
+			return commits("one.go", "first")(dir)
+		}, Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	writeFile(t, f.root, "inherited.txt", "uncommitted\n")
+	f.opts.VerifyCmd = `test ! -f inherited.txt || { echo "inherited.txt is in the way"; exit 1; }`
+
+	result := f.run()
+	if result.Status != "done" {
+		t.Fatalf("the red preflight stopped the run: %+v", result)
+	}
+	if f.h.Started() < 1 {
+		t.Fatal("no session ran on the inherited changes")
+	}
+	prompt := f.h.Prompts[0]
+	for _, want := range []string{
+		"## Uncommitted changes in the tree",
+		"?? inherited.txt",
+		"Verify is red with these changes:",
+		"inherited.txt is in the way",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("the first prompt lacks %q:\n%s", want, prompt)
+		}
+	}
+}
+
 // A fresh worktree is readied before the preflight could find it red.
 func TestSetupRunsBeforeThePreflight(t *testing.T) {
 	f := setup(t, twoUnits,
@@ -685,7 +747,7 @@ func TestAStopMidSessionHandsItsWorkToTheNextRun(t *testing.T) {
 	}
 
 	if result := f.run(); result.Status != "done" {
-		t.Fatalf("a rerun after a stop needed --allow-dirty: %+v", result)
+		t.Fatalf("a rerun after a stop failed: %+v", result)
 	}
 	if !strings.Contains(f.h.Prompts[1], stoppedMidUnit) {
 		t.Fatal("the next session was not told the run had been stopped")
@@ -773,6 +835,15 @@ func TestAFailedAttemptTellsTheNextOneWhy(t *testing.T) {
 	}
 	if !strings.Contains(f.h.Prompts[1], "dirty") {
 		t.Fatal("the retry was not told the tree was dirty")
+	}
+	for _, want := range []string{
+		"## Uncommitted changes in the tree",
+		"?? stray.txt",
+		"An earlier attempt at this unit left these uncommitted.",
+	} {
+		if !strings.Contains(f.h.Prompts[1], want) {
+			t.Fatalf("the retry prompt lacks %q:\n%s", want, f.h.Prompts[1])
+		}
 	}
 }
 

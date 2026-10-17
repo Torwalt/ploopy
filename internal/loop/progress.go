@@ -67,8 +67,11 @@ func (p *progress) save() error {
 func (p *progress) reset(unit, base, failure string, session *sessionRecord) error {
 	if p.Unit != unit {
 		p.Spent = spent{}
+		// The next unit starts from a clean tree or from dirt the loop did not
+		// leave; either way, it is not this unit's earlier attempt.
+		p.LeftDirty = false
 	}
-	p.Unit, p.Base, p.Failure, p.Session, p.LeftDirty = unit, base, failure, session, false
+	p.Unit, p.Base, p.Failure, p.Session = unit, base, failure, session
 	return p.save()
 }
 

@@ -40,8 +40,8 @@ Every run, and every review, goes to a worktree of the plan's branch at
 - a worktree that holds the branch is used as it is;
 - a branch checked out nowhere is checked out there;
 - a branch the main checkout has moves there, and the main checkout to the
-  default branch. Uncommitted changes besides the plan stop this: they belong
-  to the branch, and the run would not see them;
+  default branch. Uncommitted changes besides the plan move with the branch,
+  into the worktree the run sees;
 - a plan on the default branch gets a branch named after it, `PLAYTEST_FIXES`
   → `playtest-fixes`, at the commit it is on. A later run finds that branch
   again;
@@ -52,6 +52,12 @@ Every run, and every review, goes to a worktree of the plan's branch at
 
 `close`, `mark`, `report --commit` and `show` check a branch out the same way
 when no checkout holds it.
+
+A run never refuses uncommitted changes. Each session that starts on them is
+told which paths are dirty and whether an earlier attempt or the worktree
+before this run left them, and a red check on inherited changes goes to the
+first session instead of stopping the run. A review still refuses them, because
+its sessions change nothing.
 
 ## Land
 
