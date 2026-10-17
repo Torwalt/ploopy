@@ -46,6 +46,30 @@
         "reasoning": 5365,
         "cache_read": 1327616
       }
+    },
+    "1.3": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:20:23+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "0f9eeea9873f2f95e01f2dd220a5079de43aa100",
+      "commits": [
+        "f1c8a14ecb483f2243f45116759517dc401464d2 Test every fake agent outcome and window refresh"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `f1c8a14` adds tests in `dev/fakeagent/main_test.go` for the outcomes the\n  sandbox advertises but no test pinned:\n  - `red` commits `BROKEN` alongside `work.txt`;\n  - `dirty` leaves `work.txt` modified, unstaged and uncommitted;\n  - `blocked` and `nothing` print their markers and leave `HEAD` and the tree\n    untouched;\n  - `logged-out` exits nonzero, writes no `state.json` and changes nothing;\n  - a seeded state whose five-hour and weekly resets have passed restarts both\n    at 0 with resets about 5h and 7d on;\n  - rewriting `scenario.toml` after a session reseeds the state instead of\n    accumulating on it.\n\n**Landmark drift**\n\nNone. `main.go`, `act.go` and `scenario.go` matched the work order.\n\n**Deviations from the work order**\n\n- The reset test drives a Claude session and reads `Outcome.Budget`, so it\n  covers `openState`, `refresh` and the adapter together rather than calling\n  `Window.refresh` directly. The reseed test forces the scenario's mtime ahead\n  of the state file so it does not depend on filesystem timestamp resolution.\n- Added shared helpers `fakeRepo`, `implementingPrompt` and\n  `scenarioWithOutcome`; the existing role tests are unchanged.\n\n**What the next session must know**\n\n- `fakeRepo` starts with a tracked `work.txt` so \"modified\" and \"unchanged\"\n  are distinguishable from an untracked file.\n- Each new test was checked against a temporary mutation: running `act` for\n  `blocked`, skipping the `BROKEN` file for `red`, removing `w.Used = 0` from\n  `Window.refresh`, and forcing `reseed = false` all made the named test fail.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb5572399ffebVQB8aWFP3SZF3",
+      "cost_usd": 0.016863852000000002,
+      "harness": "opencode",
+      "elapsed_s": 82,
+      "session_s": 81,
+      "test_s": 1,
+      "tokens": {
+        "input": 37382,
+        "output": 4932,
+        "reasoning": 9859,
+        "cache_read": 793984
+      }
     }
   }
 }
