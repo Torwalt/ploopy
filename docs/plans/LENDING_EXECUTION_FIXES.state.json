@@ -483,6 +483,30 @@
         "reasoning": 9689,
         "cache_read": 1745280
       }
+    },
+    "1.21": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:46:53+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "481d48ed59f30475e303046ad54473345c36bf9a",
+      "commits": [
+        "312e580d095b201271dcc840641c5b398b6f37be Offer then on the adjust board only for a review"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `312e580` makes the Run column's `n then` field appear on an adjust board\n  only when the live run's plan has a `reviews:` front matter key. A review\n  board still always gets it.\n- The ordinary adjust-board test now asserts `n` is absent; a new test on a\n  live review plan, written to `live.Root`, asserts it is present. The\n  `liveRun` helper gained a plan-path companion for that test.\n\n**Landmark drift**\n\nNone. `runColumn`'s condition was at `cmd/ploopy/board.go:373` and still is.\n\n**Deviations from the work order**\n\n`liveRun` was split into `liveRun` (unchanged callers, `PASS.md`) and\n`liveRunPlan` (takes the plan path), so the review test could register a run\nwhose plan actually exists on disk with `reviews:` front matter.\n\n**What the next session must know**\n\n- The new ordinary-run test was run against a clean archive of `HEAD` before\n  the fix and failed there with \"the adjust board offers then on a plan that\n  implements\"; it passes after.\n- `newAdjustBoard` falls back to `plan.Parse(\"\", live.Plan)` when the plan file\n  is missing, so a live run whose review plan cannot be read shows no `n`.\n- `adjustChange` still always sends `Then`, so hiding the field on an ordinary\n  run leaves the run's existing value untouched.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb53ea0d5ffegTRQcJ25SVd3q4",
+      "cost_usd": 0.012850991999999999,
+      "harness": "opencode",
+      "elapsed_s": 65,
+      "session_s": 59,
+      "test_s": 7,
+      "tokens": {
+        "input": 42196,
+        "output": 3390,
+        "reasoning": 2495,
+        "cache_read": 996864
+      }
     }
   }
 }
