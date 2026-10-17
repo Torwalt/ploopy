@@ -79,6 +79,26 @@
         "reasoning": 37909,
         "cache_read": 1602176
       }
+    },
+    "1.5": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T15:02:40+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "bb71e71e62b13945451bbf15983b94c3bfe3fe97",
+      "attempts": 1,
+      "handover": "# Findings: Unit 3.1 of LENDING_EXECUTION, The lease file\n\nReviewed: 15573c7865af..a1f163efb315, 3 files. Steps: all done.\n\n## F1 — The name-order test stays green when either ordering call is deleted\n\n- Class: gap\n- Confidence: high\n- Where: `internal/lease/lease_test.go:114`, `internal/lease/lease.go:79`, `internal/lease/lease.go:86`\n- Situation: `TestLeasesAreKeptInNameOrder` feeds the file only through `File.Set`, which already sorts at `lease.go:128`, so both `Save` and `Load` are handed data that is already in harness-name order.\n- Happens: deleting the `sort.Slice` in `Save` (line 86), or the one in `Load` (line 79), or the one in `Set` (line 128), leaves the whole package test suite green. I verified each deletion against a copy of the package in `/tmp`: none fails a test.\n- Should: §4 and the *Done when* bullet require \"one lease per harness in name order\" on disk and when read, not only after `Set`. Add a test that calls `Save(File{Leases: []Lease{codex, claude, astra}})` with an unsorted `File` and asserts the raw file's order, and a test that hand-writes unsorted JSON and asserts `Load`'s returned order.\n- Test: none exists: the current name-order test cannot distinguish any of the three sorts.\n\n## F2 — `Save` writes files that `Load` rejects\n\n- Class: gap\n- Confidence: medium\n- Where: `internal/lease/lease.go:84`, with validation only in `Load` at `internal/lease/lease.go:64-78`\n- Situation: a caller builds `File{Leases: []Lease{{Harness: \"a\", Kind: Open}, {Harness: \"a\", Kind: Open}}}` (or a lease with an empty harness, an unknown kind, or keep 101) and calls `Save`; tests already construct `File` directly rather than only through `Set`.\n- Happens: `Save` writes the file without complaint; the next `Load` returns `.../leases.json: more than one lease for a` (or the corresponding invalid-field error). I verified the duplicate case against a copy of the package in `/tmp`.\n- Should: §4 says \"At most one lease per harness\" and an invalid file is an error. `Save` should reject the same invariants `Load` enforces, or normalise duplicates, so the package never produces a file it will refuse to read. `Save` already returns an error, so no contract change is needed.\n- Test: none exists; no test passes an invalid `File` to `Save`.\n\n## F3 — No test pins the validation branches or the empty-`leases` serialisation\n\n- Class: gap\n- Confidence: high\n- Where: `internal/lease/lease_test.go:165`, `internal/lease/lease.go:65-77`, `internal/lease/lease.go:85`\n- Situation: the package validates an empty harness (line 65), an unknown kind (line 68), keep outside 0–100 (line 71) and duplicate harnesses (line 74), and the handover promises `Save` emits `\"leases\": []` for an empty file, never `null`.\n- Happens: removing or reversing any one of those conditions, or changing `append([]Lease{}, ...)` at line 85 to start from a nil slice (which serialises as `null`), leaves every test green. The only invalid-file test, `TestAnInvalidFileNamesThePath`, uses malformed JSON and exercises none of them.\n- Should: add table cases for each rejection, each asserting the error names the path, and a test that `Save(File{})` produces `\"leases\": []`. These are the behaviours the handover claims and the authority's \"invalid file is an error\" rule relies on.\n- Test: none exists for these branches.\n\n## F4 — A file containing `null` is silently read as \"nothing lent\"\n\n- Class: gap\n- Confidence: medium\n- Where: `internal/lease/lease.go:59-62`\n- Situation: `leases.json` contains `null` (or `{\"leases\": null}`), e.g. after a corrupt or truncated write by another tool.\n- Happens: `json.Unmarshal` accepts `null` into the zero `File`, so `Load` returns an empty `File` and a nil error. I verified this against a copy of the package in `/tmp`.\n- Should: §4 gives the file an object format and says only a *missing* file means nothing is lent; an unreadable or invalid file is an error naming the path. Reject a document that is not a JSON object with a `leases` array (or at least reject `null`).\n- Test: none exists; the invalid-file test covers only malformed JSON.",
+      "session_id": "ses_eb60cb55effe312NTV3pnDuPRJ",
+      "cost_usd": 0.019544394000000003,
+      "harness": "opencode",
+      "elapsed_s": 118,
+      "session_s": 118,
+      "tokens": {
+        "input": 31471,
+        "output": 4456,
+        "reasoning": 16608,
+        "cache_read": 728448
+      }
     }
   }
 }
