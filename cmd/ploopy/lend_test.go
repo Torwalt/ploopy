@@ -10,6 +10,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Torwalt/ploopy/internal/harness"
+	"github.com/Torwalt/ploopy/internal/history"
 	"github.com/Torwalt/ploopy/internal/lease"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
@@ -53,6 +55,50 @@ func TestLendThenList(t *testing.T) {
 	}
 	if !strings.Contains(out, "codex gpt-6.1-sol high") || !strings.Contains(out, "until reclaimed") {
 		t.Fatalf("list:\n%s", out)
+	}
+}
+
+func TestLendDefaultsFromAnActiveLeaseOnly(t *testing.T) {
+	e := lendEnv(t)
+	expired := lease.Lease{
+		Harness: "claude", Model: "haiku", Effort: "high",
+		Kind: lease.Until, Until: time.Now().Add(-time.Hour), Keep: 0,
+	}
+	if err := lease.Save(lease.File{Leases: []lease.Lease{expired}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCommand(t, newLend(e), "claude", "--open"); err != nil {
+		t.Fatal(err)
+	}
+	file, err := lease.Load()
+	if err != nil || len(file.Leases) != 1 {
+		t.Fatalf("leases %+v, error %v", file.Leases, err)
+	}
+	l := file.Leases[0]
+	first := e.harnesses.Get("claude").Models()[0]
+	if l.Keep != 20 || l.Model != first {
+		t.Fatalf("lease %+v, want keep 20 and model %q", l, first)
+	}
+}
+
+func TestLendConfirmationShowsTheShrunkKeep(t *testing.T) {
+	e := lendEnv(t)
+	_, tree := worktreeRepo(t, nil)
+	t.Chdir(tree)
+	now := time.Now()
+	path := historyPath(context.Background(), tree)
+	if err := history.Append(path, history.Record{Harness: "claude", Before: &harness.Budget{
+		At:     now,
+		Weekly: harness.Allowance{Used: 0.9, ResetAt: now.Add(24 * time.Hour)},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runCommand(t, newLend(e), "claude", "--open")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out, "keep 20% → ") {
+		t.Fatalf("confirmation should show the shrunk keep:\n%s", out)
 	}
 }
 

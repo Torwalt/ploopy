@@ -98,8 +98,9 @@ func lend(cmd *cobra.Command, e *env, f *lendFlags, args []string) error {
 	if err != nil {
 		return err
 	}
+	now := time.Now()
 	keep, model, effort := 20, "", ""
-	for _, old := range file.Leases {
+	for _, old := range file.Active(now) {
 		if old.Harness == h.Name() {
 			keep, model, effort = old.Keep, old.Model, old.Effort
 		}
@@ -126,7 +127,6 @@ func lend(cmd *cobra.Command, e *env, f *lendFlags, args []string) error {
 		return fmt.Errorf("--effort for %s must be one of %s", h.Name(), strings.Join(h.Efforts(), ", "))
 	}
 
-	now := time.Now()
 	l := lease.Lease{Harness: h.Name(), Model: model, Effort: effort, Keep: keep}
 	switch {
 	case flags.Changed("until"):
@@ -147,7 +147,8 @@ func lend(cmd *cobra.Command, e *env, f *lendFlags, args []string) error {
 	if err := lease.Save(file.Set(l)); err != nil {
 		return err
 	}
-	fmt.Fprintln(cmd.OutOrStdout(), "lent "+leaseLine(h, l, nil, now))
+	records := localHistory(cmd.Context())
+	fmt.Fprintln(cmd.OutOrStdout(), "lent "+leaseLine(h, l, history.Latest(records, h.Name()), now))
 	return nil
 }
 
