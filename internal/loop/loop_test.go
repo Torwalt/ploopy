@@ -752,6 +752,9 @@ func TestAStopMidSessionHandsItsWorkToTheNextRun(t *testing.T) {
 	if !strings.Contains(f.h.Prompts[1], stoppedMidUnit) {
 		t.Fatal("the next session was not told the run had been stopped")
 	}
+	if !strings.Contains(f.h.Prompts[1], "An earlier attempt at this unit left these uncommitted.") {
+		t.Fatal("the next session was not told whose the uncommitted work is")
+	}
 	if entry := f.state().Entry("1.1"); entry == nil || entry.Status != state.Landed || entry.Attempts != 1 {
 		t.Fatalf("the unit did not land on its first attempt: %+v", entry)
 	}
