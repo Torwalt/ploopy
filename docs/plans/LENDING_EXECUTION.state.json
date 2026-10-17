@@ -340,6 +340,30 @@
         "reasoning": 24970,
         "cache_read": 5440640
       }
+    },
+    "5.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T13:12:55+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "64053a9091f1fa4853f70ebe2eabbb43093a891b",
+      "commits": [
+        "95313166b50d1b3fec041c89c4f8287225c390df Run a review's fix plan when then is fixes"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `9531316` adds `--then stop|fixes` to `review`, `--then` to `adjust`,\n  `control.Settings.Then` (laid over and described), and the Run column's `n`\n  field on the review and adjust boards.\n- `runPlan` is split into `runOnce`, which carries one plan to its end, and\n  `finishRun`, which pushes, leaves the worktree and takes the end action.\n  A complete review with Then `fixes` and a fix plan hands over to\n  `runFixPlan`, which runs the fix plan in the same worktree, announced in the\n  registry, with the review's settings adjusted by the fix plan's front matter.\n- `loop.Result` gained `Stopped`, set where the author's stop signal ends the\n  run, so a stopped review never starts its fix plan even if its units all\n  landed.\n\n**Landmark drift**\n\n- None. The tail of `runPlan`, `reviewOutcome`, `review.FixesPath`, and\n  `control.Settings.Over/Describe` were where the order said.\n\n**Deviations from the work order**\n\n- Added `loop.Result.Stopped` rather than inferring a stop from the result\n  message. It covers a stop during the triage, where the review is complete but\n  must not go on to fixes.\n- The fix plan inherits settings the author changed with `adjust` during the\n  review (push, finish, secondary, subscriptions, spend), not only the values\n  the review started with; the fix plan's own front matter still wins.\n- Then always starts as `stop`; it is saved in `last-run.json` but deliberately\n  not reloaded into the next review, matching the default in §13.\n\n**What the next session must know**\n\n- `runOnce` defers nothing about the run's end except its own registry close;\n  `finishRun` owns push, worktree removal and the end action. Do not reintroduce\n  those three inside `runOnce`, or a chained run does them twice.\n- `chainedFixPlan` requires a review plan, complete state, no stopped result,\n  Then `fixes`, and an existing `\u003cNAME\u003e_FIXES.md`.\n- `runFixPlan` clears `--from`, `--until` and `--units` so the whole fix plan\n  runs; other run flags (retries, timeouts, verify/test, context) carry over.\n- The new end-to-end tests are `cmd/ploopy/review_chain_test.go`: fixes, stop,\n  stop before triage, stop after triage, and an adjust to Then during the\n  review.\n\n**Open problems**\n\n- `reviewOutcome` still says to run the fix plan with `ploopy run --plan …`\n  even when the same invocation is about to run it. The authority says it is\n  printed as today, so this was left alone.\n- The adjust board shows `n` on every run, including ordinary plans, where it\n  has no effect.",
+      "session_id": "ses_eb676163effe7fLxZLDbZP7o0B",
+      "cost_usd": 0.09223761000000001,
+      "harness": "opencode",
+      "elapsed_s": 439,
+      "session_s": 430,
+      "test_s": 8,
+      "tokens": {
+        "input": 131815,
+        "output": 23392,
+        "reasoning": 33134,
+        "cache_read": 12849920
+      }
     }
   }
 }
