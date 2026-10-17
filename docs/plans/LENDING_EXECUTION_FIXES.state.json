@@ -604,6 +604,30 @@
         "reasoning": 15432,
         "cache_read": 2533248
       }
+    },
+    "1.26": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:57:55+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "b18bf63a9361fda965667a10423e2b146fc39df7",
+      "commits": [
+        "1ce9e223432f6199177aa2a20a0311d3b8550bdf Let a fix plan's own test setting decide"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `1ce9e22` makes a chained fix plan's own `test:` front matter decide\n  whether its units ask for tests. `runFixPlan` clears the copied\n  `--test`/`--no-test` flags when the fix plan gives `test:`; when it does\n  not, the review's flag still applies.\n- Two chain tests cover both cases: `test: yes` under `--no-test` asks for\n  tests, and a fix plan without `test:` follows `--no-test`.\n\n**Landmark drift**\n\nNone. `runFixPlan`, `testsOverride`, `wantsTests`, `fixesPlan` and\n`review_chain_test.go` were where the work order said.\n\n**Deviations from the work order**\n\n- The chain tests inject a test command with `--test-cmd true` rather than\n  changing the repository config, so they assert the prompt's \"the loop runs\n  them after you\" line without needing a committed `.ploopy.toml`.\n- `triageStep` now delegates to `triageStepWithPlan`, which lets a test supply\n  the fix plan the triage writes.\n\n**What the next session must know**\n\n- The three flags copied into the fix run are still shared: agent/model/\n  effort/subscriptions come through `applyPlanSettings`, while `test` is\n  cleared here because it is a loop option rather than a `chosenRun` field.\n- A unit's own `Test:` field still cannot override the review's flag when the\n  fix plan's front matter gives no `test:`; the unit's wording ties the\n  override to front matter only.\n\n**Open problems**\n\n- One full `go test ./...` run hit a transient `TempDir RemoveAll cleanup:\n  .git: directory not empty` in `TestAnAdjustmentToThenDuringAReviewIsHonoured`;\n  both `go test ./cmd/ploopy` and a rerun of `go test ./...` were green. It\n  looks like a cleanup race, not this change.",
+      "session_id": "ses_eb535322fffeQNOn9n1MorQhg0",
+      "cost_usd": 0.019090296000000003,
+      "harness": "opencode",
+      "elapsed_s": 109,
+      "session_s": 101,
+      "test_s": 8,
+      "tokens": {
+        "input": 55980,
+        "output": 4702,
+        "reasoning": 3716,
+        "cache_read": 1880832
+      }
     }
   }
 }
