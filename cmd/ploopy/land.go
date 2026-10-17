@@ -228,10 +228,7 @@ func closeAll(ctx context.Context, root, branch, onto string, cfg config.Config)
 	r := repo.New(root, cfg.AuthorPaths)
 	var copies []catalog.Copy
 	var open []string
-	for _, p := range plans {
-		if inherited(ctx, r, p.Path, onto) {
-			continue
-		}
+	for _, p := range branchPlans(ctx, r, plans, branch, onto) {
 		s, err := state.Load(filepath.Join(root, state.PathFor(p.Path)))
 		if err != nil {
 			return err
@@ -253,6 +250,26 @@ func closeAll(ctx context.Context, root, branch, onto string, cfg config.Config)
 		fmt.Printf("closed %s\n", c.Plan.Path)
 	}
 	return nil
+}
+
+// branchPlans is the plans a branch lands: the plan it is named after and
+// the reviews and fix plans descending from it, or, on a branch named after
+// no plan, those it did not inherit from onto. Any other plan in the checkout
+// is another branch's.
+func branchPlans(ctx context.Context, r *repo.Repo, plans []*plan.Plan, branch, onto string) []*plan.Plan {
+	var family, own []*plan.Plan
+	for _, p := range plans {
+		switch {
+		case ofBranch(p.Path, branch):
+			family = append(family, p)
+		case !inherited(ctx, r, p.Path, onto):
+			own = append(own, p)
+		}
+	}
+	if len(family) > 0 {
+		return family
+	}
+	return own
 }
 
 // inherited reports whether a plan came with the branch from onto rather than

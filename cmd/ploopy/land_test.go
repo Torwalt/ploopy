@@ -48,9 +48,9 @@ func TestLandingClosesThePlansAndLandsTheBranch(t *testing.T) {
 }
 
 func TestLandingRefusesABranchWithAnOpenPlan(t *testing.T) {
-	e, tree := worktreeRepo(t, map[string]string{"docs/plans/NEXT.md": finishedPlan})
+	e, tree := worktreeRepo(t, map[string]string{"docs/plans/PASS_FIXES.md": finishedPlan})
 	before := output(t, e.root, "rev-parse", "master")
-	if err := landing(t, e, "pass"); err == nil || !strings.Contains(err.Error(), "NEXT.md") {
+	if err := landing(t, e, "pass"); err == nil || !strings.Contains(err.Error(), "PASS_FIXES.md") {
 		t.Fatalf("an open plan should stop the landing and be named, got %v", err)
 	}
 	if output(t, e.root, "rev-parse", "master") != before {
@@ -58,6 +58,28 @@ func TestLandingRefusesABranchWithAnOpenPlan(t *testing.T) {
 	}
 	if !exists(tree + "/docs/plans/PASS.md") {
 		t.Fatal("nothing is closed while another plan is open")
+	}
+}
+
+func TestLandingIgnoresAnotherFamilysPlan(t *testing.T) {
+	e, tree := worktreeRepo(t, map[string]string{"docs/plans/NEXT.md": finishedPlan})
+	if err := landing(t, e, "pass"); err != nil {
+		t.Fatalf("NEXT is no plan of pass and must not stop its landing: %v", err)
+	}
+	log := output(t, e.root, "log", "--format=%s", "master")
+	if !strings.Contains(log, "plans: close PASS") || strings.Contains(log, "plans: close NEXT") {
+		t.Fatalf("only PASS is closed:\n%s", log)
+	}
+	if exists(tree) {
+		t.Fatal("ploopy's worktree should be gone")
+	}
+}
+
+func TestLandingABranchNamedAfterNoPlanRefusesItsOwnOpenPlan(t *testing.T) {
+	e, tree := worktreeRepo(t, map[string]string{"docs/plans/NEXT.md": finishedPlan})
+	git(t, tree, "branch", "-m", "pass", "feature")
+	if err := landing(t, e, "feature"); err == nil || !strings.Contains(err.Error(), "NEXT.md") {
+		t.Fatalf("a plan the branch wrote is its own there, got %v", err)
 	}
 }
 
@@ -100,7 +122,7 @@ func TestLandingLeavesAPlanItInheritedFromMasterAlone(t *testing.T) {
 	}
 }
 
-func TestLandingClosesAPlanWrittenOnMasterAndRunOnTheBranch(t *testing.T) {
+func TestLandingLeavesAnotherPlanRunOnTheBranchAlone(t *testing.T) {
 	e, tree := worktreeRepo(t, nil)
 	write(t, e.root, "docs/plans/LATER.md", finishedPlan)
 	git(t, e.root, "add", "-A")
@@ -113,7 +135,7 @@ func TestLandingClosesAPlanWrittenOnMasterAndRunOnTheBranch(t *testing.T) {
 	if err := landing(t, e, "pass"); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output(t, e.root, "log", "--format=%s", "master"), "plans: close LATER") {
-		t.Fatal("a plan the branch ran is the branch's, wherever it was written")
+	if strings.Contains(output(t, e.root, "log", "--format=%s", "master"), "plans: close LATER") {
+		t.Fatal("the pass branch lands PASS's family only")
 	}
 }

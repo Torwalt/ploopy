@@ -16,6 +16,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
+	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
@@ -199,7 +200,7 @@ func (e *env) branchOff(ctx context.Context, c catalog.Copy, main, onto string, 
 	}
 
 	r := e.repo()
-	stem := branchFor(c.Plan)
+	stem := branchFor(c.Plan.Path)
 	branch, path := "", ""
 	for n := 1; path == ""; n++ {
 		branch = stem
@@ -298,13 +299,25 @@ var unbranchable = regexp.MustCompile(`[^a-z0-9.-]+`)
 
 // branchFor names the branch a plan runs on: PLAYTEST_FIXES runs on
 // playtest-fixes, and a two-file plan on the name of its pass.
-func branchFor(p *plan.Plan) string {
-	name := strings.ToLower(strings.TrimSuffix(p.Name(), "_EXECUTION"))
+func branchFor(path string) string {
+	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	name = strings.ToLower(strings.TrimSuffix(name, "_EXECUTION"))
 	name = strings.Trim(unbranchable.ReplaceAllString(strings.ReplaceAll(name, "_", "-"), "-"), "-.")
 	if name == "" {
 		return "plan"
 	}
 	return name
+}
+
+// ofBranch reports whether a plan is one the branch exists for: the plan the
+// branch is named after, or a review or fix plan descending from it.
+func ofBranch(path, branch string) bool {
+	for _, ancestor := range review.Lineage(path) {
+		if branchFor(ancestor) == branch {
+			return true
+		}
+	}
+	return false
 }
 
 func checkedOutAt(trees []repo.Worktree, branch string) string {
@@ -378,10 +391,11 @@ func clearStale(path string) error {
 // leaveWorktree removes ploopy's worktree once the plan is complete: the
 // report is stamped and nothing in it is read again. An open plan keeps it,
 // so the next run resumes there with its progress and stats log, and so does
-// another open plan beside it, such as the fix plan a review just wrote.
+// an open plan of its family beside it, such as the fix plan a review just
+// wrote.
 func leaveWorktree(ctx context.Context, e *env, root, branch, planPath string, cfg config.Config, complete bool,
 	runner *loop.Loop, report *ui.Reporter) {
-	open := plansIn(root, cfg, planPath, true)
+	open := familyIn(root, cfg, branch, planPath, true)
 	switch {
 	case ctx.Err() != nil:
 		report.Say("the run was cancelled; the worktree stays at %s", root)
@@ -407,10 +421,10 @@ func removeWorktree(ctx context.Context, e *env, root string) error {
 	return repo.New(main, nil).RemoveWorktree(ctx, root, worktreesDir(main))
 }
 
-// closeWorktree removes ploopy's worktree for a branch once the last plan in
-// it is closed. A worktree the author made is theirs, and one that still holds
-// a plan or a run stays.
-func closeWorktree(ctx context.Context, e *env, root, branch string, cfg config.Config, keep bool) {
+// closeWorktree removes ploopy's worktree for a branch once the last plan of
+// the closed one's family in it is closed. A worktree the author made is
+// theirs, and one that still holds such a plan or a run stays.
+func closeWorktree(ctx context.Context, e *env, root, branch, closed string, cfg config.Config, keep bool) {
 	switch {
 	case !e.ours(ctx, root):
 		fmt.Printf("that is %s; once %s is done with: git worktree remove %s\n", root, branch, root)
@@ -419,7 +433,7 @@ func closeWorktree(ctx context.Context, e *env, root, branch string, cfg config.
 		fmt.Printf("the worktree stays at %s, as asked\n", root)
 		return
 	}
-	if left := plansIn(root, cfg, "", false); len(left) > 0 {
+	if left := familyIn(root, cfg, branch, closed, false); len(left) > 0 {
 		fmt.Printf("the worktree stays at %s: it still holds %s\n", root, strings.Join(left, ", "))
 		return
 	}
@@ -438,16 +452,23 @@ func closeWorktree(ctx context.Context, e *env, root, branch string, cfg config.
 	fmt.Printf("removed the worktree at %s; `git switch %s` picks the branch up here\n", root, branch)
 }
 
-// plansIn lists the plans a checkout holds besides skip; with open, only
-// those with units still open.
-func plansIn(root string, cfg config.Config, skip string, open bool) []string {
+// familyIn lists the plans of member's family a checkout holds besides
+// member; with open, only those with units still open. On a branch named
+// after a plan, the family is that plan and what descends from it; on any
+// other, member's. A worktree belongs to one family, and any other plan in
+// it, such as one the branch inherited, has no say over it.
+func familyIn(root string, cfg config.Config, branch, member string, open bool) []string {
 	plans, err := plan.Discover(root, cfg.Plans)
 	if err != nil {
 		return nil
 	}
+	related := func(path string) bool { return review.Family(path) == review.Family(member) }
+	if ofBranch(member, branch) {
+		related = func(path string) bool { return ofBranch(path, branch) }
+	}
 	var out []string
 	for _, p := range plans {
-		if p.Path == skip {
+		if p.Path == member || !related(p.Path) {
 			continue
 		}
 		if open {

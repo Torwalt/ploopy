@@ -484,3 +484,22 @@ func TestAPushHappensOnceAfterTheFixPlan(t *testing.T) {
 		}
 	}
 }
+
+func TestAnotherPlansOpenUnitsDoNotKeepAFinishedRunsWorktree(t *testing.T) {
+	e, tree := chainRepo(t)
+	// The branch inherited an open plan from master: it is master's, not the
+	// worktree's.
+	write(t, tree, "docs/plans/PLAYTEST_FIXES.md", finishedPlan)
+	git(t, tree, "add", "-A")
+	git(t, tree, "commit", "-q", "-m", "plan playtest fixes")
+	h := fake.New(findingsStep(), triageStep(t),
+		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
+	e.harnesses = harness.Set{h}
+
+	if err := runReview(t, e, reviewArgs("--then", "fixes")...); err != nil {
+		t.Fatal(err)
+	}
+	if exists(tree) {
+		t.Fatal("PASS and its review and fixes are done; PLAYTEST_FIXES must not keep the worktree")
+	}
+}

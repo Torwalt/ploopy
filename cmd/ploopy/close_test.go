@@ -116,19 +116,54 @@ func TestAWorktreeTheAuthorMadeStays(t *testing.T) {
 	}
 }
 
-func TestOnlyOpenPlansKeepAFinishedRunsWorktree(t *testing.T) {
+func TestOnlyOpenPlansOfTheFamilyKeepAFinishedRunsWorktree(t *testing.T) {
 	_, tree := worktreeRepo(t, map[string]string{
-		"docs/plans/DONE.md":         finishedPlan,
-		"docs/plans/DONE.state.json": finishedState,
-		"docs/plans/OPEN.md":         finishedPlan,
+		"docs/plans/PASS_REVIEW.md":         finishedPlan,
+		"docs/plans/PASS_REVIEW.state.json": finishedState,
+		"docs/plans/PASS_FIXES.md":          finishedPlan,
+		"docs/plans/PLAYTEST_FIXES.md":      finishedPlan,
 	})
-	open := plansIn(tree, config.Default(), "docs/plans/PASS.md", true)
-	if strings.Join(open, ",") != "docs/plans/OPEN.md" {
+	open := familyIn(tree, config.Default(), "pass", "docs/plans/PASS.md", true)
+	if strings.Join(open, ",") != "docs/plans/PASS_FIXES.md" {
 		t.Fatalf("open plans beside PASS: %v", open)
 	}
-	left := plansIn(tree, config.Default(), "", false)
-	if len(left) != 3 {
-		t.Fatalf("plans left: %v", left)
+	left := familyIn(tree, config.Default(), "pass", "docs/plans/PASS.md", false)
+	if strings.Join(left, ",") != "docs/plans/PASS_FIXES.md,docs/plans/PASS_REVIEW.md" {
+		t.Fatalf("plans of PASS left: %v", left)
+	}
+}
+
+func TestABranchNamedAfterNoPlanHoldsTheFamilyOfItsPlan(t *testing.T) {
+	_, tree := worktreeRepo(t, map[string]string{
+		"docs/plans/PASS_FIXES.md":     finishedPlan,
+		"docs/plans/PLAYTEST_FIXES.md": finishedPlan,
+	})
+	open := familyIn(tree, config.Default(), "feature", "docs/plans/PASS.md", true)
+	if strings.Join(open, ",") != "docs/plans/PASS_FIXES.md" {
+		t.Fatalf("open plans beside PASS on feature: %v", open)
+	}
+}
+
+func TestAFixPlanOnItsOwnBranchHoldsItsReview(t *testing.T) {
+	_, tree := worktreeRepo(t, map[string]string{
+		"docs/plans/PLAYTEST_FIXES.md":         finishedPlan,
+		"docs/plans/PLAYTEST_FIXES.state.json": finishedState,
+		"docs/plans/PLAYTEST_FIXES_REVIEW.md":  finishedPlan,
+		"docs/plans/PLAYTEST.md":               finishedPlan,
+	})
+	open := familyIn(tree, config.Default(), "playtest-fixes", "docs/plans/PLAYTEST_FIXES.md", true)
+	if strings.Join(open, ",") != "docs/plans/PLAYTEST_FIXES_REVIEW.md" {
+		t.Fatalf("open plans on playtest-fixes: %v", open)
+	}
+}
+
+func TestClosingTheLastPlanOfTheFamilyRemovesTheWorktreeBesideAnotherPlan(t *testing.T) {
+	e, tree := worktreeRepo(t, map[string]string{"docs/plans/PLAYTEST_FIXES.md": finishedPlan})
+	if err := closePlan(context.Background(), e, []string{"PASS"}, false, false); err != nil {
+		t.Fatal(err)
+	}
+	if exists(tree) {
+		t.Fatal("PLAYTEST_FIXES is no plan of the pass worktree and must not keep it")
 	}
 }
 

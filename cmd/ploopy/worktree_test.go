@@ -424,8 +424,7 @@ func TestBranchNamesComeFromThePlan(t *testing.T) {
 		"docs/plans/Crowd Pass (v2).md":  "crowd-pass-v2",
 		"docs/plans/renderer-2.md":       "renderer-2",
 	} {
-		p := planAt(t, name)
-		if got := branchFor(p); got != want {
+		if got := branchFor(name); got != want {
 			t.Errorf("%s runs on %q, want %q", name, got, want)
 		}
 	}

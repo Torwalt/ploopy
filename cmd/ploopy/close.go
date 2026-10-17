@@ -70,7 +70,7 @@ func closePlan(ctx context.Context, e *env, args []string, force, keep bool) err
 
 	fmt.Printf("%s\n\nclosed %s in a commit on %s\n", text, c.Plan.Path, c.Branch)
 	if !samePath(c.Root, e.root) {
-		closeWorktree(ctx, e, c.Root, c.Branch, cfg, keep)
+		closeWorktree(ctx, e, c.Root, c.Branch, c.Plan.Path, cfg, keep)
 	}
 	return nil
 }

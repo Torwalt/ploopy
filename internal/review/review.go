@@ -117,6 +117,35 @@ func Path(reviewed string) string { return sibling(reviewed, "_REVIEW") }
 // FixesPath is the fix plan the triage of a plan's review writes.
 func FixesPath(reviewed string) string { return sibling(reviewed, "_FIXES") }
 
+// Lineage is a plan and each plan it descends from by review or triage,
+// nearest first: PASS_FIXES_REVIEW, PASS_FIXES, PASS.
+func Lineage(path string) []string {
+	dir, ext := filepath.Dir(path), filepath.Ext(path)
+	stem := strings.TrimSuffix(filepath.Base(path), ext)
+	out := []string{path}
+	for {
+		trimmed := stem
+		for _, suffix := range []string{"_REVIEW", "_FIXES"} {
+			if trimmed == stem {
+				trimmed = strings.TrimSuffix(stem, suffix)
+			}
+		}
+		if trimmed == stem || trimmed == "" {
+			return out
+		}
+		stem = trimmed
+		out = append(out, filepath.Join(dir, stem+ext))
+	}
+}
+
+// Family is the plan a review or fix plan descends from in the end: PASS_REVIEW
+// and PASS_FIXES belong to PASS, and so does a review of PASS_FIXES. A plan of
+// no review is its own.
+func Family(path string) string {
+	lineage := Lineage(path)
+	return lineage[len(lineage)-1]
+}
+
 func sibling(path, suffix string) string {
 	stem := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	return filepath.Join(filepath.Dir(path), stem+suffix+".md")

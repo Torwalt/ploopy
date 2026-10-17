@@ -46,6 +46,27 @@ func TestPathsSitBesideTheReviewedPlan(t *testing.T) {
 	}
 }
 
+func TestAReviewAndItsFixesBelongToTheReviewedPlan(t *testing.T) {
+	for path, want := range map[string]string{
+		"docs/plans/PASS.md":              "docs/plans/PASS.md",
+		"docs/plans/PASS_REVIEW.md":       "docs/plans/PASS.md",
+		"docs/plans/PASS_FIXES.md":        "docs/plans/PASS.md",
+		"docs/plans/PASS_FIXES_REVIEW.md": "docs/plans/PASS.md",
+		"docs/plans/PASS_FIXES_FIXES.md":  "docs/plans/PASS.md",
+		"docs/plans/X_EXECUTION_FIXES.md": "docs/plans/X_EXECUTION.md",
+		"docs/plans/_FIXES.md":            "docs/plans/_FIXES.md",
+		"docs/plans/PASS_FIXED.md":        "docs/plans/PASS_FIXED.md",
+	} {
+		if got := Family(path); got != want {
+			t.Errorf("Family(%s) = %s, want %s", path, got, want)
+		}
+	}
+	got := strings.Join(Lineage("docs/plans/PASS_FIXES_REVIEW.md"), " ")
+	if got != "docs/plans/PASS_FIXES_REVIEW.md docs/plans/PASS_FIXES.md docs/plans/PASS.md" {
+		t.Fatalf("lineage: %s", got)
+	}
+}
+
 func TestAReviewCollectsEachLandedUnitThenTheSeamsThenTriages(t *testing.T) {
 	p := plan.Parse(reviewed, "docs/plans/PASS.md")
 	s := progress(map[string]*state.Entry{
