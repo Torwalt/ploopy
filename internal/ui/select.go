@@ -15,8 +15,10 @@ func NoTerminal(flag string) error {
 	return fmt.Errorf("nothing to answer with: pass --%s", flag)
 }
 
-// Choice is one option offered by the selection form.
+// Choice is one option offered by the selection form. Key is the letter that
+// picks it on a keyed pick; zero shows no letter.
 type Choice struct {
+	Key   rune
 	Label string
 	Value string
 }
