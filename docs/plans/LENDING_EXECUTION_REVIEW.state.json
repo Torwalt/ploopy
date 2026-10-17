@@ -299,6 +299,26 @@
         "reasoning": 108056,
         "cache_read": 7492608
       }
+    },
+    "1.16": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T16:19:26+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "fd347130a9c14e22dd5011445740fa0762e624bd",
+      "attempts": 1,
+      "handover": "# Findings: The seams between the 15 units of LENDING_EXECUTION\n\nReviewed: 0b11a02379b3..95313166b50d, 53 files. Steps: all done.\n\n## F1 — `ploopy lend` lists a malformed nightly lease as valid while runs and the board reject it\n\n- Class: gap\n- Confidence: medium\n- Where: `cmd/ploopy/lend.go:188-202` (`listLeases`), with the same span validated on the run path at `cmd/ploopy/lend.go:303-307` and `internal/lease/lease.go:50-80` deliberately leaving the span opaque.\n- Situation: `leases.json` contains `{\"harness\":\"claude\",\"model\":\"sonnet\",\"effort\":\"high\",\"kind\":\"nightly\",\"span\":\"09:00\",\"keep\":20}` — a hand-edited or corrupt file, where §4 says a nightly span is in the format `loop.ParseAway` reads.\n- Happens: `ploopy lend` prints `claude sonnet high · nightly 09:00 · keep 20%` and exits 0. A run reading the same file says `the lease file cannot be read: … lease for claude has span \"09:00\" …` and treats nothing as lent; the board's footer reports the same error. Reproduced with a binary built from `95313166b50d`.\n- Should: validate each nightly lease's span on the listing path and return an error naming `lease.Path()`, as §4 says an invalid file is an error naming the path. The package is right to keep the span opaque; the command that reads the file for a person is where the validation belongs.\n- Test: none exists; add a cmd test that writes that lease file, runs `ploopy lend`, and asserts an error naming the path. Today it prints the line and exits 0.\n\n## F2 — The forecast has no test for a week that does not move, after unit 3.4 deleted the only one\n\n- Class: gap\n- Confidence: high\n- Where: `cmd/ploopy/forecast.go:147-151` (`byWeek` stays unbounded when `WeeklyPerWindow()` is 0), `cmd/ploopy/forecast_test.go` (no such case), and the deleted `TestAWeekThatBarelyMovesLeavesEveryWindow` in `cmd/ploopy/night_test.go` (removed in `c9b1430` with `propose`).\n- Situation: a metered estimate whose sessions used a five-hour window but moved the weekly share by 0 (`history.Estimate.Weekly == 0`, so `WeeklyPerWindow()` is 0). The deleted test drove exactly that with three records whose `After.Weekly.Used` equalled `Before.Weekly.Used`.\n- Happens: `forecastSubscription` correctly initialises `byWeek := math.Inf(1)`, so the subscription takes every open unit, but no test reaches the `per == 0` branch. Changing `byWeek := math.Inf(1)` to `0`, or moving the `math.Min` before the guard, leaves `go test ./...` green; the equivalent regression failed the deleted test.\n- Should: port the deleted case into `forecast_test.go`: a metered estimate with `Weekly: 0`, an open lease and several open units, asserting the subscription takes all of them and the bedrock none. This is the seam between 3.4 removing `propose` and 4.2 introducing the forecast.\n- Test: none exists.\n\n## F3 — `peakHours` and `weekdays` are dead code after the settings page went\n\n- Class: gap\n- Confidence: high\n- Where: `cmd/ploopy/run.go:556-591` (`peakHours`, `weekdays`), whose only caller was `askSettings` in `cmd/ploopy/settings.go`, removed in `da711be` (unit 4.2).\n- Situation: any build; `golangci-lint run --default=none --enable=unused --tests=false ./...` reports both (`func peakHours is unused`, `func weekdays is unused`). `rg 'peakHours|weekdays' cmd` finds only the declarations and their mutual call.\n- Happens: the helpers remain in the package and nothing calls them; the board's Peak field does not render the windows, so no later unit picked them up either.\n- Should: remove both, as §11 does with the rest of the settings-page machinery (`askSettings`, `printEstimates`, `propose`), so the span leaves no dead code behind.\n- Test: `golangci-lint run --default=none --enable=unused --tests=false ./...` is the check; no test asserts their absence.",
+      "session_id": "ses_eb5cbc5e0ffeaLwFZb3UVN1cpW",
+      "cost_usd": 0.110746854,
+      "harness": "opencode",
+      "elapsed_s": 469,
+      "session_s": 469,
+      "tokens": {
+        "input": 189037,
+        "output": 11804,
+        "reasoning": 65111,
+        "cache_read": 12080768
+      }
     }
   }
 }
