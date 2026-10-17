@@ -32,7 +32,7 @@ func role(prompt string) string {
 }
 
 func quotedAfter(text, marker string) string {
-	i := strings.Index(text, marker)
+	i := strings.LastIndex(text, marker)
 	if i < 0 {
 		return ""
 	}
