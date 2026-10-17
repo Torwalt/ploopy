@@ -179,3 +179,69 @@ alternatives put to the author.
 **Done when:** one commit touches only `docs/plans/LENDING_EXECUTION_FIXES.md`
 and this document, this document ends with a *For the author* section, and the
 fix plan, when there is one, lints clean.
+
+## For the author
+
+63 findings: 12 slips, 42 gaps and 2 design findings go to
+`docs/plans/LENDING_EXECUTION_FIXES.md` in 29 units, after folding 4 duplicates
+into them (1.2 F1 into 1.1 F1, 1.7 F2 absorbs 1.6 F5, 1.14 F2 and F3 into
+1.11 F1); 2 design recommendations are explained below; 3 were dropped. Most
+gaps are missing tests the collectors showed by mutation; the fix plan groups
+them by file. Its decisions are named F-D1 and F-D2 so they do not collide with
+`LENDING.md`'s D1–D14.
+
+### When the pop into the new worktree fails, where do the branch's changes go?
+
+`env.handOff` (`cmd/ploopy/worktree.go:143-149`) stashes the branch's
+uncommitted changes, hands the branch to a new worktree, and pops there. If
+that pop fails, it pops the stash in the main checkout, which `HandOff` has
+already switched to the default branch, so the branch's changes land on master's
+working tree. §3 step 4 says "switch back to the branch, then pop", but was
+written for a failed `HandOff`; after a successful one the branch is checked out
+in the new worktree and main cannot switch back without undoing the hand-off.
+The path runs only when a pop at the same commit fails (permissions, disk), so
+it is rare, but it moves work onto the wrong branch.
+
+- **Recommended:** undo the hand-off: remove the new worktree (it holds only
+  the half-applied pop), switch main back to the branch, pop there, return the
+  error. The changes end where they started, which is what §3 intends.
+- **Alternatives:** leave the worktree and the stash as they are and fail with
+  a message naming the stash — nothing is undone, but the author has to recover
+  by hand from a shared stash stack; or retry with `git stash apply` in the
+  worktree and drop on success — still needs a recovery when that fails too.
+- **Planned as:** F-D1, unit 1.8.
+
+### May the board change a value the author gave as a flag?
+
+`normalize` and `normalizeTriage` (`cmd/ploopy/board.go:211-217`, `:236-239`)
+reset model and effort to the new harness's defaults whenever the agent
+changes, including a model or effort given with `--model`, `--effort` or
+`--triage-*`, while the field still shows locked "from a flag". They also
+replace an invalid given effort silently. Separately, since the review board
+landed, `normalize` no longer runs before the first frame, so a last-run
+secondary that names the bedrock is shown and started with. The README says a
+given setting is locked and says where it came from; §10 says a key on a locked
+field changes nothing; no document says what an agent change does to a locked
+model.
+
+- **Recommended:** the board never changes a given value; normalize corrects
+  only values the author did not give, and runs once before the first frame.
+  An invalid combination of given values is refused on Enter by the check that
+  already refuses it when the flags are given together. This keeps the lock
+  honest and reuses existing validation.
+- **Alternatives:** lock the agent too whenever a model or effort is given — no
+  invalid combinations, but `--effort high` alone would freeze the agent
+  needlessly; or let the agent change reset the value and unlock it ("no
+  longer from a flag") — the board always shows a valid run, but a flag the
+  author typed is discarded by one key press.
+- **Planned as:** F-D2, unit 1.20.
+
+### Dropped
+
+- F3 from 1.2: asserting the default scenario's individual values pins
+  incidental numbers, not a contract; the table names it does check are the
+  structure.
+- F3 from 1.6: the `--night` bridge it cites was removed by unit 3.4; the code
+  no longer exists.
+- F1 from 1.13: `q` cancelling the menu is deliberate and matches §10's board
+  keys (Esc, `q` and ctrl-c cancel); no command uses `q`.
