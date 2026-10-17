@@ -61,7 +61,8 @@ session's self-report where the repository can be asked instead.
   Must not import `loop`.
 - `internal/loop` — sequencing, judgement, retry and wait policy, the prompt.
   Depends on everything above; knows no adapter by name.
-- `internal/ui` — the selection form, the run renderer, the end actions.
+- `internal/ui` — the selection form and board, the run renderer, the end
+  actions.
   Nothing else writes to the terminal.
 
 ## Conventions
@@ -72,7 +73,7 @@ session's self-report where the repository can be asked instead.
   asks. Flags exist for non-interactive use and are never the path the author
   is expected to type.
 - Keep the dependency set small: cobra, BurntSushi/toml, charmbracelet
-  (huh, lipgloss), google/uuid. No viper, no logging framework.
+  (huh, bubbletea, lipgloss), google/uuid. No viper, no logging framework.
 - `context.Context` for every child process; process groups so a kill takes the
   whole tree. Signals cancel, and a cancelled run still records the session it
   was running: one that finished is judged, and one the stop cut off is recorded
