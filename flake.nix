@@ -49,12 +49,32 @@
         };
       });
 
-      apps = forAllSystems (pkgs: {
-        default = {
-          type = "app";
-          program = nixpkgs.lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.ploopy;
-        };
-      });
+      apps = forAllSystems (
+        pkgs:
+        let
+          sandbox = pkgs.writeShellApplication {
+            name = "ploopy-sandbox";
+            runtimeInputs = [
+              pkgs.go
+              pkgs.git
+            ];
+            text = ''
+              cd ${self}
+              exec go run ./dev/sandbox "$@"
+            '';
+          };
+        in
+        {
+          default = {
+            type = "app";
+            program = nixpkgs.lib.getExe self.packages.${pkgs.stdenv.hostPlatform.system}.ploopy;
+          };
+          sandbox = {
+            type = "app";
+            program = "${sandbox}/bin/ploopy-sandbox";
+          };
+        }
+      );
 
       overlays.default = final: _prev: {
         ploopy = self.packages.${final.stdenv.hostPlatform.system}.ploopy;

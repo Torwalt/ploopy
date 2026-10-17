@@ -90,6 +90,10 @@ are the specification of the judge — change one only when the contract changes
 The adapters are tested against a script named `claude`, `opencode` or `codex` placed on
 `PATH`, so argument building and output parsing are covered together.
 
+`dev/fakeagent` and `dev/sandbox` are for trying the interface by hand: a fake
+harness for each CLI, and a toy repository with isolated state. Tests never
+depend on the sandbox.
+
 ## Verification
 
 ```

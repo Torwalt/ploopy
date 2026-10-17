@@ -15,6 +15,23 @@ stops, and records progress in `<PLAN>.state.json` beside the plan.
 5. `ploopy land <branch>` closes all three plans, rebases the branch onto master,
    runs the checks, and fast-forwards master. Master is yours to push.
 
+## Trying it out
+
+A sandbox runs ploopy without real sessions or real plans. Either command opens
+a shell in a toy repository with fake `claude`, `codex` and `opencode` on
+`PATH`, and its own state directories:
+
+```sh
+go run ./dev/sandbox
+nix run .#sandbox
+```
+
+It prints the directory it made. Edit `scenario.toml` there to change how long a
+session takes, how much of a window it uses, its cost or its outcome (`done`,
+`blocked`, `nothing`, `red`, `dirty`, `limit` or `logged-out`).
+`repo/docs/plans/TOY.md` is the plan, with eight tiny units. Then run `ploopy`,
+or `ploopy review TOY`.
+
 ## Worktrees
 
 Every run, and every review, goes to a worktree of the plan's branch at
