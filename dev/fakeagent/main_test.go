@@ -307,6 +307,193 @@ func TestEachSessionAddsItsShare(t *testing.T) {
 	}
 }
 
+func TestRedOutcomeCommitsBROKEN(t *testing.T) {
+	sandbox(t, scenarioWithOutcome("red"))
+	repo := fakeRepo(t)
+	handover := filepath.Join(t.TempDir(), "1.1.md")
+
+	if output, err := invoke(t, repo, "claude", implementingPrompt(handover)); err != nil {
+		t.Fatalf("%v\n%s", err, output)
+	}
+	if subject := strings.TrimSpace(git(t, repo, "log", "-1", "--pretty=%s")); subject != "Do unit 1.1" {
+		t.Fatalf("commit subject %q", subject)
+	}
+	git(t, repo, "cat-file", "-e", "HEAD:BROKEN")
+	if dirty := git(t, repo, "status", "--porcelain"); dirty != "" {
+		t.Fatalf("the red session left the tree dirty:\n%s", dirty)
+	}
+}
+
+func TestDirtyOutcomeLeavesWorkUncommitted(t *testing.T) {
+	sandbox(t, scenarioWithOutcome("dirty"))
+	repo := fakeRepo(t)
+	before := strings.TrimSpace(git(t, repo, "rev-parse", "HEAD"))
+	handover := filepath.Join(t.TempDir(), "1.1.md")
+
+	if output, err := invoke(t, repo, "claude", implementingPrompt(handover)); err != nil {
+		t.Fatalf("%v\n%s", err, output)
+	}
+	if after := strings.TrimSpace(git(t, repo, "rev-parse", "HEAD")); after != before {
+		t.Fatalf("the dirty session committed: %s became %s", before, after)
+	}
+	if changed := strings.TrimSpace(git(t, repo, "diff", "--name-only")); changed != "work.txt" {
+		t.Fatalf("the dirty session changed %q, want work.txt", changed)
+	}
+	if staged := strings.TrimSpace(git(t, repo, "diff", "--cached", "--name-only")); staged != "" {
+		t.Fatalf("the dirty session staged %q", staged)
+	}
+	work, err := os.ReadFile(filepath.Join(repo, "work.txt"))
+	if err != nil || !strings.Contains(string(work), "unit 1.1 by claude") {
+		t.Fatalf("work.txt %q, error %v", work, err)
+	}
+}
+
+func TestBlockedAndNothingEndWithTheirMarkersAndChangeNothing(t *testing.T) {
+	for _, tc := range []struct {
+		outcome string
+		marker  string
+	}{
+		{"blocked", "BLOCKED the fake scenario asked for it"},
+		{"nothing", "NOTHING-TO-DO the fake scenario found nothing to do"},
+	} {
+		t.Run(tc.outcome, func(t *testing.T) {
+			sandbox(t, scenarioWithOutcome(tc.outcome))
+			repo := fakeRepo(t)
+			before := strings.TrimSpace(git(t, repo, "rev-parse", "HEAD"))
+			handover := filepath.Join(t.TempDir(), "1.1.md")
+
+			output, err := invoke(t, repo, "claude", implementingPrompt(handover))
+			if err != nil {
+				t.Fatalf("%v\n%s", err, output)
+			}
+			if !strings.Contains(output, tc.marker) {
+				t.Fatalf("output does not end with %q:\n%s", tc.marker, output)
+			}
+			if after := strings.TrimSpace(git(t, repo, "rev-parse", "HEAD")); after != before {
+				t.Fatalf("HEAD moved from %s to %s", before, after)
+			}
+			if dirty := git(t, repo, "status", "--porcelain"); dirty != "" {
+				t.Fatalf("the %s session left the tree dirty:\n%s", tc.outcome, dirty)
+			}
+			if work, err := os.ReadFile(filepath.Join(repo, "work.txt")); err != nil || string(work) != "baseline\n" {
+				t.Fatalf("work.txt %q, error %v", work, err)
+			}
+		})
+	}
+}
+
+func TestLoggedOutOutcomeFailsWithoutChangingAnything(t *testing.T) {
+	dir := sandbox(t, scenarioWithOutcome("logged-out"))
+	repo := fakeRepo(t)
+	before := strings.TrimSpace(git(t, repo, "rev-parse", "HEAD"))
+	handover := filepath.Join(t.TempDir(), "1.1.md")
+
+	output, err := invoke(t, repo, "claude", implementingPrompt(handover))
+	if err == nil {
+		t.Fatalf("a logged-out session exited zero:\n%s", output)
+	}
+	if after := strings.TrimSpace(git(t, repo, "rev-parse", "HEAD")); after != before {
+		t.Fatalf("HEAD moved from %s to %s", before, after)
+	}
+	if dirty := git(t, repo, "status", "--porcelain"); dirty != "" {
+		t.Fatalf("the logged-out session left the tree dirty:\n%s", dirty)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "state.json")); !os.IsNotExist(err) {
+		t.Fatalf("a logged-out session wrote state.json, error %v", err)
+	}
+}
+
+func TestAPastWindowRestartsWhenTheSessionRuns(t *testing.T) {
+	dir := sandbox(t, `
+[claude]
+seconds = 0
+session_used = 0.11
+session_resets_in = "2h"
+weekly_used = 0.22
+weekly_resets_in = "96h"
+per_session = 0
+per_session_weekly = 0
+cost = 0
+outcome = "done"
+`)
+
+	past := time.Now().Add(-time.Hour)
+	state := State{"claude": &HarnessState{
+		Session: Window{Used: 0.75, ResetAt: past},
+		Weekly:  Window{Used: 0.66, ResetAt: past},
+	}}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "state.json"), append(data, '\n'), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome := runClaude(t, "say hello")
+	if outcome.Budget == nil {
+		t.Fatal("no budget reported")
+	}
+	if !near(outcome.Budget.Session.Used, 0) || !near(outcome.Budget.Weekly.Used, 0) {
+		t.Fatalf("budget %+v, want both windows at 0", outcome.Budget)
+	}
+	now := time.Now()
+	if wait := outcome.Budget.Session.ResetAt.Sub(now); wait < 4*time.Hour+50*time.Minute || wait > 5*time.Hour+10*time.Minute {
+		t.Fatalf("session reset in %v, want about 5h", wait)
+	}
+	if wait := outcome.Budget.Weekly.ResetAt.Sub(now); wait < 6*24*time.Hour+23*time.Hour || wait > 7*24*time.Hour+time.Hour {
+		t.Fatalf("weekly reset in %v, want about 7d", wait)
+	}
+}
+
+func TestEditingTheScenarioReseedsTheState(t *testing.T) {
+	dir := sandbox(t, claudeScenario)
+	first := runClaude(t, "say hello")
+	if first.Budget == nil || !near(first.Budget.Session.Used, 0.55) {
+		t.Fatalf("first budget %+v, want the session at 0.55", first.Budget)
+	}
+
+	updated := strings.Replace(claudeScenario, "session_used = 0.40", "session_used = 0.70", 1)
+	path := filepath.Join(dir, "scenario.toml")
+	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Minute)
+	if err := os.Chtimes(path, later, later); err != nil {
+		t.Fatal(err)
+	}
+
+	second := runClaude(t, "say hello")
+	if second.BudgetBefore == nil || !near(second.BudgetBefore.Session.Used, 0.70) {
+		t.Fatalf("second session started at %+v, want the reseeded 0.70", second.BudgetBefore)
+	}
+	if second.Budget == nil || !near(second.Budget.Session.Used, 0.85) {
+		t.Fatalf("second session ended at %+v, want 0.85", second.Budget)
+	}
+}
+
+func scenarioWithOutcome(outcome string) string {
+	return strings.Replace(claudeScenario, `outcome = "done"`, `outcome = "`+outcome+`"`, 1)
+}
+
+func implementingPrompt(handover string) string {
+	return "You are running unattended under the plan loop. You implement exactly one unit\n" +
+		"of an authorized, in-flight task document: unit 1.1, *Fake agents*, of\n" +
+		"`docs/plans/TOY.md`.\n\n" +
+		"* Write the handover to `" + handover + "`, overwriting whatever is there.\n"
+}
+
+func fakeRepo(t *testing.T) string {
+	t.Helper()
+	repo := t.TempDir()
+	git(t, repo, "init", "-q")
+	writeFileForTest(t, filepath.Join(repo, "work.txt"), "baseline\n")
+	git(t, repo, "add", "work.txt")
+	git(t, repo, "-c", "user.name=test", "-c", "user.email=test@example.invalid",
+		"commit", "-q", "-m", "initial")
+	return repo
+}
+
 func TestImplementingAndCollectingRoles(t *testing.T) {
 	sandbox(t, claudeScenario)
 	repo := t.TempDir()
