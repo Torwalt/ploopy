@@ -1,10 +1,12 @@
 package ui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 )
 
 func newKeyPicker() *keyPicker {
@@ -54,6 +56,34 @@ func TestKeyedPickLettersAndEnter(t *testing.T) {
 		}
 		if p.value != "review" {
 			t.Fatalf("enter picked %q, want review", p.value)
+		}
+	})
+
+	t.Run("esc cancels without a value", func(t *testing.T) {
+		p := newKeyPicker()
+		pressKey(p, plain(tea.KeyEsc))
+		if !p.done {
+			t.Fatal("esc left the picker open")
+		}
+		if !errors.Is(p.err, huh.ErrUserAborted) {
+			t.Fatalf("esc returned %v, want huh.ErrUserAborted", p.err)
+		}
+		if p.value != "" {
+			t.Fatalf("esc picked %q", p.value)
+		}
+	})
+
+	t.Run("ctrl-c cancels without a value", func(t *testing.T) {
+		p := newKeyPicker()
+		pressKey(p, plain(tea.KeyCtrlC))
+		if !p.done {
+			t.Fatal("ctrl-c left the picker open")
+		}
+		if !errors.Is(p.err, huh.ErrUserAborted) {
+			t.Fatalf("ctrl-c returned %v, want huh.ErrUserAborted", p.err)
+		}
+		if p.value != "" {
+			t.Fatalf("ctrl-c picked %q", p.value)
 		}
 	})
 

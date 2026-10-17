@@ -72,8 +72,13 @@ func main() {
 // chooseCommand offers what ploopy can do. A run going on comes first: it is
 // most likely what brought the author here.
 func chooseCommand() (string, error) {
+	lives, _ := control.List()
+	return ui.PickKeyed("What now?", "help", commandChoices(lives))
+}
+
+func commandChoices(lives []control.Live) []ui.Choice {
 	var choices []ui.Choice
-	if lives, _ := control.List(); len(lives) > 0 {
+	if len(lives) > 0 {
 		label := "change a running run"
 		if len(lives) == 1 {
 			label += ": " + runLabel(lives[0])
@@ -96,7 +101,7 @@ func chooseCommand() (string, error) {
 		ui.Choice{Key: 'm', Label: "mark a unit by hand", Value: "mark"},
 		ui.Choice{Key: 't', Label: "lint the plans", Value: "lint"},
 	)
-	return ui.PickKeyed("What now?", "help", choices)
+	return choices
 }
 
 // splitExtra takes everything after `--` for the harness.
