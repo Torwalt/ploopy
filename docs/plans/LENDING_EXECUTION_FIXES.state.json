@@ -579,6 +579,31 @@
         "reasoning": 3730,
         "cache_read": 708096
       }
+    },
+    "1.25": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:56:06+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "c193bd479b04812542d49b7fe086cc16bb8f00cf",
+      "commits": [
+        "8997e31315ce931f1bf49a6136a115fdca2ed3e2 review: keep a running review's triage fixed"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `8997e31` adds `triageLock`, which refuses a triage change when the triage\n  unit has landed or the review plan is live, and routes both write paths\n  through it. Live runs now show the Triage column locked with \"the review is\n  running\"; a `--triage-*` flag on a live review commits nothing.\n- `retriage` is gone. Its landed and unchanged cases are covered through\n  `triageLock` / `changeTriage` in `cmd/ploopy/triage_test.go`.\n- The two review-board tests now use a review whose own triage is\n  `claude/sonnet/medium`, distinct from the default and last triage, so an\n  ignored \"as this review has it\" value fails them.\n\n**Landmark drift**\n\nNone. `reviewPlan`, `reviewTriage`, `retriage`, `writeTriage`, `e.find`,\n`triage_test.go` and `review_board_test.go` were where the work order said.\n\n**Deviations from the work order**\n\n- The suggested example `sonnet`/`low` is not a valid Claude effort (`low` is\n  Codex-only). The tests use `sonnet`/`medium` instead; the point is only that\n  the review's own triage differs from the last and default.\n- Added `changeTriage` as the shared write helper so both the flag path and the\n  board path apply the same lock and equality check; `triageLock` remains the\n  one function deciding whether a change is allowed.\n- README *Review* now says the column is locked while the review is running.\n\n**What the next session must know**\n\n- `triageLock` calls `e.find`, so it reads the runtime registry and treats a\n  failed lookup as \"not live\" (the old `retriage` did the same). A broken\n  registry therefore does not lock a triage.\n- `reviewTriage` still decides display values separately from `triageLock`; a\n  live review shows the requested flags on the board but the lock stops any\n  commit.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb537f536ffeGdmgHtDkJ7uAvP",
+      "cost_usd": 0.030286493999999994,
+      "harness": "opencode",
+      "elapsed_s": 181,
+      "session_s": 173,
+      "verify_s": 1,
+      "test_s": 8,
+      "tokens": {
+        "input": 51845,
+        "output": 9418,
+        "reasoning": 15432,
+        "cache_read": 2533248
+      }
     }
   }
 }
