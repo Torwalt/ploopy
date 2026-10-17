@@ -159,6 +159,26 @@
         "reasoning": 46350,
         "cache_read": 4943744
       }
+    },
+    "1.9": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T15:28:28+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "1af703580c3879aefebe4b0c6144c02b568d6eda",
+      "attempts": 1,
+      "handover": "# Findings: Unit 3.5 of LENDING_EXECUTION, Which subscriptions a run uses; spend all\n\nReviewed: 77579a1b3a36..12ccc8c54063, 11 files. Steps: all done.\n\n## F1 — The `adjust` flags `--subscriptions` and `--spend-all` have no test\n\n- Class: gap\n- Confidence: high\n- Where: `cmd/ploopy/adjust.go:189-199`, registered at `cmd/ploopy/adjust.go:64-66`; the only flag tests are the run flags at `cmd/ploopy/subscriptions_test.go:82,107`\n- Situation: `ploopy adjust --subscriptions codex` or `ploopy adjust --spend-all=false` against a live run.\n- Happens: removing both `flags.Changed(\"subscriptions\")` and `flags.Changed(\"spend-all\")` blocks from `changeFromFlags` leaves `go test ./...` green (verified on an archive of 12ccc8c). No test parses these adjust flags or asserts the resulting change.\n- Should: the work order asks for `Subscriptions`/`SpendAll` in `control.Settings` \"with matching `adjust` flags\". Add a test that parses `--subscriptions` and both values of `--spend-all` through `changeFromFlags` and asserts `change.Subscriptions` and `change.SpendAll`.\n- Test: none exists.\n\n## F2 — The start announcement of a narrow set and of spend-all has no test\n\n- Class: gap\n- Confidence: high\n- Where: `cmd/ploopy/run.go:296-305`; the unit's tests end at `lendingFromLeases` in `cmd/ploopy/subscriptions_test.go`\n- Situation: a plan with `subscriptions: codex`, or a run with `--spend-all`, starts.\n- Happens: deleting both `report.Say` blocks leaves `go test ./...` green (verified on an archive of 12ccc8c), so the promised \"the plan uses codex only\" / \"this run uses …\" / \"spending all of the subscriptions' weeks\" messages can regress silently.\n- Should: the unit's Goal says a narrowed plan set is announced at the start, and the handover says spend-all is announced too. Add a reporter-capturing test that asserts the plan-origin message, a flag-origin message, and the spend-all line.\n- Test: none exists.\n\n## F3 — `run --subscriptions=` (empty) is not treated as `all`, unlike `adjust` and the handover\n\n- Class: slip\n- Confidence: medium\n- Where: `cmd/ploopy/settings.go:150-165`, which tests `f.subscriptions != \"\"`, versus `cmd/ploopy/adjust.go:189-195`, which tests `flags.Changed(\"subscriptions\")`\n- Situation: the plan says `subscriptions: none` (or a previous run carries `codex`), then the author runs `ploopy run --subscriptions=`.\n- Happens: `givenSettings` treats the explicit empty flag as absent, so the plan's or last run's set wins; a probe on 12ccc8c gives `s.Subscriptions == \"none\"`. `ploopy adjust --subscriptions=` normalizes empty to `all`, and the handover says empty is treated as `all`.\n- Should: use `cmd.Flags().Changed(\"subscriptions\")` as the `--spend-all` path already does, and let `subscriptionSet(\"\")` return `all`, so an explicit empty value overrides the plan/last run consistently.\n- Test: none exists; add a test with a plan set and `--subscriptions=` asserting `all`.\n\n## F4 — The last-run carry-over of `subscriptions` and `spendAll` is untested\n\n- Class: gap\n- Confidence: high\n- Where: `cmd/ploopy/settings.go:254-265` (`fill`), with the new fields at `cmd/ploopy/settings.go:30-31`\n- Situation: a previous run used `subscriptions: codex` or spend-all, then the author starts an ordinary run whose plan has no `subscriptions:` key and passes no flag.\n- Happens: deleting both new `fill` branches leaves `go test ./...` green (verified on an archive of 12ccc8c), so the page/saveLast prefill of these two settings can regress silently.\n- Should: the settings page is prefilled from the last run for the rest of the settings; add a `fill` test with a last run that sets both fields and an empty plan, asserting they are carried over.\n- Test: none exists.",
+      "session_id": "ses_eb5f7b55affeT3CLqq0rE7LPPy",
+      "cost_usd": 0.059383026,
+      "harness": "opencode",
+      "elapsed_s": 290,
+      "session_s": 290,
+      "tokens": {
+        "input": 105395,
+        "output": 8204,
+        "reasoning": 38362,
+        "cache_read": 5211392
+      }
     }
   }
 }
