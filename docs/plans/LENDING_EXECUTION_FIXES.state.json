@@ -118,6 +118,31 @@
         "reasoning": 5007,
         "cache_read": 1523328
       }
+    },
+    "1.6": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:23:44+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "3a14f1ef7ddad0abdb761a2b14addc45670909ea",
+      "commits": [
+        "becf180d54879660325a71839bea1fe7104de879 Pin the origin of a unit resumed after a stop"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `becf180` — `TestAStopMidSessionHandsItsWorkToTheNextRun` now asserts that\n  the resumed prompt (`f.h.Prompts[1]`) contains `An earlier attempt at this\n  unit left these uncommitted.` No production code changed: `progress.reset`\n  already keeps `LeftDirty` when the unit is the same, and `Loop.uncommitted`\n  already chooses that origin sentence from it.\n\n**Landmark drift**\n\nNone. `progress.reset` is still `internal/loop/progress.go:67-78`; the origin\nchoice is still `internal/loop/loop.go:293-299`; the test is at\n`internal/loop/loop_test.go:725`.\n\n**Deviations from the work order**\n\nNone. The unit only asked for the assertion, and the fix was already present as\nthe plan described.\n\n**What the next session must know**\n\n- Confirmed the assertion fails against the pre-change `reset` (the old\n  unconditional `LeftDirty = false`): it reports \"the next session was not told\n  whose the uncommitted work is\". With the current code it passes.\n- `go build`, `go vet`, `gofmt -l`, and `go test ./...` are green.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb5539a3cfferAt2wnVB9r46NB",
+      "cost_usd": 0.007198404000000001,
+      "harness": "opencode",
+      "elapsed_s": 50,
+      "session_s": 42,
+      "verify_s": 1,
+      "test_s": 8,
+      "tokens": {
+        "input": 25558,
+        "output": 2343,
+        "reasoning": 589,
+        "cache_read": 535168
+      }
     }
   }
 }
