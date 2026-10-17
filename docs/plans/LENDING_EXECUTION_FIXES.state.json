@@ -215,6 +215,30 @@
         "reasoning": 5118,
         "cache_read": 757248
       }
+    },
+    "1.10": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:32:35+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "5ae3d073781338337568ef4fd6c854dd62a0d0ac",
+      "commits": [
+        "3ac4671cf7fb319a9d93ec9d28e247a5d6a72005 Pin lending's session records and wake-ups with tests"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `3ac4671` adds the lending tests the unit asked for and corrects the two\n  `Away` comments. No production behaviour changed.\n- `TestALentSubscriptionAtItsLimitHandsOverWithoutWaiting` now loads history and\n  asserts the lent claude session has `Away == true` while both bedrock sessions\n  have `Away == false`.\n- `TestAnUntilLeaseUsesAFreshWindowItOpenedNearItsEnd` opens a fresh window under\n  an until lease, reports its reset 8 minutes after the booked one (past the\n  lease end by 5 minutes), and requires the second unit to stay on claude. It\n  exercises `meter.saw`'s `ownWindow` path for until leases.\n- Three wake tests cover `lendWake` end-to-end: a bedrock in peak hours waking at\n  a nightly lease's start, a bedrock waiting out its own limit waking at a lent\n  limit's lift, and the same wake at a spent window's reset (`reset + 2m`).\n- Comments in `internal/loop/stats.go` and `internal/history/history.go` now say\n  `Away` means the session ran on a lent subscription.\n\n**Landmark drift**\n\nNone. `lendWake`, `meter.saw` and `leaseSpan` are where the plan described;\n`loop.go:1034`, `stats.go:22` and `history.go:35` still matched.\n\n**Deviations from the work order**\n\n- No failing-first test was possible because the production fix already landed\n  in earlier units. Instead each new test was checked against the named\n  mutation: `Away: true` for every session, an early return in `meter.saw` for\n  zero-span (until/open) leases, and `lendWake` returning the zero time. Each\n  new test failed under its mutation and passed once reverted.\n- The nightly-start wake test uses the peak-hours wait rather than a limit wait,\n  so the peak gate's `lendWake` call site is covered too; the other two wake\n  tests use a limit wait.\n- The until-lease test sets the lease end 3 minutes after the booked reset and\n  reports the reset 8 minutes after it, keeping the difference inside\n  `windowSlack` while putting the reported reset past the lease end.\n\n**What the next session must know**\n\n- For until/open leases `meter.enter` keys on the zero time and leaves `m.span`\n  zero; `meter.saw` must still match reported resets against `opened` bookings,\n  which is what the new until test protects.\n- `lendWake` shortens either a peak wait (`peakGate`) or a limit wait\n  (`waitOutLimit`) via the same `min` logic, and still returns zero when the\n  unit has its own agent (already covered by\n  `TestAUnitsOwnAgentIsNotWokenByLending`).\n- The new tests assume sessions do not advance the fixture clock; both until\n  lease sessions start at the same instant, which is deliberate and keeps the\n  reported window active.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb54d4d47ffeJHK1cI24HDP3es",
+      "cost_usd": 0.031539684000000005,
+      "harness": "opencode",
+      "elapsed_s": 169,
+      "session_s": 161,
+      "test_s": 7,
+      "tokens": {
+        "input": 61086,
+        "output": 7266,
+        "reasoning": 14316,
+        "cache_read": 3142528
+      }
     }
   }
 }
