@@ -59,6 +59,26 @@
         "reasoning": 49537,
         "cache_read": 4963712
       }
+    },
+    "1.4": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T15:00:42+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "5806a2aa84bde372661cd7ea82aa677c4f3ec9b7",
+      "attempts": 1,
+      "handover": "# Findings: Unit 2.2, Carry uncommitted changes into the worktree on hand-off, of LENDING_EXECUTION\n\nReviewed: 735c35ea00b7..ec7a05a4ed99, 2 files. Steps: all done (the tests exercise the implementation landed earlier in c4384cb, as the handover says).\n\n## F1 — A staged deletion or staged rename makes StashPaths fail, so hand-off still refuses and leaves a stash behind\n\n- Class: gap\n- Confidence: high\n- Where: `internal/repo/repo.go:148-153`, `cmd/ploopy/worktree.go:123-134`\n- Situation: The main checkout is on the plan's branch with a staged deletion (`git rm gone.txt`) or a staged rename (`git mv old.txt new.txt`). `repo.Dirt` returns `D  gone.txt`, or `R  new.txt` with `From: old.txt`. `handOff` builds `paths = [\"gone.txt\"]`, or `[\"old.txt\", \"new.txt\"]`, and calls `git stash push --quiet --include-untracked --message \"ploopy hand-off\" -- \u003cpaths\u003e`.\n- Happens: `git stash push` exits 1 with `fatal: pathspec ':(prefix:0)gone.txt' did not match any files`, yet it still creates a stash entry (`git stash show` lists `D gone.txt`); the working tree keeps the staged deletion. `StashPaths` returns the error, so `handOff` returns before `Repo.HandOff`: the run still refuses to move the branch (D2), and a stray stash is left behind. The `Change.From` path of a staged rename triggers the same failure.\n- Should: Carry the staged deletion or rename into the worktree like any other uncommitted change and leave `git stash list` empty, as D2 and §3 require (\"every `Change.Path`, plus `Change.From` for a rename\").\n- Test: none exists; the new tests use only a modified tracked file and a new untracked file. Add a hand-off test with a staged deletion (and a staged rename) asserting the worktree holds them, the main checkout is clean on the default branch apart from the author paths, and the stash is empty.\n\n## F2 — A failed stash pop in the new worktree pops the stash into the main checkout on the default branch\n\n- Class: design\n- Confidence: high\n- Where: `cmd/ploopy/worktree.go:143-149`\n- Situation: `Repo.HandOff` succeeds (the main checkout is switched to `onto`, the default branch, and the branch is checked out in the new worktree), but the `git stash pop` in the new worktree fails, for example because the worktree cannot write a file.\n- Happens: the fallback calls `r.StashPop` on the main checkout without switching it back to the branch. Main is still on `onto`, so the branch's uncommitted changes are applied to the default branch's working tree and the function returns an error. Reproduced with the same git sequence: after a failed pop in a read-only worktree, `git stash pop` in the main checkout on `master` left ` M README.md` and `?? half.go` there, while the `pass` worktree stayed clean.\n- Should: restore the changes to the branch's checkout, as §3 step 4 requires (\"pop the stash back in the main checkout (after switching it back to the branch ...)\"). Since the branch is checked out in the new worktree, that needs a decision: undo the worktree add and switch main back before popping, or another recovery that keeps the changes with the branch. The default branch's checkout must not receive them.\n- Test: none exists; `TestAFailedHandOffPutsTheChangesBack` fails `worktree add` only. Add a test that makes the worktree pop fail (or drives the same recovery) and asserts the changes come back on the branch, not on the default branch.",
+      "session_id": "ses_eb6102824ffetxN1mm7YtE6e2b",
+      "cost_usd": 0.037505478,
+      "harness": "opencode",
+      "elapsed_s": 226,
+      "session_s": 225,
+      "tokens": {
+        "input": 44161,
+        "output": 5549,
+        "reasoning": 37909,
+        "cache_read": 1602176
+      }
     }
   }
 }
