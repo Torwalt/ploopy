@@ -142,6 +142,11 @@ Changing the bedrock's agent to a subscription removes that subscription's
 column. The footer forecasts the run from the repository's history and the
 windows each subscription last reported.
 
+`ploopy adjust` shows the same board for a run that is going, after asking
+which run when several are. The bedrock's agent, model and effort are locked,
+`x` stops it after the current unit, and Enter applies the settings and any
+changed leases to every run.
+
 Every answer is also a flag: `ploopy run --help`.
 
 ## Subscriptions
