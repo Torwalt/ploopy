@@ -371,6 +371,11 @@ func runFixPlan(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, re
 	next.planName = fixes
 	next.from, next.until, next.units = "", "", 0
 	next.dryRun = false
+	// The review's --test/--no-test only answers where the fix plan gives no
+	// test: of its own.
+	if _, given := p.Settings["test"]; given {
+		next.tests, next.noTests = false, false
+	}
 	return runOnce(ctx, cmd, e, &next, &settings)
 }
 

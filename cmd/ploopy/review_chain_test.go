@@ -85,10 +85,15 @@ func findingsStep() fake.Step {
 
 func triageStep(t *testing.T) fake.Step {
 	t.Helper()
+	return triageStepWithPlan(t, fixesPlan)
+}
+
+func triageStepWithPlan(t *testing.T, fixes string) fake.Step {
+	t.Helper()
 	return fake.Step{
 		Do: func(dir string) error {
-			fixes := review.FixesPath("docs/plans/PASS.md")
-			if err := sandboxWrite(filepath.Join(dir, fixes), fixesPlan); err != nil {
+			path := review.FixesPath("docs/plans/PASS.md")
+			if err := sandboxWrite(filepath.Join(dir, path), fixes); err != nil {
 				return err
 			}
 			reviewPath := review.Path("docs/plans/PASS.md")
@@ -104,7 +109,7 @@ func triageStep(t *testing.T) fake.Step {
 				"The triage wrote the fix plan.\n"); err != nil {
 				return err
 			}
-			if err := sandboxGit(dir, "add", reviewPath, fixes); err != nil {
+			if err := sandboxGit(dir, "add", reviewPath, path); err != nil {
 				return err
 			}
 			return sandboxGit(dir, "commit", "-q", "-m", "plans: triage PASS_REVIEW")
@@ -190,6 +195,35 @@ func TestAReviewWithThenFixesRunsTheFixPlanAfterTheTriage(t *testing.T) {
 	fixAt := strings.Index(log, "Do the first fix")
 	if triageAt < 0 || fixAt < 0 || triageAt > fixAt {
 		t.Fatalf("the fix landed before the triage:\n%s", log)
+	}
+}
+
+func TestAFixPlansOwnTestSettingOverridesTheReviewsNoTest(t *testing.T) {
+	e, _ := chainRepo(t)
+	withTests := strings.Replace(fixesPlan, "model: fix-model", "model: fix-model\ntest: yes", 1)
+	h := fake.New(findingsStep(), triageStepWithPlan(t, withTests),
+		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
+	e.harnesses = harness.Set{h}
+
+	if err := runReview(t, e, reviewArgs("--then", "fixes", "--no-test", "--test-cmd", "true")...); err != nil {
+		t.Fatal(err)
+	}
+	if prompt := h.Prompts[2]; !strings.Contains(prompt, "the loop runs them after you") {
+		t.Fatalf("the fix unit's prompt does not ask for tests:\n%s", prompt)
+	}
+}
+
+func TestAFixPlanWithoutATestSettingTakesTheReviewsNoTest(t *testing.T) {
+	e, _ := chainRepo(t)
+	h := fake.New(findingsStep(), triageStep(t),
+		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
+	e.harnesses = harness.Set{h}
+
+	if err := runReview(t, e, reviewArgs("--then", "fixes", "--no-test", "--test-cmd", "true")...); err != nil {
+		t.Fatal(err)
+	}
+	if prompt := h.Prompts[2]; strings.Contains(prompt, "the loop runs them after you") {
+		t.Fatalf("the fix unit's prompt asks for tests despite --no-test:\n%s", prompt)
 	}
 }
 
