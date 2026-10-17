@@ -3,6 +3,7 @@
 package lease
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -56,25 +57,15 @@ func Load() (File, error) {
 	if err != nil {
 		return File{}, fmt.Errorf("%s: %w", path, err)
 	}
+	if body := bytes.TrimSpace(raw); len(body) == 0 || body[0] != '{' {
+		return File{}, fmt.Errorf("%s: not a JSON object", path)
+	}
 	var f File
 	if err := json.Unmarshal(raw, &f); err != nil {
 		return File{}, fmt.Errorf("%s: %w", path, err)
 	}
-	seen := make(map[string]bool, len(f.Leases))
-	for _, l := range f.Leases {
-		if l.Harness == "" {
-			return File{}, fmt.Errorf("%s: a lease has no harness", path)
-		}
-		if !l.Kind.valid() {
-			return File{}, fmt.Errorf("%s: lease for %s has kind %q", path, l.Harness, l.Kind)
-		}
-		if l.Keep < 0 || l.Keep > 100 {
-			return File{}, fmt.Errorf("%s: lease for %s has keep %d", path, l.Harness, l.Keep)
-		}
-		if seen[l.Harness] {
-			return File{}, fmt.Errorf("%s: more than one lease for %s", path, l.Harness)
-		}
-		seen[l.Harness] = true
+	if err := validate(f, path); err != nil {
+		return File{}, err
 	}
 	sort.Slice(f.Leases, func(i, j int) bool { return f.Leases[i].Harness < f.Leases[j].Harness })
 	return f, nil
@@ -85,6 +76,9 @@ func Save(f File) error {
 	f.Leases = append([]Lease{}, f.Leases...)
 	sort.Slice(f.Leases, func(i, j int) bool { return f.Leases[i].Harness < f.Leases[j].Harness })
 	path := Path()
+	if err := validate(f, path); err != nil {
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -151,6 +145,27 @@ func (f File) Active(now time.Time) []Lease {
 		out = append(out, l)
 	}
 	return out
+}
+
+// validate refuses a File that Load would refuse, so Save cannot write one.
+func validate(f File, path string) error {
+	seen := make(map[string]bool, len(f.Leases))
+	for _, l := range f.Leases {
+		if l.Harness == "" {
+			return fmt.Errorf("%s: a lease has no harness", path)
+		}
+		if !l.Kind.valid() {
+			return fmt.Errorf("%s: lease for %s has kind %q", path, l.Harness, l.Kind)
+		}
+		if l.Keep < 0 || l.Keep > 100 {
+			return fmt.Errorf("%s: lease for %s has keep %d", path, l.Harness, l.Keep)
+		}
+		if seen[l.Harness] {
+			return fmt.Errorf("%s: more than one lease for %s", path, l.Harness)
+		}
+		seen[l.Harness] = true
+	}
+	return nil
 }
 
 func (k Kind) valid() bool {
