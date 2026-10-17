@@ -23,6 +23,29 @@
         "reasoning": 3369,
         "cache_read": 551040
       }
+    },
+    "1.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:19:02+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "5b3eea39aa360c76c4eaa3c7deb78115baf8c6e9",
+      "commits": [
+        "0f072e927d1af9d184c1ea72465153fbca5c1e66 Report the weekly reset in the fake's usage limit"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `0f072e9` makes `HarnessState.spent` report which window ran out and has\n  `claudeInfo` name `seven_day` with the weekly reset when that is the spent\n  one.\n- The Codex limit prose omits the `resets at` clock time when the reset is\n  more than 24 hours away, letting `resetOf(outcome.Budget)` pick the weekly\n  reset.\n- New tests `TestClaudeWeeklyLimitReportsTheWeeklyReset` and\n  `TestCodexWeeklyLimitReportsTheWeeklyReset` assert each adapter's\n  `RateLimit.ResetAt` is within five minutes of the scenario's weekly reset.\n\n**Landmark drift**\n\nNone. `claudeInfo`, `speakClaudeLimit`, `speakCodexLimit` and `spent` were\nwhere the work order said.\n\n**Deviations from the work order**\n\n- `spent` now returns `(reset, weekly, ok)` instead of `(reset, ok)` so the\n  caller can tell the adapter which window is binding. It still checks the\n  five-hour window first, so a scenario where both windows are spent reports\n  the sooner five-hour reset.\n\n**What the next session must know**\n\n- The tests derive the expected reset by reading `state.json` after the run,\n  not from the scenario's relative durations.\n- `claudeInfo` keeps its old five-hour fields for allowed events; only the\n  rejected event and its top-level `resetsAt`/`rateLimitType` switch to the\n  weekly window.\n- The Claude prose still names a clock time even for a 96h reset; the adapter\n  takes the exact instant from `rate_limit_info.resetsAt`, so it does not\n  mislead the outcome.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb55860baffey6JP3sfSQv16ex",
+      "cost_usd": 0.016387698,
+      "harness": "opencode",
+      "elapsed_s": 81,
+      "session_s": 80,
+      "tokens": {
+        "input": 43855,
+        "output": 4346,
+        "reasoning": 5365,
+        "cache_read": 1327616
+      }
     }
   }
 }
