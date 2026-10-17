@@ -36,11 +36,13 @@ func (a Agent) Label() string {
 // Settings are what can change while a run goes on. In a change, an unset
 // field leaves the run's own setting alone.
 type Settings struct {
-	Finish    string `json:"finish,omitempty"` // none, suspend or poweroff
-	Peak      string `json:"peak,omitempty"`   // wait or run
-	Push      *bool  `json:"push,omitempty"`
-	Stop      *bool  `json:"stop,omitempty"`      // stop once the current unit is done
-	Secondary *Agent `json:"secondary,omitempty"` // an empty harness means none
+	Finish        string `json:"finish,omitempty"` // none, suspend or poweroff
+	Peak          string `json:"peak,omitempty"`   // wait or run
+	Push          *bool  `json:"push,omitempty"`
+	Stop          *bool  `json:"stop,omitempty"`          // stop once the current unit is done
+	Secondary     *Agent `json:"secondary,omitempty"`     // an empty harness means none
+	Subscriptions string `json:"subscriptions,omitempty"` // "", all, none, or harness names
+	SpendAll      *bool  `json:"spendAll,omitempty"`
 }
 
 // Over lays a change over base settings.
@@ -60,6 +62,12 @@ func (s Settings) Over(base Settings) Settings {
 	}
 	if s.Secondary != nil {
 		out.Secondary = s.Secondary
+	}
+	if s.Subscriptions != "" {
+		out.Subscriptions = s.Subscriptions
+	}
+	if s.SpendAll != nil {
+		out.SpendAll = s.SpendAll
 	}
 	return out
 }
@@ -95,6 +103,12 @@ func (s Settings) Describe() string {
 	if s.Peak == "wait" {
 		parts = append(parts, "wait for off-peak")
 	}
+	if s.Subscriptions != "" && s.Subscriptions != "all" {
+		parts = append(parts, subscriptionLabel(s.Subscriptions))
+	}
+	if s.SpendAll != nil && *s.SpendAll {
+		parts = append(parts, "spending all of the week")
+	}
 	if agent := s.SecondaryAgent(); agent != nil {
 		parts = append(parts, agent.Label()+" on a usage limit")
 	}
@@ -102,6 +116,18 @@ func (s Settings) Describe() string {
 		parts = append(parts, "stop after the current unit")
 	}
 	return strings.Join(parts, " · ")
+}
+
+// subscriptionLabel renders a subscription set narrower than all.
+func subscriptionLabel(set string) string {
+	if set == "none" {
+		return "bedrock only"
+	}
+	names := strings.Fields(set)
+	if len(names) == 1 {
+		return names[0] + " only"
+	}
+	return strings.Join(names, " and ") + " only"
 }
 
 // Status is a run as it announced itself.

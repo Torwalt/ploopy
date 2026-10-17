@@ -31,7 +31,7 @@ var UnitFields = []string{"Test", "Context", "Review", "Agent", "Model", "Effort
 
 // Settings are the front-matter keys a plan may set. `reviews` makes the plan
 // a review of the plan it names.
-var Settings = []string{"authority", "context", "test", "agent", "effort", "model", "reviews"}
+var Settings = []string{"authority", "context", "test", "agent", "effort", "model", "reviews", "subscriptions"}
 
 // Roles a unit plays. A unit of an ordinary plan implements; the units of a
 // review plan collect findings on one landed unit, look at the seams between
@@ -537,6 +537,9 @@ func Lint(p *Plan, root string, harnesses Harnesses, settled map[string]bool) (e
 		}
 	}
 	errs = append(errs, lintAgent("front matter `agent:`", p.Settings["agent"], p.Settings["effort"], harnesses)...)
+	if value, ok := p.Settings["subscriptions"]; ok {
+		errs = append(errs, lintSubscriptions(value, harnesses)...)
+	}
 	if authority := p.Authority(root); authority != "" && !isFile(filepath.Join(root, authority)) {
 		errs = append(errs, "authority "+authority+" does not exist")
 	}
@@ -546,6 +549,27 @@ func Lint(p *Plan, root string, harnesses Harnesses, settled map[string]bool) (e
 		}
 	}
 	return errs, warnings
+}
+
+// lintSubscriptions checks the run's subscription set: all, none, or harness
+// names separated by spaces.
+func lintSubscriptions(value string, harnesses Harnesses) []string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return []string{"front matter `subscriptions:` must be all, none, or harness names"}
+	}
+	if value == "all" || value == "none" {
+		return nil
+	}
+	var errs []string
+	for _, name := range strings.Fields(value) {
+		if harnesses == nil || harnesses.Known(name) {
+			continue
+		}
+		errs = append(errs, fmt.Sprintf("front matter `subscriptions:` names %s, which is not one of %s",
+			name, strings.Join(harnesses.Names(), ", ")))
+	}
+	return errs
 }
 
 // lintAgent checks a named harness and the effort asked of it.

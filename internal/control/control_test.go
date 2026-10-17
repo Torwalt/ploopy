@@ -3,6 +3,7 @@ package control
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 )
@@ -65,6 +66,42 @@ func TestAnAdjustmentReachesTheRun(t *testing.T) {
 	}
 	if run.Wanted().SecondaryAgent() != nil {
 		t.Fatal("an empty harness should remove the secondary")
+	}
+}
+
+func TestSubscriptionsAndSpendingAreLaidOverAndDescribed(t *testing.T) {
+	base := Settings{Subscriptions: "all"}
+	if got := (Settings{Subscriptions: "none"}).Over(base); got.Subscriptions != "none" {
+		t.Fatalf("subscriptions laid over as %q", got.Subscriptions)
+	}
+	if got := (Settings{}).Over(base); got.Subscriptions != "all" {
+		t.Fatalf("an unset change cleared subscriptions: %q", got.Subscriptions)
+	}
+
+	all := false
+	got := (Settings{SpendAll: &all}).Over(Settings{})
+	if got.SpendAll == nil || *got.SpendAll {
+		t.Fatalf("spend all laid over as %v", got.SpendAll)
+	}
+	if got := (Settings{}).Over(Settings{SpendAll: yes()}); got.SpendAll == nil || !*got.SpendAll {
+		t.Fatalf("an unset change cleared spend all: %v", got.SpendAll)
+	}
+
+	for _, want := range []string{"bedrock only", "claude only", "claude and codex only"} {
+		set := map[string]string{
+			"bedrock only":          "none",
+			"claude only":           "claude",
+			"claude and codex only": "claude codex",
+		}[want]
+		if desc := (Settings{Subscriptions: set}).Describe(); !strings.Contains(desc, want) {
+			t.Fatalf("describe %q is %q, want %q", set, desc, want)
+		}
+	}
+	if desc := (Settings{Subscriptions: "all"}).Describe(); strings.Contains(desc, "only") {
+		t.Fatalf("all is described as %q", desc)
+	}
+	if desc := (Settings{SpendAll: yes()}).Describe(); !strings.Contains(desc, "spending all of the week") {
+		t.Fatalf("spend all is described as %q", desc)
 	}
 }
 

@@ -243,8 +243,8 @@ func newLendingLoader(harnesses harness.Set, primary string, report *ui.Reporter
 	return &lendingLoader{harnesses: harnesses, primary: primary, report: report}
 }
 
-func (l *lendingLoader) load(now time.Time) *loop.Lending {
-	lending, err := lendingAt(l.harnesses, l.primary, now)
+func (l *lendingLoader) load(now time.Time, subscriptions string, spendAll bool) *loop.Lending {
+	lending, err := lendingAt(l.harnesses, l.primary, now, subscriptions, spendAll)
 	if err != nil {
 		l.say(err)
 		return nil
@@ -262,18 +262,22 @@ func (l *lendingLoader) say(err error) {
 	}
 }
 
-func lendingAt(harnesses harness.Set, primary string, now time.Time) (*loop.Lending, error) {
+func lendingAt(harnesses harness.Set, primary string, now time.Time, subscriptions string, spendAll bool) (*loop.Lending, error) {
 	file, err := lease.Load()
 	if err != nil {
 		return nil, err
 	}
-	return lendingFromLeases(harnesses, primary, file.Active(now))
+	return lendingFromLeases(harnesses, primary, file.Active(now), subscriptions, spendAll)
 }
 
-func lendingFromLeases(harnesses harness.Set, primary string, leases []lease.Lease) (*loop.Lending, error) {
+func lendingFromLeases(harnesses harness.Set, primary string, leases []lease.Lease, subscriptions string, spendAll bool) (*loop.Lending, error) {
+	allowed, all := subscriptionNames(subscriptions)
 	lending := &loop.Lending{}
 	for _, l := range leases {
 		if l.Harness == primary {
+			continue
+		}
+		if !all && !allowed[l.Harness] {
 			continue
 		}
 		h := harnesses.Get(l.Harness)
@@ -310,7 +314,25 @@ func lendingFromLeases(harnesses harness.Set, primary string, leases []lease.Lea
 	if len(lending.Leases) == 0 {
 		return nil, nil
 	}
+	lending.SpendAll = spendAll
 	return lending, nil
+}
+
+// subscriptionNames is the set a run may use. The second result says whether
+// every lent subscription is in it.
+func subscriptionNames(value string) (map[string]bool, bool) {
+	value = strings.TrimSpace(strings.ReplaceAll(value, ",", " "))
+	switch value {
+	case "", "all":
+		return nil, true
+	case "none":
+		return map[string]bool{}, false
+	}
+	names := map[string]bool{}
+	for _, name := range strings.Fields(value) {
+		names[name] = true
+	}
+	return names, false
 }
 
 func leasesNote(ctx context.Context, e *env, now time.Time) string {
