@@ -104,6 +104,6 @@ depend on the sandbox.
 go build -o /dev/null ./...     # compile check without stray binaries
 go vet ./... && gofmt -l .      # vet and formatting
 go test ./...                   # unit tests (temp git repos, fake harnesses)
-nix develop                     # go, claude-code, opencode, codex (direnv auto-loads)
+nix develop                     # go, the harnesses, ploopy from this checkout (direnv)
 nix flake check                 # sandboxed build + tests
 ```

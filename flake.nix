@@ -92,7 +92,35 @@
       # The shell can run the loop end to end: all harnesses are here.
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
+          # Built from the checkout on every call, so the shell's ploopy is
+          # the code as it stands; an unchanged tree only costs go's
+          # up-to-date check. The build target is never executed, and the
+          # binary is swapped in by rename so a running ploopy keeps its own.
+          shellHook = ''
+            export PLOOPY_SRC=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+          '';
           packages = with pkgs; [
+            (writeShellApplication {
+              name = "ploopy";
+              runtimeInputs = [
+                go
+                git
+                coreutils
+                diffutils
+              ];
+              text = ''
+                src=''${PLOOPY_SRC:?enter the dev shell from a ploopy checkout}
+                dir=''${XDG_CACHE_HOME:-$HOME/.cache}/ploopy-dev/$(printf %s "$src" | sha256sum | cut -c1-12)
+                mkdir -p "$dir"
+                rev=$(git -C "$src" describe --always --dirty 2>/dev/null || echo dev)
+                go build -C "$src" -o "$dir/build" -ldflags "-X main.version=$rev" ./cmd/ploopy
+                if ! cmp -s "$dir/build" "$dir/ploopy"; then
+                  cp "$dir/build" "$dir/ploopy.$$"
+                  mv -f "$dir/ploopy.$$" "$dir/ploopy"
+                fi
+                exec "$dir/ploopy" "$@"
+              '';
+            })
             go
             gopls
             gofumpt
