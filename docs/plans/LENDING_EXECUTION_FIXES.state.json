@@ -677,6 +677,31 @@
         "reasoning": 3154,
         "cache_read": 684032
       }
+    },
+    "1.29": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T19:03:32+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "5483cafe473a5aa0934cd1a6cd0423ab57f33331",
+      "commits": [
+        "5513fde7a457479cd02266cdead723e34d4b1efa Remove the settings page's dead peak-hours helpers"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `5513fde` deletes `peakHours` and `weekdays` from `cmd/ploopy/run.go` and\n  drops the `harness` import that only `peakHours` used.\n\n**Landmark drift**\n\n- The declarations were at `cmd/ploopy/run.go:567-602`, a little later than\n  the cited `556-591`; no other callers existed.\n\n**Deviations from the work order**\n\n- No test was added: the defect is unreferenced dead code, and the unit's own\n  verification is the `rg` check, which now exits 1.\n\n**What the next session must know**\n\n- `rg -n 'func peakHours|func weekdays' cmd` is empty.\n- `strings` stays imported for `strings.Fields` in `runOptions`; `time` stays\n  for flags and push timeout.\n- Build, vet, gofmt and `go test ./...` are green.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb52f51ccffeKGS7qAGYOschTu",
+      "cost_usd": 0.005778515999999999,
+      "harness": "opencode",
+      "elapsed_s": 61,
+      "session_s": 44,
+      "verify_s": 1,
+      "test_s": 16,
+      "tokens": {
+        "input": 21906,
+        "output": 1921,
+        "reasoning": 442,
+        "cache_read": 358272
+      }
     }
   }
 }
