@@ -88,16 +88,7 @@ func chooseSettings(ctx context.Context, cmd *cobra.Command, e *env, p *plan.Pla
 	if err := board.run(); err != nil {
 		return chosenRun{}, err
 	}
-
-	chosen, err := resolveSettings(e, s)
-	if err != nil {
-		return chosenRun{}, err
-	}
-	if err := board.saveLeases(time.Now()); err != nil {
-		return chosenRun{}, err
-	}
-	saveLast(ctx, e.root, s)
-	return chosen, nil
+	return board.finish(time.Now())
 }
 
 // givenSettings is what the flags say, then what the plan's front matter says.

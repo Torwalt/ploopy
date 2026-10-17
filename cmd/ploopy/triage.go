@@ -22,76 +22,64 @@ var budgetChoices = []string{"0", "1", "2", "5", "10", "20"}
 
 // chooseTriage settles who weighs the findings. Flags win; then the review's
 // own triage when it is written already, else the last review's choice, else
-// the default; and whatever no flag gave is asked on one page.
+// the default. The board shows the result and lets the author change it.
 func chooseTriage(ctx context.Context, cmd *cobra.Command, e *env, f *reviewFlags, current *review.Triage) (review.Triage, error) {
 	t := defaultTriage
-	keep := "like last time"
 	switch {
 	case current != nil:
-		t, keep = *current, "as this review has it"
+		t = *current
 	default:
 		if last := loadLastTriage(ctx, e.root); last != nil && e.harnesses.Get(last.Agent) != nil {
 			t = *last
 		}
 	}
 
-	flags := cmd.Flags()
-	given := map[string]bool{}
-	for _, name := range []string{"triage-agent", "triage-model", "triage-effort", "triage-budget"} {
-		given[name] = flags.Changed(name)
-	}
-	if given["triage-agent"] && f.triageAgent != t.Agent {
+	given := triageGivens(cmd)
+	if given["agent"] && f.triageAgent != t.Agent {
 		t = review.Triage{Agent: f.triageAgent, Budget: t.Budget}
 		if h := e.harnesses.Get(f.triageAgent); h != nil {
 			t.Model, t.Effort = h.Models()[0], preferredEffort(h)
 		}
 	}
-	if given["triage-model"] {
+	if given["model"] {
 		t.Model = f.triageModel
 	}
-	if given["triage-effort"] {
+	if given["effort"] {
 		t.Effort = f.triageEffort
 	}
-	if given["triage-budget"] {
+	if given["budget"] {
 		t.Budget = f.triageBudget
 	}
-
-	all := given["triage-agent"] && given["triage-model"] && given["triage-effort"] && given["triage-budget"]
-	if ui.Interactive() && !all {
-		picked, err := ui.Pick("Who weighs the findings?", "triage-agent", []ui.Choice{
-			{Label: keep + ": " + t.Label(), Value: "keep"},
-			{Label: "change the triage", Value: "change"},
-		})
-		if err != nil {
-			return t, err
-		}
-		if picked == "change" {
-			if err := askTriage(e, &t, given); err != nil {
-				return t, err
-			}
-		}
-	}
-
-	h := e.harnesses.Get(t.Agent)
-	if h == nil {
-		return t, fmt.Errorf("the triage agent must be one of %s, not %s", strings.Join(e.harnesses.Names(), ", "), t.Agent)
-	}
-	if t.Effort != "" && !contains(h.Efforts(), t.Effort) {
-		return t, fmt.Errorf("the triage effort for %s must be one of %s", h.Name(), strings.Join(h.Efforts(), ", "))
-	}
-	if t.Budget < 0 {
-		return t, fmt.Errorf("the triage budget must not be negative")
+	if err := validateTriage(e, t); err != nil {
+		return t, err
 	}
 	saveLastTriage(ctx, e.root, t)
 	return t, nil
 }
 
-// askTriage puts everything the flags did not give on one page.
-func askTriage(e *env, t *review.Triage, given map[string]bool) error {
-	return askAgent(e, "Who weighs the findings?", "Spending cap for the triage session", t, map[string]bool{
-		"agent": given["triage-agent"], "model": given["triage-model"],
-		"effort": given["triage-effort"], "budget": given["triage-budget"],
-	})
+// triageGivens is which triage settings the flags answered.
+func triageGivens(cmd *cobra.Command) map[string]bool {
+	flags := cmd.Flags()
+	return map[string]bool{
+		"agent":  flags.Changed("triage-agent"),
+		"model":  flags.Changed("triage-model"),
+		"effort": flags.Changed("triage-effort"),
+		"budget": flags.Changed("triage-budget"),
+	}
+}
+
+func validateTriage(e *env, t review.Triage) error {
+	h := e.harnesses.Get(t.Agent)
+	if h == nil {
+		return fmt.Errorf("the triage agent must be one of %s, not %s", strings.Join(e.harnesses.Names(), ", "), t.Agent)
+	}
+	if t.Effort != "" && !contains(h.Efforts(), t.Effort) {
+		return fmt.Errorf("the triage effort for %s must be one of %s", h.Name(), strings.Join(h.Efforts(), ", "))
+	}
+	if t.Budget < 0 {
+		return fmt.Errorf("the triage budget must not be negative")
+	}
+	return nil
 }
 
 // askAgent asks for the agent, model, effort and spending cap of one session
