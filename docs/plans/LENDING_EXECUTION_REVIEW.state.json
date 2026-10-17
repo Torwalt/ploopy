@@ -239,6 +239,26 @@
         "reasoning": 49285,
         "cache_read": 5613696
       }
+    },
+    "1.13": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T15:51:52+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "ac8ff542f73616716219146e0a36643f2f537ee3",
+      "attempts": 1,
+      "handover": "# Findings: Unit 4.4 of LENDING_EXECUTION, One-key shortcuts in the main menu\n\nReviewed: 2c86d9cea473..2dc8a3fd5283, 5 files. Steps: all done.\n\n## F1 — `q` is an unknown letter, but it cancels the menu instead of doing nothing\n\n- Class: slip\n- Confidence: medium\n- Where: `internal/ui/pick.go:81-83`; the test at `internal/ui/pick_test.go:34-46`\n- Situation: at the *What now?* menu press `q`. No command has the shortcut `q`, so it is an unknown letter (the menu's help line advertises only `esc`).\n- Happens: `keyPicker.rune` scans the choices, finds no `q`, and then calls `cancel()`, setting `huh.ErrUserAborted` and quitting. `main` prints `ploopy: user aborted` and exits 2. The test named \"an unknown letter does nothing\" presses `z` only, so it does not catch this.\n- Should: the work order's *Done when* says \"an unknown letter doing nothing\". Drop the `q` special case (Esc and ctrl-c still cancel), or, if quitting on `q` is wanted, treat it as a declared departure and advertise it in the menu's help line. Either way the unknown-letter test should include `q`.\n- Test: add `pressKey(p, letter('q'))` and assert `!p.done` and `p.value == \"\"`; it fails today.\n\n## F2 — Nothing tests Esc or ctrl-c cancelling the picker\n\n- Class: gap\n- Confidence: high\n- Where: `internal/ui/pick.go:57-58`, `internal/ui/pick.go:98-102`; tests at `internal/ui/pick_test.go:22-68`\n- Situation: press Esc or ctrl-c at the *What now?* menu.\n- Happens: no test drives either path. Changing `return p.cancel()` to `return nil`, or dropping the `done`/`err` assignments in `cancel`, leaves `go test ./...` green while the menu can no longer be cancelled or reports no abort.\n- Should: the handover claims Esc/q/ctrl-c cancel with `huh.ErrUserAborted`; cover Esc and ctrl-c: `p.done == true`, `p.err == huh.ErrUserAborted`, `p.value == \"\"`.\n- Test: none exists.\n\n## F3 — The real menu's letters, and `a` appearing only during a run, have no test\n\n- Class: gap\n- Confidence: medium\n- Where: `cmd/ploopy/main.go:73-98`\n- Situation: change a letter in `chooseCommand` (for example make both close and land `c`, or swap `l` and `c`), or remove the `len(lives) \u003e 0` guard so `a adjust` is always offered.\n- Happens: `go test ./...` stays green. The only picker test constructs its own three choices and never calls `chooseCommand`, so nothing asserts the commands carry the letters the work order suggests, that the letters are unique, or that `a` exists only while a run goes on.\n- Should: test the menu's actual choices, extracting the list-building from `control.List` if needed: every command's letter from the work order, no duplicate letters, and `adjust` present exactly when a live run exists.\n- Test: none exists.",
+      "session_id": "ses_eb5e05211ffeZFwgpOMt8OrnCG",
+      "cost_usd": 0.026982918,
+      "harness": "opencode",
+      "elapsed_s": 162,
+      "session_s": 162,
+      "tokens": {
+        "input": 46001,
+        "output": 3417,
+        "reasoning": 22789,
+        "cache_read": 1453056
+      }
     }
   }
 }
