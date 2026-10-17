@@ -167,6 +167,30 @@
         "reasoning": 12224,
         "cache_read": 1861120
       }
+    },
+    "1.8": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:28:35+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "03705f9dd540b68aee3bc5da4c410cd3f5d7b046",
+      "commits": [
+        "36b3b477a598c9126cac401d422bc55c1034e648 Undo a hand-off whose worktree pop fails"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `36b3b47` undoes a hand-off whose stash pop fails in the new worktree:\n  `env.undoHandOff` removes the worktree with `DiscardWorktree`, switches the\n  main checkout back to the branch, and pops the stash there, returning the\n  original pop error. The default branch's working tree never receives the\n  changes.\n- `TestAFailedPopInTheNewWorktreeUndoesTheHandOff` installs a seam that writes\n  a half-applied file and fails the worktree pop, then asserts the worktree is\n  gone, the main checkout is on the branch with the changes restored, `master`\n  is untouched, and the stash is empty.\n\n**Landmark drift**\n\nNone. `handOff` was where the plan said; `RemoveWorktree` and `Switch` are\nunchanged in `internal/repo`.\n\n**Deviations from the work order**\n\n- Added `env.popStash` as the pop seam the unit permits, and\n  `env.popStashIn` to use it from `handOff` only for the new worktree.\n- Added `repo.DiscardWorktree`, a force-removing sibling of `RemoveWorktree`,\n  so whatever the failed pop half-applied is discarded rather than making the\n  worktree removal refuse.\n- Kept the main checkout's restore on the real `Repo.StashPop`; the seam only\n  needs to fail the worktree pop.\n\n**What the next session must know**\n\n- Stash entries are shared across worktrees, so a stash made in the main\n  checkout is still there after the worktree is removed; the recovery relies\n  on that.\n- A real failed `stash pop` leaves the stash in place, which is what the\n  recovery pops in the main checkout.\n- `DiscardWorktree` removes empty parent directories up to and including the\n  worktrees directory, exactly like `RemoveWorktree`.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb5506262ffekD31fouKAtsOeG",
+      "cost_usd": 0.019470684000000002,
+      "harness": "opencode",
+      "elapsed_s": 131,
+      "session_s": 122,
+      "test_s": 9,
+      "tokens": {
+        "input": 45394,
+        "output": 5242,
+        "reasoning": 7492,
+        "cache_read": 1673728
+      }
     }
   }
 }
