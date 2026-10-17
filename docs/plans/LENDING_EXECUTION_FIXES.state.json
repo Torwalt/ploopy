@@ -94,6 +94,30 @@
         "reasoning": 2481,
         "cache_read": 384384
       }
+    },
+    "1.5": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:22:53+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "43de631d01e34fffcdd567e1b07b8513c4e6f5ae",
+      "commits": [
+        "96801c68b2ed9eff7c9bb83506efa867fd364a28 Keep the red preflight until a session starts"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `96801c6` — `Loop.uncommitted` no longer clears `preflightRed`. `runUnit`\n  clears it only after `l.session` returns without a start failure, so a lent\n  agent that fails to start is benched and the next prompt — the first session\n  that actually starts — still carries the red tail.\n- `TestAnInheritedRedPreflightSurvivesALentAgentThatCannotStart` combines an\n  inherited dirty file with a red verify and a lent Claude step whose `Start`\n  errors. It asserts the bedrock's first prompt has the uncommitted section and\n  `Verify is red with these changes:`. It fails with the old clearing and passes\n  after.\n\n**Landmark drift**\n\n- The work order named `TestANightAgentThatCannotRunHandsOver`; its successor in\n  `internal/loop/night_test.go` is `TestALentSubscriptionThatCannotRunHandsOver`.\n  It was used as a model only.\n- The cited start-failure block is now `internal/loop/loop.go:863-869`.\n  `l.preflightRed = \"\"` moved to just after it.\n\n**Deviations from the work order**\n\n- The new test's lent failure is a start error (`fake.Step.Err`), matching the\n  cited block. I did not assert survival across a lent step that starts and\n  exits nonzero (`Outcome.Exit: 1`): that session did start, so it consumes the\n  tail under the goal's wording.\n\n**What the next session must know**\n\n- `preflightRed` is now consumed at the first successful `l.session` return in\n  the non-replay path. Replay sessions render no prompt, so they do not consume\n  it.\n- `Loop.Prompt` (used by the prompt/show commands) no longer mutates loop state;\n  rendering a prompt alone does not consume the tail.\n- `go build`, `go vet`, `gofmt -l`, and `go test ./...` are green.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb55510b7ffeJWvHN3YgiWa3Zy",
+      "cost_usd": 0.017802684000000006,
+      "harness": "opencode",
+      "elapsed_s": 96,
+      "session_s": 87,
+      "test_s": 8,
+      "tokens": {
+        "input": 45914,
+        "output": 5569,
+        "reasoning": 5007,
+        "cache_read": 1523328
+      }
     }
   }
 }
