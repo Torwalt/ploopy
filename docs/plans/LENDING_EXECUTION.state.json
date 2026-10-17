@@ -219,6 +219,30 @@
         "reasoning": 16757,
         "cache_read": 6994432
       }
+    },
+    "4.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T12:48:40+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "8355569c95470b0ff5c4f393aa58085d6c99b64a",
+      "commits": [
+        "e374646ea0d45b7fb6da37bffea53e683a568e76 Add the keyboard board component"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `e374646` adds `ui.Board`: a bubbletea model over a title, `[]ui.Column`\n  (fields, read-only lines, optional `Dim`) and a `Footer func() []string`.\n  `NewBoard` starts with the first column focused; `Run` drives bubbletea and\n  returns the values in column/field order, or `huh.ErrUserAborted`.\n- Keys: 1–9 and Tab/Shift-Tab focus; a letter or Shift+letter cycles the\n  focused column's matching field; up/down move the field cursor and\n  left/right cycle it; Enter returns, Esc/q/ctrl-c abort. Locked fields keep\n  their value and show the reason.\n- Clock-bearing values answer `+`/`-` on their last clock, and `[`/`]` on the\n  start clock of a span; hours wrap 0–23 and minutes are kept.\n- Layout joins columns with two spaces when they fit the `WindowSizeMsg`\n  width, else stacks them. Styles come from `huh.ThemeBase16`; focused title\n  and cursor field are highlighted. `Footer` is called on construction and\n  after every update that changes focus, cursor or a value.\n- bubbletea is now a direct `go.mod` dependency; `AGENTS.md` names it and\n  mentions the board under `internal/ui`.\n\n**Landmark drift**\n\n- None. `internal/ui/form.go` still has `ui.Field`, `Form` and `FormNote`;\n  the board lives beside it in `internal/ui/board.go`.\n\n**Deviations from the work order**\n\n- Time fields are recognised from the value (`HH:MM` or `HH:MM-HH:MM`) rather\n  than a separate field kind, so a `u`-style value such as `until 09:00` or\n  `nightly 21:00-09:00` adjusts without extra metadata.\n- A locked-field reason is rendered on its own notice line just above the\n  fixed help line, not appended to it.\n- Added `Column.Dim` for the “not this run” styling §10 describes; nothing\n  uses it yet.\n\n**What the next session must know**\n\n- `Run` is the only terminal entry point; tests drive `Update` and read\n  `Result()`. `Result` returns a copy of the values in column then field order.\n- Choice values are updated in place through `BoardField.Value`; `fieldLabel`\n  maps a value back through `Choices()` for display, falling back to the raw\n  value when no choice matches.\n- The board does not build leases, forecast the footer or write settings; the\n  next unit must construct the columns and footer from `loadHistory`,\n  `windowsNow` and the lease file.\n- `Dim` only dims a column’s text; the caller must still put “not this run” in\n  its title if it wants that wording.\n\n**Open problems**\n\n- `Run` does not check `ui.Interactive`; commands wiring the board must decide\n  their own non-terminal behaviour, as `Form` does today.\n- Time adjustment scans values generically. If a future field value happens to\n  contain a clock but is not meant to be adjustable, it will respond to\n  `+`/`-`; use a non-clock value or add explicit metadata if that becomes a\n  problem.",
+      "session_id": "ses_eb6885dcbffe5r1KdpXh2qYbqs",
+      "cost_usd": 0.047575332000000005,
+      "harness": "opencode",
+      "elapsed_s": 182,
+      "session_s": 172,
+      "test_s": 9,
+      "tokens": {
+        "input": 170658,
+        "output": 9014,
+        "reasoning": 22335,
+        "cache_read": 1055744
+      }
     }
   }
 }
