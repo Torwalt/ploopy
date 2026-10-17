@@ -22,14 +22,15 @@ func newClose(e *env) *cobra.Command {
 		Long: "Delete a finished plan and its state file in one commit, on the branch\n" +
 			"and in the checkout that hold them, with the plan's report as the\n" +
 			"commit's body. Nothing else that is staged goes into that commit.\n\n" +
-			"When the plan was the last one in ploopy's own worktree for its branch,\n" +
-			"and no run is going on there, the worktree goes too, its .ploopy/ with\n" +
-			"it. Any other checkout's .ploopy/ is left alone.",
+			"When no plan of its family (the plan, its reviews and fix plans) is\n" +
+			"left in ploopy's own worktree for its branch, and no run is going on\n" +
+			"there, the worktree goes too, its .ploopy/ with it. Other plans there\n" +
+			"have no say, and any other checkout's .ploopy/ is left alone.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error { return closePlan(cmd.Context(), e, args, force, keep) },
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "close a plan with units still open")
-	cmd.Flags().BoolVar(&keep, "keep-worktree", false, "keep ploopy's worktree even when no plan is left in it")
+	cmd.Flags().BoolVar(&keep, "keep-worktree", false, "keep ploopy's worktree even when no plan of the family is left in it")
 	return cmd
 }
 

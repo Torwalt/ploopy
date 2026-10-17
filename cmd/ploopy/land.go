@@ -41,8 +41,10 @@ func newLand(e *env) *cobra.Command {
 		Use:   "land [BRANCH]",
 		Short: "Land a finished branch: close its plans, rebase, check, fast-forward",
 		Long: "Put a branch whose plans are all finished on the default branch.\n\n" +
-			"Every plan the branch holds is closed, each in a commit carrying its\n" +
-			"report. The branch is rebased onto the default branch, and the verify\n" +
+			"The branch's plans are closed, each in a commit carrying its report:\n" +
+			"the plan it is named after and its reviews and fix plans, or on a\n" +
+			"branch named after no plan, the plans it did not inherit. Any other\n" +
+			"plan it holds is left alone. The branch is rebased onto the default branch, and the verify\n" +
 			"and test commands run on the result. A conflict, or a check that fails\n" +
 			"on the rebased branch, goes to a session with the land-repair skill;\n" +
 			"git and the checks decide whether it repaired it. Once the checks pass,\n" +
