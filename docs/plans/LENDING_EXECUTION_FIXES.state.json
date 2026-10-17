@@ -507,6 +507,30 @@
         "reasoning": 2495,
         "cache_read": 996864
       }
+    },
+    "1.22": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:50:23+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "60610c0293a5848d2fa0e82a67f2708c24f08cee",
+      "commits": [
+        "1b15f4f8295a5f8057d72ee07f79e8fb1bf6e6af Test the boards' paths from Enter to a run"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `1b15f4f` moves both boards' post-Enter work into one testable step:\n  `settingsBoard.runBoard` reads the board, `start` then resolves, saves and\n  remembers a run, and `applyBoard` writes leases and lays settings over a live\n  run. `chooseSettings`, `reviewPlan` and `adjustInteractively` all go through\n  them.\n- Tests now drive a run board's edited term/model/keep through `start` and read\n  the result from `lease.Load`, including an unchanged lease and a cancel.\n- The adjust test drives `applyBoard` through `l`, `w`, `p`, lease edits and\n  `then`; the adjust-board test also asserts the bedrock is the live run's\n  `opencode / deepseek/deepseek-flash / high`.\n- The review-board test presses `n`, enters, and checks `chosen.then == \"fixes\"`.\n\n**Landmark drift**\n\nNone. `settingsBoard.run` was at `cmd/ploopy/board.go:423`; it is now split\ninto `runBoard`, `start` and `applyBoard` just below the footer.\n\n**Deviations from the work order**\n\nThe post-board functions were introduced as `boardPresent` wrappers so tests can\nsend key events instead of running a tea program, as the work order allows.\n`review.go` now calls `start` rather than `run` followed by `finish`.\n\nThe lease test uses `allHarnesses` and clears `PATH` so codex's live budget read\nfails fast instead of waiting on a real `codex app-server`.\n\nThe adjust apply test builds a small git repo with a bare origin so the `p`\nfield exists and can be exercised.\n\n**What the next session must know**\n\n- The mutation checks were run by hand: deleting `sb.read()` fails the adjust\n  apply test on push; deleting `saveLeases` from `finish` fails the lease test.\n- `applyBoard` reads the board a second time after `runBoard` already did. That\n  is harmless but intentional: it keeps the post-board step self-contained.\n- `pushableRepo` lives in `board_test.go` and may be useful for other board\n  tests that need a pushable branch.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb53da177ffecxeH6VrjHmNsLw",
+      "cost_usd": 0.040501829999999996,
+      "harness": "opencode",
+      "elapsed_s": 210,
+      "session_s": 203,
+      "test_s": 7,
+      "tokens": {
+        "input": 70265,
+        "output": 9171,
+        "reasoning": 19233,
+        "cache_read": 4306560
+      }
     }
   }
 }
