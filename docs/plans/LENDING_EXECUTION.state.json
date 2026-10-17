@@ -243,6 +243,31 @@
         "reasoning": 22335,
         "cache_read": 1055744
       }
+    },
+    "4.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T12:57:10+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "58578475075aff09762dc0c30f04d2b26f925aa3",
+      "commits": [
+        "da711bee63459e9881dc4719c918f024f11ac6c8 Put run settings on the board"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `da711be` puts run settings on `ui.Board`: Bedrock, one column per metered\n  subscription, and Run, with the forecast footer. `chooseSettings` now always\n  shows the board interactively; Enter resolves the settings and starts.\n- Given settings are locked with `from a flag` / `from the plan`; leases are\n  edited as drafts and only written on Enter, through `lease.Save`.\n- The pure forecast lives in `cmd/ploopy/forecast.go`, with tests for an open\n  lease limited by the week, an until lease limited by fresh windows, an\n  unknown subscription, nightly next-span, and the bedrock's rest and cost.\n- The old pick, `askSettings`, `leasesNote`, `printEstimates` and `describe`\n  are gone. The README *Start* section shows the board.\n\n**Landmark drift**\n\n- None. `chooseSettings`, `givenSettings`, `fill`, `windowsNow`,\n  `loadHistory`, `history.For` and `loop.EffectiveKeep` were where the plan\n  said. New code is in `cmd/ploopy/board.go` and `cmd/ploopy/forecast.go`.\n\n**Deviations from the work order**\n\n- Added `ui.Board.OnChange` and `ui.Board.SetColumns` so the command can rebuild\n  columns when the bedrock agent or subscription set changes (the subscription\n  column disappears, or says `not this run`), as §10 requires.\n- Exported `loop.LeaseSpan` and `loop.LendOrder`; the forecast uses the latter\n  rather than copying §7's ordering.\n- A nightly lease outside its span is forecast over the next span, per §10's\n  \"current or next span only\", rather than shown as `?`.\n- Subscriptions outside the run's set are passed to the forecast as not lent,\n  so they show `?` and take no units.\n- Removed `printEstimates` and `leasesNote` once nothing used them.\n\n**What the next session must know**\n\n- `settingsBoard` (`cmd/ploopy/board.go`) is meant to be shared with 4.3.\n  `bedrockColumn`, `subscriptionColumn` and `runColumn` are the column builders;\n  `saveLeases` writes only drafts that changed, so an untouched `mine` column\n  creates no lease. Reuse these rather than copying them.\n- Lease edits live in `leaseDraft` until `board.run()` returns. A cancel writes\n  nothing. `loopLease` preserves the exact original until/span when the term\n  string is unchanged, and re-parses an adjusted clock otherwise.\n- The footer recomputes on every focus/cursor/value change. `OnChange`\n  normalises the bedrock's model/effort after an agent change and syncs\n  spend-all/secondary before the footer runs.\n- `loadLeaseDrafts` loads every metered harness, including the bedrock's, and\n  calls `windowsNow` once per harness at construction; that can start Codex's\n  `app-server`.\n- The non-interactive path still goes through `givenSettings` then `unattended`\n  with no board.\n- `cmd/ploopy/board_test.go` covers locked sources and dimming; it needs the\n  `settingsCommand` helper from `subscriptions_test.go`.\n\n**Open problems**\n\n- 4.3 still uses the old adjust pages and does not yet build the adjust board.\n- `go test` has no test for saving an edited lease or for the board's Enter\n  path; those were checked only by build and reasoning.\n- `subscriptionChoices` still offers every metered harness, even one that is\n  currently `mine`; choosing it alone gives a bedrock-only run.",
+      "session_id": "ses_eb68597a9ffeL1u1eMEhMZKBlL",
+      "cost_usd": 0.08817954,
+      "harness": "opencode",
+      "elapsed_s": 510,
+      "session_s": 493,
+      "verify_s": 1,
+      "test_s": 17,
+      "tokens": {
+        "input": 104446,
+        "output": 24426,
+        "reasoning": 49606,
+        "cache_read": 9364480
+      }
     }
   }
 }
