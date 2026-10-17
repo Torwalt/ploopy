@@ -207,9 +207,24 @@ func listLeases(cmd *cobra.Command, e *env, now time.Time) error {
 	}
 	records := localHistory(cmd.Context())
 	for _, l := range active {
+		if l.Kind == lease.Nightly {
+			if _, err := leaseSpan(l); err != nil {
+				return err
+			}
+		}
 		fmt.Fprintln(cmd.OutOrStdout(), leaseLine(e.harnesses.Get(l.Harness), l, history.Latest(records, l.Harness), now))
 	}
 	return nil
+}
+
+// leaseSpan reads a nightly lease's span. The lease file keeps it opaque, so a
+// span that will not parse is caught where the lease is used.
+func leaseSpan(l lease.Lease) (loop.Away, error) {
+	span, err := loop.ParseAway(l.Span)
+	if err != nil {
+		return loop.Away{}, fmt.Errorf("%s: lease for %s has span %q: %w", lease.Path(), l.Harness, l.Span, err)
+	}
+	return span, nil
 }
 
 // localHistory is the history of the checkout the command runs in, if any.
@@ -311,9 +326,9 @@ func lendingFromLeases(harnesses harness.Set, primary string, leases []lease.Lea
 		case lease.Until:
 			out.Kind, out.Until = loop.LeaseUntil, l.Until
 		case lease.Nightly:
-			span, err := loop.ParseAway(l.Span)
+			span, err := leaseSpan(l)
 			if err != nil {
-				return nil, fmt.Errorf("%s: lease for %s has span %q: %w", lease.Path(), l.Harness, l.Span, err)
+				return nil, err
 			}
 			out.Kind, out.Span = loop.LeaseNightly, span
 		case lease.Open:

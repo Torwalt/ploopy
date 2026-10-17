@@ -229,3 +229,19 @@ func TestSteeringReadsLeasesAsTheyChangeAndLeavesTheBedrockOut(t *testing.T) {
 		t.Fatalf("lending %+v", lending)
 	}
 }
+
+func TestLendingListRefusesAMalformedNightlySpan(t *testing.T) {
+	e := lendEnv(t)
+	if err := lease.Save(lease.File{Leases: []lease.Lease{{
+		Harness: "claude", Kind: lease.Nightly, Span: "09:00", Keep: 20,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runCommand(t, newLend(e))
+	if err == nil {
+		t.Fatalf("a malformed nightly span was listed:\n%s", out)
+	}
+	if !strings.Contains(err.Error(), lease.Path()) {
+		t.Fatalf("error %v does not name %s", err, lease.Path())
+	}
+}
