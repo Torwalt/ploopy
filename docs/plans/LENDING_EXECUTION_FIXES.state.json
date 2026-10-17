@@ -143,6 +143,30 @@
         "reasoning": 589,
         "cache_read": 535168
       }
+    },
+    "1.7": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:26:24+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "c4e1d2f3ed1ca814db3c447bc6844fae14f9e79d",
+      "commits": [
+        "62e4a305dbe2e50f15e0c11b9ca8fb4e22b17101 Carry staged deletions and renames across a hand-off"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `62e4a30` makes `StashPaths` match the whole tree with\n  `--include-untracked` and excludes every status path that is not in the dirt\n  list being stashed. Git cannot match a pathspec for a deleted file, so the\n  old path-per-change form failed on staged deletions and renames; matching\n  `.` and excluding the author's and ploopy's paths still stashes exactly the\n  dirt.\n- Tests: `TestAStagedDeletionMovesWithTheBranch` and\n  `TestAStagedRenameMovesWithTheBranch` assert the worktree holds the change,\n  the main checkout is clean on `master` except `NOTES.md`, and both stashes\n  are empty. `TestAFailedHandOffPutsTheChangesBack` now also carries a staged\n  deletion and a staged rename and asserts they are back in the main checkout\n  with an empty stash.\n\n**Landmark drift**\n\nNone. `StashPaths` was at `internal/repo/repo.go:146-153` and `handOff` at\n`cmd/ploopy/worktree.go:104-154` as the plan said.\n\n**Deviations from the work order**\n\n- Instead of fixing the path list at the call site, the change is inside\n  `StashPaths` so its contract (\"exactly these paths\") still holds for the one\n  caller. Exclusions are concrete status paths, not `AuthorPaths` patterns,\n  because author patterns are gitignore-shaped (a bare name matches anywhere)\n  and are not directly usable as git pathspecs.\n- Extended the existing failed-hand-off test to cover the new change shapes\n  as well as the two new success tests; the plan only required the latter.\n\n**What the next session must know**\n\n- The pathspec is `:(exclude,literal)\u003cpath\u003e`, so a filename with glob\n  characters is excluded literally.\n- A rename that is not dirt (its new path is an author path) has both its\n  `Path` and `From` excluded, so neither half is stashed.\n- Unit 1.8's F-D1 work starts from `handOff` and\n  `TestAFailedHandOffPutsTheChangesBack`; that test's setup now includes\n  `gone.txt` (staged deletion) and `old.txt` → `new.txt` (staged rename), which\n  must be restored after a failed hand-off.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb552d56cffeShZH7Lqmbp20RW",
+      "cost_usd": 0.023144309999999998,
+      "harness": "opencode",
+      "elapsed_s": 160,
+      "session_s": 152,
+      "test_s": 8,
+      "tokens": {
+        "input": 42837,
+        "output": 6335,
+        "reasoning": 12224,
+        "cache_read": 1861120
+      }
     }
   }
 }
