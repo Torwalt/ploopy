@@ -216,6 +216,114 @@ func TestAnUnknownWeeklyBudgetGoesLastAmongFreshWindows(t *testing.T) {
 	}
 }
 
+// Of two windows already open, the one that expires first leads.
+func TestTheEarlierOpenWindowGoesFirst(t *testing.T) {
+	now := at(15, 23, 0)
+	claude := &fake.Harness{Named: "claude"}
+	codex := &fake.Harness{Named: "codex"}
+	lease := func(h *fake.Harness) Lease {
+		return Lease{Agent: Agent{Harness: h}, Kind: LeaseOpen, Keep: 0}
+	}
+	leases := []Lease{lease(claude), lease(codex)}
+	budgets := map[string]*harness.Budget{
+		"claude": windows(now, 0.5, now.Add(2*time.Hour), 0.5),
+		"codex":  windows(now, 0.5, now.Add(time.Hour), 0.5),
+	}
+	LendOrder(leases, budgets, now, false)
+
+	if got := leases[0].Harness.Name(); got != "codex" {
+		t.Fatalf("first lease %s, want codex's earlier reset", got)
+	}
+}
+
+// Fresh leases with nothing to choose between them keep the lease file's order.
+func TestFreshLeasesOfEqualUrgencyKeepLeaseOrder(t *testing.T) {
+	now := at(15, 23, 0)
+	claude := &fake.Harness{Named: "claude"}
+	codex := &fake.Harness{Named: "codex"}
+	lease := func(h *fake.Harness) Lease {
+		return Lease{Agent: Agent{Harness: h}, Kind: LeaseOpen, Keep: 0.2}
+	}
+	budgets := map[string]*harness.Budget{
+		"claude": weeklyOnly(now, 0.10, 24*time.Hour),
+		"codex":  weeklyOnly(now, 0.10, 24*time.Hour),
+	}
+	for _, order := range [][]*fake.Harness{{codex, claude}, {claude, codex}} {
+		leases := []Lease{lease(order[0]), lease(order[1])}
+		LendOrder(leases, budgets, now, false)
+		if got := leases[0].Harness.Name(); got != order[0].Name() {
+			t.Fatalf("lease order %s %s became %s first", order[0].Name(), order[1].Name(), got)
+		}
+	}
+}
+
+// Without a weekly window there is nothing to shrink against.
+func TestEffectiveKeepWithoutAWindowKeepsTheLeaseShare(t *testing.T) {
+	now := at(15, 23, 0)
+	lease := Lease{Agent: Agent{Harness: &fake.Harness{Named: "claude"}}, Kind: LeaseOpen, Keep: 0.2}
+
+	if got := EffectiveKeep(lease, nil, now, false); math.Abs(got-lease.Keep) > 1e-9 {
+		t.Fatalf("keep %v, want the lease's %v", got, lease.Keep)
+	}
+	ok, _, why := (Lending{}).Room(lease, nil, false, time.Time{}, now)
+	if !ok || why == "" {
+		t.Fatalf("room %v (%s), want the lease to have room", ok, why)
+	}
+}
+
+// A weekly reset beyond the week does not shrink the reserve past the lease's
+// share.
+func TestAWeekResettingBeyondSevenDaysKeepsTheLeaseShare(t *testing.T) {
+	now := at(15, 23, 0)
+	lease := Lease{Agent: Agent{Harness: &fake.Harness{Named: "claude"}}, Kind: LeaseOpen, Keep: 0.2}
+	b := weeklyOnly(now, 0.10, 200*time.Hour)
+
+	if got := EffectiveKeep(lease, b, now, false); math.Abs(got-lease.Keep) > 1e-9 {
+		t.Fatalf("keep %v, want the lease's %v", got, lease.Keep)
+	}
+}
+
+// Spending all drops the reserve, so the lease with the most room leads instead
+// of the one keeping the most back.
+func TestSpendingAllGivesTheWeekToTheLeaseWithMoreRoom(t *testing.T) {
+	now := at(15, 23, 0)
+	claude := &fake.Harness{Named: "claude"}
+	codex := &fake.Harness{Named: "codex"}
+	leasesFor := func() []Lease {
+		return []Lease{
+			{Agent: Agent{Harness: claude}, Kind: LeaseOpen, Keep: 0.2},
+			{Agent: Agent{Harness: codex}, Kind: LeaseOpen, Keep: 0},
+		}
+	}
+	budgets := map[string]*harness.Budget{
+		"claude": weeklyOnly(now, 0.50, 24*time.Hour),
+		"codex":  weeklyOnly(now, 0.51, 24*time.Hour),
+	}
+
+	leases := leasesFor()
+	LendOrder(leases, budgets, now, false)
+	if got := leases[0].Harness.Name(); got != "codex" {
+		t.Fatalf("keeping the reserve put %s first, want codex", got)
+	}
+
+	leases = leasesFor()
+	LendOrder(leases, budgets, now, true)
+	if got := leases[0].Harness.Name(); got != "claude" {
+		t.Fatalf("spending all put %s first, want claude", got)
+	}
+}
+
+// A weekly reset that already passed leaves nothing to lose by waiting.
+func TestAWeekAlreadyResetHasNoUrgency(t *testing.T) {
+	now := at(15, 23, 0)
+	lease := Lease{Agent: Agent{Harness: &fake.Harness{Named: "claude"}}, Kind: LeaseOpen, Keep: 0.2}
+	b := weeklyOnly(now, 0.10, -time.Hour)
+
+	if got := lendUrgency(lease, b, now, false); got != 0 {
+		t.Fatalf("urgency %v, want 0 for a week that already reset", got)
+	}
+}
+
 // lendingLoop builds a loop with an open lease for claude then codex, keeping
 // the shares asked for, and a fixed clock.
 func lendingLoop(t *testing.T, now time.Time, claudeKeep, codexKeep float64) (*Loop, *fake.Harness, *fake.Harness) {
