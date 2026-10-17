@@ -75,7 +75,7 @@ its sessions change nothing.
   with the `land-repair` skill. During a conflict the session resolves and
   stages, and ploopy continues the rebase; after a failing check it adds
   commits. git and the checks judge it, up to `--attempts` sessions per repair.
-  Who repairs is asked on a page of its own, like the triage, and remembered;
+  Who repairs is asked on a page of its own, and remembered;
 - the default branch is fast-forwarded where it is checked out. If it moved
   during the checks, the branch is rebased again;
 - a branch that was pushed before is pushed again with a lease, ploopy's
@@ -171,8 +171,8 @@ windows each subscription last reported.
 
 `ploopy adjust` shows the same board for a run that is going, after asking
 which run when several are. The bedrock's agent, model and effort are locked,
-`x` stops it after the current unit, and Enter applies the settings and any
-changed leases to every run.
+and `x` stops it after the current unit. Enter applies the settings to the
+chosen run and writes any changed leases for every run.
 
 Every answer is also a flag: `ploopy run --help`.
 
@@ -263,12 +263,14 @@ in the stats log and the report, and repeated in red at the end of the run:
 
 ## Codex
 
-Choose `codex` on the Agent page for runs, reviews, triage or usage-limit
+Choose `codex` in the board's Bedrock column for runs and reviews, in its
+Triage column for a review's triage, or with `l` as the bedrock's usage-limit
 fallback. It uses the installed Codex CLI and its existing login, config,
 MCP servers and skills. `nix develop` includes the CLI; authenticate with
 `codex login` before running unattended.
 
-For a review entirely with Codex, choose it for both the run and the triage.
+For a review entirely with Codex, choose it in both the Bedrock and Triage
+columns.
 The same choices can be passed as flags:
 
 ```sh
