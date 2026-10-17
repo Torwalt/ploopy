@@ -19,6 +19,26 @@
         "reasoning": 58697,
         "cache_read": 3351168
       }
+    },
+    "1.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T14:50:42+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "39055e9f4dd68b9617dac1ca43aa25f2bbe75f27",
+      "attempts": 1,
+      "handover": "# Findings: Unit 1.2, The sandbox, of LENDING_EXECUTION\n\nReviewed: 6737a2d34524..583bb4144f72, 6 files. Steps: all done.\n\n## F1 — The \"last mention\" lookup picks the previous handover, not the session's handover path\n\n- Class: slip\n- Confidence: high\n- Where: `dev/fakeagent/act.go:35` and `dev/fakeagent/act.go:71`; the prompt layout is `internal/loop/prompt.md:20-27`\n- Situation: The implementing prompt puts the session's own handover path on line 20, then inserts the previous unit's handover at line 27. The 1.2 handover in `docs/plans/LENDING_EXECUTION.state.json` says it took the path \"from the prompt's last mention of `Write the handover to `\", so it contains that marker after the session block. The same is true for any previous handover or work order that quotes the marker.\n- Happens: `quotedAfter` uses `strings.LastIndex` over the whole prompt, so it starts at the later mention in the previous handover. The next backtick is the one closing that quoted marker, so it extracts the text up to the next backtick in the work order. I reproduced this with the built fake and the 1.2 handover text: `/tmp/fp/handover.md` was not written; the fake instead created an untracked file in the repository whose name is the work-order text, leaving the tree dirty.\n- Should: Take the path from the `## This session` bullet (the first mention after that heading), not the last mention anywhere. §12 *Fake agents* requires the fake to write \"the handover to the path the prompt names\"; `internal/loop/prompt.md:20` is that path. The earlier review's \"i.e. the last mention\" assumed nothing after the session block repeats the phrase, which the previous-handover and work-order sections do.\n- Test: Add a case to `TestImplementingAndCollectingRoles` whose prompt has a `## Handover from the previous session` section containing the phrase, and assert the session path is written and `git status --porcelain` is empty. The sandbox integration test uses the toy handovers (\"Implemented unit 1.x.\"), so it cannot show this.\n\n## F2 — `nix run .#sandbox -- RELATIVE_DIR` resolves the directory inside the read-only Nix store\n\n- Class: slip\n- Confidence: high\n- Where: `flake.nix:61-64`\n- Situation: `nix run .#sandbox -- ./my-sandbox`, or any relative DIR passed to the app, from the repository.\n- Happens: The wrapper does `cd ${self}` (the flake source in the Nix store) before `exec go run ./dev/sandbox \"$@\"`. The sandbox's `filepath.Abs` therefore resolves `./my-sandbox` to `${self}/my-sandbox`, and `os.MkdirAll` fails with a read-only-filesystem or permission error. The app forwards its arguments, so it appears to accept a DIR, but a relative one can never be prepared.\n- Should: Resolve DIR against the caller's working directory, as `go run ./dev/sandbox [DIR]` does. The goal says both commands set up the sandbox, and §12 step 1 says DIR is a new temp directory when not given, implying a given one works for both.\n- Test: none; the flake app is not exercised by tests.\n\n## F3 — The default scenario's values are not tested; only the three table names are\n\n- Class: gap\n- Confidence: medium\n- Where: `dev/sandbox/main_test.go:55-63`; the default is `dev/sandbox/main.go:125-148`\n- Situation: `defaultScenario` drops or mistypes a value, for example `[claude] session_used` becomes `session_use`, or `[codex] outcome` is removed.\n- Happens: BurntSushi/toml ignores the unknown key and fakeagent defaults `outcome` to `done`. `TestPrepareBuildsTheSandbox` decodes into `map[string]any` and only checks that the `claude`, `codex` and `opencode` keys exist; `TestRunLandsTwoUnitsInTheSandbox` uses only `[opencode]`. Every test stays green although the documented default no longer exercises the windows, cost or outcomes §12 specifies.\n- Should: Assert the §12 default values, or at least one representative field per table, in the layout test so a broken default is visible.\n- Test: the existing `TestPrepareBuildsTheSandbox`, extended.",
+      "session_id": "ses_eb61af97cffetVsu83LN7q9F7f",
+      "cost_usd": 0.055553573999999994,
+      "harness": "opencode",
+      "elapsed_s": 335,
+      "session_s": 335,
+      "tokens": {
+        "input": 61317,
+        "output": 5694,
+        "reasoning": 56647,
+        "cache_read": 2983808
+      }
     }
   }
 }
