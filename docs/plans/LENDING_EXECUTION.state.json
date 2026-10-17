@@ -146,6 +146,30 @@
         "reasoning": 23566,
         "cache_read": 4207488
       }
+    },
+    "3.3": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T12:36:04+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "a492059def6dee6622edc71a3549355fd2cbefa6",
+      "commits": [
+        "4e604c30d0652c69967eb037f8ba2e02daaff1ae Shrink the weekly reserve and order leases by urgency"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `4e604c3` makes `EffectiveKeep` scale `lease.Keep` by the share of the week\n  left before its reset (`clamp(left/7d, 0, 1)`), keeping a lease's own share\n  when the week is unknown or already reset, and returning 1 for a 100% keep.\n  `Room` rule 3 now uses it, so the reserve shrinks as the reset nears.\n- `lendPick` evaluates every lease with room, then orders them by §7: an\n  already-active window first (earliest reset leading), fresh windows by\n  `(1 - EffectiveKeep - weeklyUsed) / hours until reset`, ties in lease-file\n  order. Unknown weekly windows have urgency 0 and sort last.\n- `night_test.go` gains table tests for every §6 row and the 100%-keep case,\n  §7's worked example (codex before claude), an open window beating a more\n  urgent fresh one, unknown week sorting last, and an end-to-end run where\n  codex takes 1.1 and, once its window is spent, claude takes 1.2.\n- README's away bullets now describe the order and the shrinking reserve.\n\n**Landmark drift**\n\n- `internal/loop/night.go` is unchanged in name. `EffectiveKeep` is at\n  `night.go:118`; the ordering helpers `lendChoice`/`lendOrder`/`lendUrgency`\n  and `lendPick` are at `night.go:301` onwards.\n\n**Deviations from the work order**\n\n- Extracted `lendOrder` and `lendUrgency` as helpers so the ordering can be\n  asserted directly; `lendPick` builds candidates, orders, and takes the first.\n- `lendUrgency` treats a weekly reset that has already passed as unknown\n  (urgency 0). The spec only names nil budget and zero reset; dividing by the\n  negative time until a stale reset would otherwise sort it arbitrarily.\n- Two old tests used weekly usage that now has room under the shrinking reserve\n  (96h to reset gives keep 11.4%, limit 88.6%): the `Room` table's keep row now\n  uses 90%, and `TestTheWeeklyKeepKeepsTheSubscriptionOut` uses 0.90. The 85/86\n  boundary is covered by the new §6 table.\n- README's away prose was updated rather than left transitional, because which\n  subscription runs is now author-visible.\n\n**What the next session must know**\n\n- `lendPick`'s budget is `meter.windows(now)`, the same one `Room` gets; a\n  synthesized window from `opened` carries the last reported weekly allowance.\n- An active window is `fresh == false`; only then is `b.Session.ResetAt` read\n  for ordering, so a nil budget there would be a bug in `Room`, not reachable.\n- §7 ordering is now the contract; `Lending.Leases` order only breaks ties.\n- The board and `ploopy lend` still do not render the shrunk keep (§6's\n  `20% → 4%`); that belongs to the later board and lease-command units.\n\n**Open problems**\n\n- None functional. The stale-weekly-reset urgency choice is worth keeping in\n  mind if a later unit refreshes budgets differently.",
+      "session_id": "ses_eb69492c8ffeJW65IbZKLxZ2sD",
+      "cost_usd": 0.036002316,
+      "harness": "opencode",
+      "elapsed_s": 226,
+      "session_s": 217,
+      "test_s": 8,
+      "tokens": {
+        "input": 61378,
+        "output": 12192,
+        "reasoning": 16628,
+        "cache_read": 3167872
+      }
     }
   }
 }
