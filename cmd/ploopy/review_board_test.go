@@ -176,3 +176,19 @@ func TestAReviewWhoseTriageRanHasALockedTriageColumn(t *testing.T) {
 		}
 	}
 }
+
+func TestTheReviewBoardOffersThenAfterTheReview(t *testing.T) {
+	e, _ := worktreeRepo(t, nil)
+	p := plan.Parse("---\nreviews: docs/plans/PASS.md\n---\n", "docs/plans/PASS_REVIEW.md")
+	board := reviewBoard(t, e, p, defaultTriage, nil, "")
+	at, run := columnByTitle(t, board.board, "Run")
+	field := fieldByKey(t, run, 'n')
+	if got := *field.Value; got != "stop" {
+		t.Fatalf("then starts as %q, want stop", got)
+	}
+	key(board.board, rune('1'+at))
+	key(board.board, 'n')
+	if got := *field.Value; got != "fixes" {
+		t.Fatalf("then cycles to %q, want fixes", got)
+	}
+}

@@ -43,6 +43,7 @@ type Settings struct {
 	Secondary     *Agent `json:"secondary,omitempty"`     // an empty harness means none
 	Subscriptions string `json:"subscriptions,omitempty"` // "", all, none, or harness names
 	SpendAll      *bool  `json:"spendAll,omitempty"`
+	Then          string `json:"then,omitempty"` // "", stop or fixes
 }
 
 // Over lays a change over base settings.
@@ -68,6 +69,9 @@ func (s Settings) Over(base Settings) Settings {
 	}
 	if s.SpendAll != nil {
 		out.SpendAll = s.SpendAll
+	}
+	if s.Then != "" {
+		out.Then = s.Then
 	}
 	return out
 }
@@ -108,6 +112,12 @@ func (s Settings) Describe() string {
 	}
 	if s.SpendAll != nil && *s.SpendAll {
 		parts = append(parts, "spending all of the week")
+	}
+	switch s.Then {
+	case "fixes":
+		parts = append(parts, "then run the fix plan")
+	case "stop":
+		parts = append(parts, "then stop")
 	}
 	if agent := s.SecondaryAgent(); agent != nil {
 		parts = append(parts, agent.Label()+" on a usage limit")

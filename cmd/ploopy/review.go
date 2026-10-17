@@ -45,7 +45,9 @@ func newReview(e *env) *cobra.Command {
 			"collecting sessions and a Triage column for the session that weighs the\n" +
 			"findings, remembered apart; the --triage flags answer it. A review already\n" +
 			"written runs on from where it stopped, and its triage can still be\n" +
-			"changed until it has run.",
+			"changed until it has run. --then fixes runs the fix plan the triage\n" +
+			"writes in the same invocation; --then stop, the default, ends after the\n" +
+			"review.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error { return reviewPlan(cmd, e, args, &f) },
 	}
@@ -54,6 +56,7 @@ func newReview(e *env) *cobra.Command {
 	_ = cmd.Flags().MarkHidden("all")
 
 	flags := cmd.Flags()
+	flags.StringVar(&f.run.then, "then", "", "after the review: stop, or fixes to run the fix plan it writes")
 	flags.StringVar(&f.since, "since", "", "review only the landed units from this id on")
 	flags.BoolVar(&f.writeOnly, "write-only", false, "write and commit the review without running it")
 	addTriageFlags(cmd, &f)

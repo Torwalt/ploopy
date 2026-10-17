@@ -159,3 +159,19 @@ func TestClosingWithdrawsTheRun(t *testing.T) {
 		t.Fatalf("listed %v after close", lives)
 	}
 }
+
+func TestThenIsLaidOverAndDescribed(t *testing.T) {
+	base := Settings{Then: "stop"}
+	if got := (Settings{Then: "fixes"}).Over(base); got.Then != "fixes" {
+		t.Fatalf("then laid over as %q", got.Then)
+	}
+	if got := (Settings{}).Over(base); got.Then != "stop" {
+		t.Fatalf("an unset change cleared then: %q", got.Then)
+	}
+	if desc := (Settings{Then: "fixes"}).Describe(); !strings.Contains(desc, "then run the fix plan") {
+		t.Fatalf("fixes is described as %q", desc)
+	}
+	if desc := (Settings{Then: "stop"}).Describe(); !strings.Contains(desc, "then stop") {
+		t.Fatalf("stop is described as %q", desc)
+	}
+}
