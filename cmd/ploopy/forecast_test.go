@@ -26,6 +26,66 @@ func forecastLease(h harness.Harness, kind loop.LeaseKind, until time.Time) loop
 	}
 }
 
+func TestLentSubscriptionsShareTheOpenUnitsInLendOrder(t *testing.T) {
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	active := forecastLease(codex.New(), loop.LeaseUntil, now.Add(6*time.Hour))
+	activeBudget := &harness.Budget{
+		At:      now,
+		Session: harness.Allowance{Used: 0.60, ResetAt: now.Add(2 * time.Hour), Length: harness.SessionWindow},
+		Weekly:  harness.Allowance{Used: 0.10, ResetAt: now.Add(harness.WeeklyWindow), Length: harness.WeeklyWindow},
+	}
+	fresh := forecastLease(claude.New(), loop.LeaseUntil, now.Add(10*time.Hour))
+	freshBudget := &harness.Budget{
+		At:     now,
+		Weekly: harness.Allowance{Used: 0.10, ResetAt: now.Add(harness.WeeklyWindow), Length: harness.WeeklyWindow},
+	}
+	result := forecastRun([]forecastPart{
+		{Name: "claude", Lease: &fresh, Budget: freshBudget,
+			Estimate: forecastEstimate("claude sonnet high", 0.10, 0.005, 0, 0)},
+		{Name: "codex", Lease: &active, Budget: activeBudget,
+			Estimate: forecastEstimate("codex gpt-6.1-sol high", 0.10, 0.005, 0, 0)},
+	}, "opencode", history.Estimate{}, 20, now, false)
+
+	if len(result.Subs) != 2 {
+		t.Fatalf("got %d subscription lines, want 2: %+v", len(result.Subs), result.Subs)
+	}
+	if result.Subs[0].Name != "codex" || result.Subs[0].Units != 4 {
+		t.Fatalf("first line %+v, want the active codex window with 4 units", result.Subs[0])
+	}
+	if result.Subs[1].Name != "claude" || result.Subs[1].Units != 16 {
+		t.Fatalf("second line %+v, want claude with the 16 units left", result.Subs[1])
+	}
+	if result.Bedrock.Units != 0 {
+		t.Fatalf("bedrock took %d units, want 0", result.Bedrock.Units)
+	}
+	if got, want := result.String(), "≈ codex 4 · claude 16 · opencode 0 units"; got != want {
+		t.Fatalf("footer %q, want %q", got, want)
+	}
+}
+
+func TestAnOpenLeaseWithNoWeeklyEstimateTakesEveryOpenUnit(t *testing.T) {
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	lease := forecastLease(claude.New(), loop.LeaseOpen, time.Time{})
+	budget := &harness.Budget{
+		At:     now,
+		Weekly: harness.Allowance{Used: 0.10, ResetAt: now.Add(harness.WeeklyWindow), Length: harness.WeeklyWindow},
+	}
+	result := forecastRun([]forecastPart{{
+		Name: "claude", Lease: &lease, Budget: budget,
+		Estimate: forecastEstimate("claude sonnet high", 0.10, 0, 0, 0),
+	}}, "opencode", history.Estimate{}, 12, now, false)
+
+	if len(result.Subs) != 1 || result.Subs[0].Units != 12 {
+		t.Fatalf("open lease got %+v, want all 12 units", result.Subs)
+	}
+	if result.Bedrock.Units != 0 {
+		t.Fatalf("bedrock took %d units, want 0", result.Bedrock.Units)
+	}
+	if got, want := result.String(), "≈ claude 12 · opencode 0 units"; got != want {
+		t.Fatalf("footer %q, want %q", got, want)
+	}
+}
+
 func TestAnOpenLeaseIsLimitedByTheWeek(t *testing.T) {
 	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
 	lease := forecastLease(claude.New(), loop.LeaseOpen, time.Time{})
