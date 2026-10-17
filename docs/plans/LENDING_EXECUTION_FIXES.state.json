@@ -652,6 +652,31 @@
         "reasoning": 15468,
         "cache_read": 3049984
       }
+    },
+    "1.28": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T19:02:30+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "d4d2adcb5cea99bfa4ca63c7a4da85dff5003ca4",
+      "commits": [
+        "66a646805d69f5ffae6d9e7176811b65f6cd82a8 README: match the board and what adjust applies"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `66a6468` brings the README in line with the board:\n  - the land repair picker no longer compares itself to the triage, which is\n    now the review board's Triage column;\n  - the adjust paragraph says Enter sends settings to the chosen run and only\n    changed leases go to every run;\n  - the Codex section names the Bedrock and Triage columns, and `l` for the\n    usage-limit fallback.\n\n**Landmark drift**\n\n- The cited lines were unchanged: `README.md:78` is the land repair sentence,\n  the adjust paragraph is at `README.md:172-175`, and the Codex lead is\n  `README.md:266`. Edits shifted later lines by two.\n\n**Deviations from the work order**\n\n- No test was added. The repository's only README test checks the Start menu,\n  and this unit's stated verification is the `rg` check in *Done when*, which\n  now exits 1 (no match).\n- Also updated the following sentence in Codex to \"choose it in both the\n  Bedrock and Triage columns\", so the review advice names the same columns.\n\n**What the next session must know**\n\n- Land repair really is still a `ui.Pick` page (`cmd/ploopy/land.go:347`), so\n  the sentence keeps \"on a page of its own\" and only drops the triage\n  comparison.\n- `applyAdjust` (`cmd/ploopy/board.go:529`) writes the leases, then calls\n  `control.Adjust(live.PID, …)`; it never fans settings out to other runs.\n- `rg -n 'like the triage|Agent page|to every run\\.' README.md` is empty.\n- Build, vet, gofmt and `go test ./...` are green.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb5308232ffe3UlLlvn3voGaLC",
+      "cost_usd": 0.010724196000000002,
+      "harness": "opencode",
+      "elapsed_s": 77,
+      "session_s": 60,
+      "verify_s": 1,
+      "test_s": 16,
+      "tokens": {
+        "input": 33054,
+        "output": 3036,
+        "reasoning": 3154,
+        "cache_read": 684032
+      }
     }
   }
 }
