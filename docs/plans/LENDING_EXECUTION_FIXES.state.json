@@ -287,6 +287,30 @@
         "reasoning": 2952,
         "cache_read": 1250944
       }
+    },
+    "1.13": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:36:02+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "90af744ae8e3cc7ac3c1f90228a37a6e53702731",
+      "commits": [
+        "50b1d6bcd10e6652d1df3286d8e6c2a934eaee41 Refuse reclaiming a name that is not a subscription"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `50b1d6b` makes `reclaim` validate a named harness before touching the\n  lease file: unknown names and harnesses without a subscription get the same\n  `X has no subscription to lend` refusal as `lend`. `reclaim all` is unchanged.\n- Two tests in `cmd/ploopy/lend_test.go`: reclaiming `claude` while both\n  `claude` and `codex` are lent leaves only `codex`; reclaiming `claud` fails\n  with the refusal and leaves the stored lease unchanged.\n- The refusal test failed before the fix (it printed `reclaimed claud` and\n  returned nil).\n\n**Landmark drift**\n\nNone: `reclaim`/`newReclaim` were at `cmd/ploopy/lend.go:171-208` and\n`TestReclaimAll` at `cmd/ploopy/lend_test.go:145` as the plan said.\n\n**Deviations from the work order**\n\n- `reclaim` now takes `*env` (like `lend`) so it can resolve the harness set,\n  which `newReclaim` already sets in its `PersistentPreRunE`. No new plumbing.\n- The harness lookup uses the same `Get`/`harness.Metered` checks as `lend`, so\n  `reclaim opencode` is refused too, not just unknown names.\n\n**What the next session must know**\n\n- The \"-one\" test (`TestReclaimOneLeavesTheOther`) passed before the change;\n  only the refusal test proves the defect. Both are kept.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb5483ab7ffeWP2jYkUssRHwUe",
+      "cost_usd": 0.006481260000000002,
+      "harness": "opencode",
+      "elapsed_s": 43,
+      "session_s": 34,
+      "test_s": 9,
+      "tokens": {
+        "input": 24170,
+        "output": 2179,
+        "reasoning": 491,
+        "cache_read": 417920
+      }
     }
   }
 }
