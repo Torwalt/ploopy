@@ -59,7 +59,7 @@ type claudeWindows struct {
 	ResetsAt    int64   `json:"resetsAt"`
 }
 
-func claudeInfo(status string, h HarnessState, limitReset time.Time, id string) map[string]any {
+func claudeInfo(status string, h HarnessState, limitReset time.Time, weekly bool, id string) map[string]any {
 	sessionReset := h.Session.ResetAt
 	if sessionReset.IsZero() {
 		sessionReset = limitReset
@@ -68,15 +68,19 @@ func claudeInfo(status string, h HarnessState, limitReset time.Time, id string) 
 	if weeklyReset.IsZero() {
 		weeklyReset = limitReset
 	}
+	reset, window := sessionReset, "five_hour"
+	if weekly {
+		reset, window = weeklyReset, "seven_day"
+	}
 	return map[string]any{
 		"type":          "rate_limit_event",
 		"session_id":    id,
-		"resetsAt":      unix(sessionReset),
-		"rateLimitType": "five_hour",
+		"resetsAt":      unix(reset),
+		"rateLimitType": window,
 		"rate_limit_info": map[string]any{
 			"status":        status,
-			"resetsAt":      unix(sessionReset),
-			"rateLimitType": "five_hour",
+			"resetsAt":      unix(reset),
+			"rateLimitType": window,
 			"unifiedWindows": map[string]any{
 				"five_hour": claudeWindows{Utilization: h.Session.Used, ResetsAt: unix(sessionReset)},
 				"seven_day": claudeWindows{Utilization: h.Weekly.Used, ResetsAt: unix(weeklyReset)},
@@ -103,7 +107,7 @@ func speakClaude(sc Scenario, before, after HarnessState, text, id string) error
 	if err := write(map[string]any{"type": "system", "subtype": "init", "session_id": id, "apiKeySource": "none"}); err != nil {
 		return err
 	}
-	if err := write(claudeInfo("allowed", before, time.Time{}, id)); err != nil {
+	if err := write(claudeInfo("allowed", before, time.Time{}, false, id)); err != nil {
 		return err
 	}
 	if err := write(map[string]any{
@@ -112,7 +116,7 @@ func speakClaude(sc Scenario, before, after HarnessState, text, id string) error
 	}); err != nil {
 		return err
 	}
-	if err := write(claudeInfo("allowed", after, time.Time{}, id)); err != nil {
+	if err := write(claudeInfo("allowed", after, time.Time{}, false, id)); err != nil {
 		return err
 	}
 	if err := write(map[string]any{
@@ -125,7 +129,7 @@ func speakClaude(sc Scenario, before, after HarnessState, text, id string) error
 	return out.Flush()
 }
 
-func speakClaudeLimit(sc Scenario, state HarnessState, reset time.Time, args []string) error {
+func speakClaudeLimit(sc Scenario, state HarnessState, reset time.Time, weekly bool, args []string) error {
 	id := sessionID("claude", args)
 	text := "You have reached your usage limit. It resets at " +
 		reset.In(time.UTC).Format("3:04pm") + " (UTC)."
@@ -136,7 +140,7 @@ func speakClaudeLimit(sc Scenario, state HarnessState, reset time.Time, args []s
 	if err := write(map[string]any{"type": "system", "subtype": "init", "session_id": id, "apiKeySource": "none"}); err != nil {
 		return err
 	}
-	if err := write(claudeInfo("rejected", state, reset, id)); err != nil {
+	if err := write(claudeInfo("rejected", state, reset, weekly, id)); err != nil {
 		return err
 	}
 	if err := write(map[string]any{
@@ -184,8 +188,12 @@ func speakCodex(_ Scenario, text string) error {
 func speakCodexLimit(reset time.Time) error {
 	out := bufio.NewWriter(os.Stdout)
 	enc := json.NewEncoder(out)
-	text := "You've hit your usage limit. It resets at " +
-		reset.In(time.UTC).Format("3:04pm") + " (UTC)."
+	text := "You've hit your usage limit."
+	// The prose names a clock time but no day; beyond tomorrow the adapter
+	// must fall back to the weekly reset instead.
+	if time.Until(reset) <= 24*time.Hour {
+		text += " It resets at " + reset.In(time.UTC).Format("3:04pm") + " (UTC)."
+	}
 	if err := enc.Encode(map[string]any{"type": "error", "message": text}); err != nil {
 		return err
 	}

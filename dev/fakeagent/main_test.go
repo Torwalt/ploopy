@@ -223,6 +223,65 @@ outcome = "limit"
 	}
 }
 
+func TestClaudeWeeklyLimitReportsTheWeeklyReset(t *testing.T) {
+	dir := sandbox(t, `
+[claude]
+seconds = 0
+session_used = 0.40
+session_resets_in = "2h"
+weekly_used = 1.0
+weekly_resets_in = "96h"
+outcome = "done"
+`)
+
+	outcome := runClaude(t, "say hello")
+	if outcome.RateLimit == nil {
+		t.Fatalf("outcome %+v", outcome)
+	}
+	want := weeklyReset(t, dir, "claude")
+	if got := outcome.RateLimit.ResetAt; got.Sub(want) < -5*time.Minute || got.Sub(want) > 5*time.Minute {
+		t.Fatalf("limit reset %v, want the weekly reset %v", got, want)
+	}
+}
+
+func TestCodexWeeklyLimitReportsTheWeeklyReset(t *testing.T) {
+	dir := sandbox(t, `
+[codex]
+seconds = 0
+session_used = 0.40
+session_resets_in = "2h"
+weekly_used = 1.0
+weekly_resets_in = "96h"
+outcome = "done"
+`)
+
+	outcome := runCodex(t, "say hello")
+	if outcome.RateLimit == nil {
+		t.Fatalf("outcome %+v", outcome)
+	}
+	want := weeklyReset(t, dir, "codex")
+	if got := outcome.RateLimit.ResetAt; got.Sub(want) < -5*time.Minute || got.Sub(want) > 5*time.Minute {
+		t.Fatalf("limit reset %v, want the weekly reset %v", got, want)
+	}
+}
+
+func weeklyReset(t *testing.T, dir, name string) time.Time {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var state State
+	if err := json.Unmarshal(data, &state); err != nil {
+		t.Fatal(err)
+	}
+	entry, ok := state[name]
+	if !ok {
+		t.Fatalf("state has no %s", name)
+	}
+	return entry.Weekly.ResetAt
+}
+
 func TestEachSessionAddsItsShare(t *testing.T) {
 	dir := sandbox(t, claudeScenario)
 

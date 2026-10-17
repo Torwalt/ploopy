@@ -63,12 +63,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if reset, spent := entry.spent(now); sc.Outcome == "limit" || spent {
+	if reset, weekly, spent := entry.spent(now); sc.Outcome == "limit" || spent {
 		if reset.IsZero() {
 			reset = now.Add(sessionWindow)
 		}
 		if name == "claude" {
-			err = speakClaudeLimit(sc, *entry, reset, os.Args[1:])
+			err = speakClaudeLimit(sc, *entry, reset, weekly, os.Args[1:])
 		} else if name == "codex" {
 			err = speakCodexLimit(reset)
 		} else {

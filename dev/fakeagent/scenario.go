@@ -142,15 +142,16 @@ func (h *HarnessState) refresh(now time.Time) {
 	h.Weekly.refresh(now, weeklyWindow)
 }
 
-// spent is the reset of a window that has run out, if one has.
-func (h *HarnessState) spent(now time.Time) (time.Time, bool) {
+// spent is a window that has run out: its reset and whether it is the weekly
+// one. The five-hour window is the narrower limit, so it is reported first.
+func (h *HarnessState) spent(now time.Time) (reset time.Time, weekly, ok bool) {
 	if h.Session.ResetAt.After(now) && h.Session.Used >= 1 {
-		return h.Session.ResetAt, true
+		return h.Session.ResetAt, false, true
 	}
 	if h.Weekly.ResetAt.After(now) && h.Weekly.Used >= 1 {
-		return h.Weekly.ResetAt, true
+		return h.Weekly.ResetAt, true, true
 	}
-	return time.Time{}, false
+	return time.Time{}, false, false
 }
 
 // consume records a session's share, opening a fresh window when none runs.
