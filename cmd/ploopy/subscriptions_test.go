@@ -125,3 +125,19 @@ func TestAPlansSubscriptionsAreGivenAndNotAsked(t *testing.T) {
 		t.Fatal("the plan's subscriptions were not treated as given")
 	}
 }
+
+func TestAnEmptySubscriptionsFlagMeansAll(t *testing.T) {
+	e := subscriptionsEnv(t)
+	p := plan.Parse("---\nsubscriptions: none\n---\n", "docs/plans/PASS.md")
+	cmd, f := settingsCommand(t, "--subscriptions=")
+	s, g, err := givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Subscriptions != "all" {
+		t.Fatalf("subscriptions %q, want all", s.Subscriptions)
+	}
+	if !g.subscriptions || g.why("subscriptions") != "from a flag" {
+		t.Fatalf("given %+v, want from a flag", g)
+	}
+}

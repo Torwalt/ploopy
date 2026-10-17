@@ -204,8 +204,10 @@ A run uses every lent subscription by default. Its plan may narrow that with
 `subscriptions:` in front matter: `all`, `none` for the bedrock only, or names
 such as `claude codex`. A run says so at the start when the plan is narrower
 than `all`. The same choice is `ploopy run --subscriptions all|none|claude,codex`
-and `ploopy adjust --subscriptions …`; `--spend-all` spends the subscriptions'
-weeks instead of keeping their reserves, and is also on `adjust`. The board
+and `ploopy adjust --subscriptions …`. An empty `--subscriptions=` means `all`
+on either, so it clears a narrower plan or last run. `--spend-all` spends the
+subscriptions' weeks instead of keeping their reserves, and is also on
+`adjust`. The board
 offers the set as all lent, each subscription alone, or the bedrock only, and
 spending as keep reserves or spend all. A subscription outside the set is
 dimmed and says `not this run`.

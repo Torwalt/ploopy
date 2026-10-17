@@ -147,7 +147,7 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		s.Peak, g.peak = f.peak, true
 		g.from("peak", "from a flag")
 	}
-	if f.subscriptions != "" {
+	if cmd.Flags().Changed("subscriptions") {
 		set, err := subscriptionSet(e.harnesses, f.subscriptions)
 		if err != nil {
 			return s, g, err
