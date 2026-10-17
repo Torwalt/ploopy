@@ -49,6 +49,22 @@ func quotedAfter(text, marker string) string {
 	return rest[:end]
 }
 
+// quotedInSection reads the marker from the named section. The skill text
+// before the session block and the previous handover after it may quote the
+// same phrase, and only the session block names this session's path.
+func quotedInSection(text, heading, marker string) string {
+	head := "\n" + heading + "\n"
+	i := strings.Index(text, head)
+	if i < 0 {
+		return quotedAfter(text, marker)
+	}
+	rest := text[i+len(head):]
+	if end := strings.Index(rest, "\n## "); end >= 0 {
+		rest = rest[:end]
+	}
+	return quotedAfter(rest, marker)
+}
+
 func act(role, harness, prompt, outcome string) error {
 	switch role {
 	case "implement":
@@ -68,7 +84,7 @@ func implement(prompt, harness, outcome string) error {
 	}
 	id := match[1]
 
-	handover := quotedAfter(prompt, "Write the handover to ")
+	handover := quotedInSection(prompt, "## This session", "Write the handover to ")
 	if handover == "" {
 		return fmt.Errorf("the prompt names no handover path")
 	}

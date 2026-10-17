@@ -299,6 +299,41 @@ func TestImplementingAndCollectingRoles(t *testing.T) {
 	}
 }
 
+func TestImplementingTakesTheHandoverFromTheSessionBlock(t *testing.T) {
+	sandbox(t, claudeScenario)
+	repo := t.TempDir()
+	git(t, repo, "init", "-q")
+	git(t, repo, "-c", "user.name=test", "-c", "user.email=test@example.invalid",
+		"commit", "-q", "--allow-empty", "-m", "initial")
+
+	handover := filepath.Join(t.TempDir(), "1.1.md")
+	decoyBefore := filepath.Join(t.TempDir(), "before.md")
+	decoyAfter := filepath.Join(repo, "after.md")
+	prompt := "You are running unattended under the plan loop. You implement exactly one unit\n" +
+		"of an authorized, in-flight task document: unit 1.1, *Fake agents*, of\n" +
+		"`docs/plans/TOY.md`.\n\n" +
+		"The skill below is how every unit is carried out. Follow it.\n\n" +
+		"* Write the handover to `" + decoyBefore + "`, overwriting whatever is there.\n\n" +
+		"## This session\n\n" +
+		"Read these first, in this order, in full:\n\n" +
+		"* `AGENTS.md`\n" +
+		"* Write the handover to `" + handover + "`, overwriting whatever is there.\n\n" +
+		"## Handover from the previous session\n\n" +
+		"* Write the handover to `" + decoyAfter + "`, overwriting whatever is there.\n\n" +
+		"## Work order\n\n" +
+		"### 1.1 Fake agents\n\n**Goal:** write the handover.\n"
+	if output, err := invoke(t, repo, "claude", prompt); err != nil {
+		t.Fatalf("%v\n%s", err, output)
+	}
+
+	if text, err := os.ReadFile(handover); err != nil || !strings.Contains(string(text), "Implemented unit 1.1") {
+		t.Fatalf("handover %q, error %v", text, err)
+	}
+	if dirty := git(t, repo, "status", "--porcelain"); dirty != "" {
+		t.Fatalf("the implementing session left the tree dirty:\n%s", dirty)
+	}
+}
+
 func invoke(t *testing.T, dir, name, prompt string) (string, error) {
 	t.Helper()
 	cmd := exec.Command(filepath.Join(fakeDir, name))
