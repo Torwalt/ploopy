@@ -54,6 +54,8 @@ session's self-report where the repository can be asked instead.
 - `internal/control` — the runtime registry `ploopy adjust` reaches a running
   run through: one status file and one change file per process. Must not
   import `loop` or `harness`.
+- `internal/lease` — the machine's lease file: which subscriptions the author
+  lends, on what terms. Must not import `loop` or `harness`.
 - `internal/land` — put a finished branch on the default branch: rebase,
   checks, fast-forward, and a repair session where git or a check refuses.
   Must not import `loop`.
