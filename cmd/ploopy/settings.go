@@ -57,7 +57,7 @@ type chosenRun struct {
 	away    string
 	night   []control.NightAgent
 	reserve *int
-	nightly *loop.Night
+	lending *loop.Lending
 }
 
 // chooseSettings takes what the flags and the plan's front matter say, then
@@ -376,7 +376,7 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 			return chosenRun{}, fmt.Errorf("%s is the run's own agent; it cannot also take sessions while you are away", a.Harness)
 		}
 	}
-	nightly, err := toLoopNight(e.harnesses, s.Away, night, s.Reserve)
+	lending, err := toLoopLending(e.harnesses, s.Away, night, s.Reserve)
 	if err != nil {
 		return chosenRun{}, err
 	}
@@ -389,7 +389,7 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 		away:        s.Away,
 		night:       night,
 		reserve:     s.Reserve,
-		nightly:     nightly,
+		lending:     lending,
 	}, nil
 }
 

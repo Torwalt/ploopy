@@ -44,9 +44,10 @@ func TestAnUnattendedAwayRunNeedsItsSubscriptionsNamed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n := chosen.nightly
-	if n == nil || n.Away.String() != "21:00-09:00" || n.Reserve != 0.2 || len(n.Agents) != 1 || n.Agents[0].Windows != 2 {
-		t.Fatalf("night %+v", n)
+	n := chosen.lending
+	if n == nil || len(n.Leases) != 1 || n.Leases[0].Kind != loop.LeaseNightly ||
+		n.Leases[0].Span.String() != "21:00-09:00" || n.Leases[0].Keep != 0.2 {
+		t.Fatalf("lending %+v", n)
 	}
 	settings.Harness = "claude"
 	if _, err := unattended(e, settings); err == nil {
@@ -181,8 +182,8 @@ func TestTheRunsOwnAgentIsLeftOutOfARememberedNight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if chosen.nightly != nil || len(chosen.night) != 1 || chosen.night[0].Harness != "codex" {
-		t.Fatalf("night %+v, remembered %+v", chosen.nightly, chosen.night)
+	if chosen.lending != nil || len(chosen.night) != 1 || chosen.night[0].Harness != "codex" {
+		t.Fatalf("lending %+v, remembered %+v", chosen.lending, chosen.night)
 	}
 }
 

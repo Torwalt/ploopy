@@ -188,7 +188,7 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		MaxBudgetUSD: f.budget,
 		Secondary:    chosen.secondary,
 		WaitOffPeak:  chosen.waitOffPeak,
-		Night:        chosen.nightly,
+		Lending:      chosen.lending,
 		History:      historyPath(ctx, e.root),
 	}
 
