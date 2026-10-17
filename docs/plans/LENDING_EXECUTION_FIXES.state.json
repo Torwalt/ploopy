@@ -387,6 +387,30 @@
         "reasoning": 1355,
         "cache_read": 544128
       }
+    },
+    "1.17": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:41:30+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "3ed21014b488a49233b090330f616a842d80dc53",
+      "commits": [
+        "391a01345974a68ea148c610892022e6234e5916 Cover subscription settings on adjust, start and carry-over"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `391a013` adds tests for `adjust --subscriptions codex`, `--spend-all=true`\n  and `--spend-all=false` through `changeFromFlags`; the start messages for a\n  plan's set, a flag's set and spend-all; and `fill` carrying both settings\n  from the last run when neither the plan nor a flag gives them.\n- The two start-message branches moved from `runOnce` into\n  `announceSubscriptions` so a test can capture them with a buffer-backed\n  reporter. `runOnce` still calls it in the same place, after the run's\n  settings line.\n\n**Landmark drift**\n\n`run.go:296-305`'s two `report.Say` blocks now live in\n`announceSubscriptions`, just after `runOnce` in `cmd/ploopy/run.go`. The\nchangeFromFlags blocks and the two `fill` branches were where the work order\nsaid.\n\n**Deviations from the work order**\n\nThe start-message test drives the extracted `announceSubscriptions` directly\nwith `ui.NewReporter(\u0026buf, io.Discard)` rather than a full run. This pins the\nmessages and their plan-versus-flag wording without a fake harness or\nredirecting `os.Stdout`. The call site from `runOnce` is not itself covered by\na test.\n\n**What the next session must know**\n\n- `--spend-all=false` is treated as given, so `change.SpendAll` is a non-nil\n  pointer to false; the test checks the pointer as well as its value.\n- `fill` normalizes the last run's subscription string through\n  `subscriptionSet`, so a remembered empty set becomes `all`.\n- The start message names the plan only when the plan's normalized set equals\n  the chosen set.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb544134affej4pk73j7GN8iGQ",
+      "cost_usd": 0.016769460000000003,
+      "harness": "opencode",
+      "elapsed_s": 99,
+      "session_s": 91,
+      "test_s": 7,
+      "tokens": {
+        "input": 38074,
+        "output": 4540,
+        "reasoning": 7513,
+        "cache_read": 1275520
+      }
     }
   }
 }
