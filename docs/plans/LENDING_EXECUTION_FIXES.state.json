@@ -239,6 +239,30 @@
         "reasoning": 14316,
         "cache_read": 3142528
       }
+    },
+    "1.11": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:34:00+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "d3ffe7ef4843a315305ff10d980d777f70da439d",
+      "commits": [
+        "108afcc5ea7627e1877647acd1717b09ebc5d0bf Pin lease ordering and reserve edge cases"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `108afcc` adds six tests in `internal/loop/night_test.go`; no production\n  behaviour changed:\n  - earlier of two active windows leads (`LendOrder`);\n  - equal-urgency fresh leases keep lease-file order, tried in both orders;\n  - nil budget keeps `lease.Keep` and `Room` allows the open lease;\n  - a weekly reset 200h away keeps `lease.Keep` (upper clamp);\n  - spend-all reverses claude/codex with the unit's 50%/51% figures, and\n    keeping the reserve reverses it back;\n  - a weekly reset in the past gives `lendUrgency` 0.\n\n**Landmark drift**\n\n`night.go` shifted by earlier units: `EffectiveKeep` is 124-136 (plan said\n131-145), `lendOrder` 317-329, `lendUrgency` 350-356. The contracts are\nunchanged.\n\n**Deviations from the work order**\n\n- New test functions were added instead of extending the existing\n  `EffectiveKeep` table, so each Done-when clause maps to one named test.\n- The tie-order test checks both lease orders, catching a name tie-break in\n  either direction.\n- Each test was run against its named mutation (`.After` reset comparison, name\n  tie-break, nil budget returning 0, upper clamp raised to 2, urgency passing\n  `false` for spend-all, weekly guard using only `IsZero`). All six failed and\n  passed again once restored.\n\n**What the next session must know**\n\n- The ordering tests go through `LendOrder`, so a missing budget must stay\n  \"fresh\"; `weeklyOnly` supplies no session window, which is deliberate.\n- `TestSpendingAllGivesTheWeekToTheLeaseWithMoreRoom` depends on the exact\n  figures in the work order: claude keep 0.2 / 50% / 24h, codex keep 0 / 51% /\n  24h.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb54ab8bdffekIvuRId2w4D8yY",
+      "cost_usd": 0.016864674,
+      "harness": "opencode",
+      "elapsed_s": 85,
+      "session_s": 76,
+      "test_s": 9,
+      "tokens": {
+        "input": 47707,
+        "output": 4128,
+        "reasoning": 8158,
+        "cache_read": 779008
+      }
     }
   }
 }
