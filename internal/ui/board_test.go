@@ -221,6 +221,46 @@ func TestTimeFieldsMoveTheLeaseHours(t *testing.T) {
 	}
 }
 
+func TestTheLeaseEndMovesFromAnyFieldOfASubscriptionColumn(t *testing.T) {
+	until, keep := "until 09:00", "20%"
+	board := NewBoard("board", []Column{{Title: "claude", Fields: []BoardField{
+		{Key: 'u', Label: "lent", Value: &until},
+		{Key: 'm', Label: "model", Value: newString("sonnet")},
+		{Key: 'k', Label: "keep", Value: &keep},
+	}}}, nil)
+
+	press(board, plain(tea.KeyDown))
+	press(board, plain(tea.KeyDown))
+	if board.cursor[0] != 2 {
+		t.Fatalf("the cursor is on field %d, want keep", board.cursor[0])
+	}
+
+	press(board, letter('+'))
+	if until != "until 10:00" {
+		t.Fatalf("+ with the cursor on keep gave %q", until)
+	}
+	press(board, letter('-'))
+	if until != "until 09:00" {
+		t.Fatalf("- with the cursor on keep gave %q", until)
+	}
+}
+
+func TestBracketsLeaveASingleClockUntilUnchanged(t *testing.T) {
+	until := "until 09:00"
+	board := NewBoard("board", []Column{{Title: "claude", Fields: []BoardField{
+		{Key: 'u', Label: "lent", Value: &until},
+	}}}, nil)
+
+	press(board, letter(']'))
+	if until != "until 09:00" {
+		t.Fatalf("] moved a single-clock until to %q", until)
+	}
+	press(board, letter('['))
+	if until != "until 09:00" {
+		t.Fatalf("[ moved a single-clock until to %q", until)
+	}
+}
+
 func TestTheFooterIsRecomputedAfterAChange(t *testing.T) {
 	value := "a"
 	calls := 0
