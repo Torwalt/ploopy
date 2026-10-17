@@ -144,45 +144,47 @@ How should it run?
 
 Every answer is also a flag: `ploopy run --help`.
 
-## While you are away
+## Subscriptions
 
-Claude's and Codex's five-hour windows go unused at night. Pick an away span
-on the settings page (or `--away 21:00-09:00`), make the run's own agent the
-one without windows, such as opencode with DeepSeek, and ploopy puts what the
-subscriptions have left on a page of its own:
+The run's own agent is the *bedrock*: it always works. Claude and Codex are
+*subscriptions*: they take a session when you lend them, and nothing ever
+waits for one. Lending is per machine, not per run, and every run reads the
+same lease file.
 
-```
-While you are away, 21:00–09:00
-claude sonnet high · 5h 49% → 22:10 · weekly 51% → Tue 16:00 · seen 15:38
-  the rest of its window is free until 22:10; then 2 fresh window(s) fit before 09:00
-  per unit 16% of a 5h window (27% at worst), 1.0% of the week · ≈$2.25 list · 23 min — from 6 units
-  2 fresh window(s) ≈ 12 of 12 open units; the week ≈ 76% spent after them, 20% kept for you
-codex gpt-6.1-sol high · 5h 60% → 20:12 · weekly 9% → Thu 22 Oct 15:12 · now
-  2 fresh window(s) fit before 09:00
-  no estimate yet: 0 landed unit(s) on record, 3 needed
-opencode deepseek/deepseek-flash high takes the rest · per unit $0.05 · 4 min — from 33 units
-```
+`ploopy lend` lists what is lent. `ploopy lend claude --until 09:00`,
+`ploopy lend codex --open`, or `ploopy lend claude --nightly 21:00-09:00` lends
+a subscription; `--keep` says how much of its week stays yours, `--model` and
+`--effort` how it runs. `ploopy reclaim claude` takes one back and
+`ploopy reclaim all` takes them all. They work from any directory, like
+`ploopy adjust`.
 
-It is asked every time, since the windows differ every night. Inside the span,
-each session goes to the subscription with room that ploopy puts first, else to
-the run's own agent. A window already open goes before a fresh one; among fresh
-ones, the subscription with the most of its week to lose goes first:
+- an `until` lease lasts to the next such clock time, or to an RFC 3339 instant
+  in the file;
+- a `nightly` lease is lent every day inside its span, such as 21:00-09:00;
+- an `open` lease lasts until reclaimed.
 
-- a window that resets before you are back is used up for free;
-- a fresh window opens only when it would end before you are back;
+Each lease keeps a share of its subscription's week for you, 20% unless
+`--keep` says otherwise. The reserve shrinks as the weekly reset nears, so a
+week's leftovers are used before they reset, and `--keep 0` spends the lot.
+The settings page shows the active leases above its questions.
+
+Inside its lease, each session goes to the subscription with room that ploopy
+puts first, else to the bedrock. A window already open goes before a fresh
+one, and the one that resets first leads; among fresh ones, the subscription
+with the most of its week to lose goes first:
+
+- a window that resets before you reclaim the subscription is used up for
+  free;
+- a fresh window opens only when it would end before the lease does;
 - a subscription at its usage limit hands over without waiting;
 - one that cannot run, logged out or not installed, hands over too and sits
   out half an hour;
-- none goes past the share of the week you keep (20% unless you choose). That
-  reserve shrinks as the weekly reset nears, so a week's leftovers go before
-  they reset.
+- none goes past the share of the week you keep.
 
-Outside the span the subscriptions are yours. `--night claude=2,codex=1` names
-them, but the number after `=` is ignored: the span's end decides which fresh
-windows fit. `--weekly-reserve 20` and `ploopy adjust` answer the rest, and
-`adjust` changes the span mid-run. Claude reports its windows only from inside
-a session, so before the first one ploopy goes by the last it saw; Codex's are
-read live through `codex app-server`, without a model call.
+A lease only lets a subscription take sessions; the bedrock takes everything
+else. Claude reports its windows only from inside a session, so before the
+first one ploopy goes by the last it saw; Codex's are read live through
+`codex app-server`, without a model call.
 
 ## History
 
@@ -190,8 +192,8 @@ Every session goes to `.git/ploopy/history.jsonl`, shared by all worktrees and
 kept when one is removed. `ploopy history` says what a landed unit took each
 agent here, every attempt included, and where the windows stand; the settings
 page shows the same above its questions. An estimate needs three landed units
-of one agent; units run while you were away are preferred once there are three,
-because your own use moves the windows during the day. `--import` adds the
+of one agent; units run on a lent subscription are preferred once there are
+three, because your own use moves the windows during the day. `--import` adds the
 sessions the checkouts' stats logs still hold, Claude's windows read back out of
 its transcripts.
 

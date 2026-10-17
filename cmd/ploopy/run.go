@@ -110,11 +110,12 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	flags.StringVar(&f.peak, "peak", "", "a unit due in the harness's peak hours: wait or run")
 	flags.BoolVar(&f.quiet, "quiet", false, "report decisions only, without the session feed")
 	flags.DurationVar(&f.grace, "grace", time.Minute, "countdown before the end action")
-	flags.StringVar(&f.away, "away", "", "when you leave Claude and Codex to the run, such as 21:00-09:00, or none")
-	flags.StringVar(&f.night, "night", "",
-		"subscriptions that take units while you are away and the fresh 5h windows each may open, such as claude=2,codex/gpt-6.1-sol/high=1")
-	flags.IntVar(&f.reserve, "weekly-reserve", defaultReserve,
-		"percent of every weekly window the run leaves to you while you are away")
+	flags.StringVar(&f.away, "away", "", "")
+	_ = flags.MarkDeprecated("away", "lend subscriptions with `ploopy lend`")
+	flags.StringVar(&f.night, "night", "", "")
+	_ = flags.MarkDeprecated("night", "lend subscriptions with `ploopy lend`")
+	flags.IntVar(&f.reserve, "weekly-reserve", 0, "")
+	_ = flags.MarkDeprecated("weekly-reserve", "lend subscriptions with `ploopy lend`")
 }
 
 func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
@@ -159,6 +160,9 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		return fmt.Errorf("--test needs a test command: set `test` in .ploopy.toml or pass --test-cmd")
 	}
 
+	report := ui.NewReporter(os.Stdout, os.Stderr)
+	report.Quiet = f.quiet
+	leases := newLendingLoader(e.harnesses, chosen.agent.Harness.Name(), report)
 	opts := loop.Options{
 		PlanPath:     p.Path,
 		Harness:      chosen.agent.Harness,
@@ -188,12 +192,9 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		MaxBudgetUSD: f.budget,
 		Secondary:    chosen.secondary,
 		WaitOffPeak:  chosen.waitOffPeak,
-		Lending:      chosen.lending,
 		History:      historyPath(ctx, e.root),
 	}
 
-	report := ui.NewReporter(os.Stdout, os.Stderr)
-	report.Quiet = f.quiet
 	if f.dryRun {
 		runner, err := loop.New(t.root, opts, report)
 		if err != nil {
@@ -211,15 +212,15 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 	}
 	branch, _ := repo.New(root, nil).Branch(ctx)
 	opts.Branch = branch
+	opts.Lending = leases.load(time.Now())
 	steer := announce(control.Status{
 		Root: root, Plan: p.Path, Branch: branch,
 		Agent: chosen.agent.Label(),
 		Settings: control.Settings{
 			Finish: string(chosen.finish), Peak: peakName(chosen.waitOffPeak), Push: &chosen.push,
 			Secondary: toControlAgent(chosen.secondary),
-			Away:      chosen.away, Night: chosen.night, Reserve: chosen.reserve,
 		},
-	}, e.harnesses, report)
+	}, e.harnesses, leases, report)
 	defer steer.close()
 	opts.Steering = steer.loopSteering()
 
@@ -228,9 +229,9 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags) error {
 		return err
 	}
 
-	report.Say("%s with %s%s at %s effort%s%s%s%s%s", p.Path, chosen.agent.Harness.Name(),
+	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, chosen.agent.Harness.Name(),
 		modelSuffix(chosen.agent.Model), chosen.agent.Effort, secondarySuffix(chosen.secondary),
-		nightSuffix(chosen.away, chosen.night), peakSuffix(chosen), pushSuffix(chosen.push), finishSuffix(chosen.finish))
+		peakSuffix(chosen), pushSuffix(chosen.push), finishSuffix(chosen.finish))
 	if steer.run != nil {
 		report.Say("change what happens next from another terminal with `ploopy adjust`")
 	}
