@@ -110,16 +110,19 @@ through it item by item.
 
 ```
 $ ploopy
-┃ What now?
-┃ > run a plan
-┃   review a plan's work: findings, a triage, a fix plan
-┃   status of every plan
-┃   report on a plan: time, checks, cost
-┃   close a finished plan: delete it and its state, report in the commit
-┃   show a unit's work order
-┃   replay a unit's session
-┃   mark a unit by hand
-┃   lint the plans
+What now?
+> r  run a plan
+  v  review a plan's work: findings, a triage, a fix plan
+  s  status of every plan
+  p  report on a plan: time, checks, cost
+  h  history: what a unit took each agent here, and the usage windows
+  n  lend a subscription to every run, or list what is lent
+  c  close a finished plan: delete it and its state, report in the commit
+  l  land a finished branch: close its plans, rebase, check, fast-forward
+  w  show a unit's work order
+  y  replay a unit's session
+  m  mark a unit by hand
+  t  lint the plans
 
 ploopy · PASS_FIXES on pass-fixes · 12 open units
 ──────────────────────────────────────────────────────────────────────────────
@@ -134,6 +137,9 @@ ploopy · PASS_FIXES on pass-fixes · 12 open units
  ≈ claude 7 · codex 5 · opencode 0 units · ≈ $0.00 · done ≈ 04:12
  enter start   1–4 column   letter next   shift+letter back   +/- hour   esc
 ```
+
+Pressing a command's letter picks it at once; the arrows and Enter still work.
+While a run is going on, `a` changes it.
 
 Enter starts with these settings. A setting given as a flag or in the plan's
 front matter is locked and says where it came from. Changing a subscription's

@@ -79,23 +79,23 @@ func chooseCommand() (string, error) {
 		} else {
 			label += fmt.Sprintf(" (%d going on)", len(lives))
 		}
-		choices = append(choices, ui.Choice{Label: label, Value: "adjust"})
+		choices = append(choices, ui.Choice{Key: 'a', Label: label, Value: "adjust"})
 	}
 	choices = append(choices,
-		ui.Choice{Label: "run a plan", Value: "run"},
-		ui.Choice{Label: "review a plan's work: findings, a triage, a fix plan", Value: "review"},
-		ui.Choice{Label: "status of every plan", Value: "status"},
-		ui.Choice{Label: "report on a plan: time, checks, cost", Value: "report"},
-		ui.Choice{Label: "history: what a unit took each agent here, and the usage windows", Value: "history"},
-		ui.Choice{Label: "lend a subscription to every run, or list what is lent", Value: "lend"},
-		ui.Choice{Label: "close a finished plan: delete it and its state, report in the commit", Value: "close"},
-		ui.Choice{Label: "land a finished branch: close its plans, rebase, check, fast-forward", Value: "land"},
-		ui.Choice{Label: "show a unit's work order", Value: "show"},
-		ui.Choice{Label: "replay a unit's session", Value: "replay"},
-		ui.Choice{Label: "mark a unit by hand", Value: "mark"},
-		ui.Choice{Label: "lint the plans", Value: "lint"},
+		ui.Choice{Key: 'r', Label: "run a plan", Value: "run"},
+		ui.Choice{Key: 'v', Label: "review a plan's work: findings, a triage, a fix plan", Value: "review"},
+		ui.Choice{Key: 's', Label: "status of every plan", Value: "status"},
+		ui.Choice{Key: 'p', Label: "report on a plan: time, checks, cost", Value: "report"},
+		ui.Choice{Key: 'h', Label: "history: what a unit took each agent here, and the usage windows", Value: "history"},
+		ui.Choice{Key: 'n', Label: "lend a subscription to every run, or list what is lent", Value: "lend"},
+		ui.Choice{Key: 'c', Label: "close a finished plan: delete it and its state, report in the commit", Value: "close"},
+		ui.Choice{Key: 'l', Label: "land a finished branch: close its plans, rebase, check, fast-forward", Value: "land"},
+		ui.Choice{Key: 'w', Label: "show a unit's work order", Value: "show"},
+		ui.Choice{Key: 'y', Label: "replay a unit's session", Value: "replay"},
+		ui.Choice{Key: 'm', Label: "mark a unit by hand", Value: "mark"},
+		ui.Choice{Key: 't', Label: "lint the plans", Value: "lint"},
 	)
-	return ui.Pick("What now?", "help", choices)
+	return ui.PickKeyed("What now?", "help", choices)
 }
 
 // splitExtra takes everything after `--` for the harness.
