@@ -1,4 +1,5 @@
 ---
+test: yes
 context: README.md
 ---
 
@@ -10,10 +11,8 @@ The authority is `docs/plans/LENDING.md`, and every session reads it. Units cite
 its sections as §N and its decisions as Dn. When a unit and the authority
 disagree, the authority wins. Say so in the handover.
 
-This repository has no `.ploopy.toml`, so the loop runs no checks of its own.
-Before committing, run the verification block of `AGENTS.md`:
-`go build -o /dev/null ./...`, `go vet ./... && gofmt -l .` (which must print
-nothing), and `go test ./...`.
+`.ploopy.toml` has the loop run the verification block of `AGENTS.md` after
+every unit: build, vet, `gofmt -l .` printing nothing, and `go test ./...`.
 
 Every unit that changes what the author sees, such as flags, commands, messages
 or screens, updates the README section that describes it in the same commit.
@@ -511,11 +510,6 @@ tests do, or through the sandbox's fake agent on `PATH`) and show that:
 ## Notes for the author
 
 - No session sees this section.
-- The repository has no `.ploopy.toml`, so the loop judges units only by commits
-  and a clean tree, and the sessions run the checks themselves. A `.ploopy.toml`
-  with `verify = "go build -o /dev/null ./... && go vet ./... && test -z \"$(gofmt -l .)\""`
-  and `test = "go test ./..."` would make the loop check them too. Add it before
-  running if you want that.
 - Units 3.2 and 3.4 are the largest. If one blocks, split it with new ids; do
   not renumber.
 - Stage 1 comes first so that every later stage can be tried by hand in

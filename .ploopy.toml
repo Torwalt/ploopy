@@ -1,0 +1,5 @@
+plans = "docs/plans"
+context = ["AGENTS.md"]
+verify = "go build -o /dev/null ./... && go vet ./... && test -z \"$(gofmt -l .)\""
+test = "go test ./..."
+setup = "nix develop --command true"
