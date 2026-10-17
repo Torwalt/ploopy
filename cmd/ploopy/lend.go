@@ -164,12 +164,21 @@ func newReclaim(e *env) *cobra.Command {
 			e.harnesses = allHarnesses()
 			return nil
 		},
-		RunE: func(cmd *cobra.Command, args []string) error { return reclaim(cmd, args[0]) },
+		RunE: func(cmd *cobra.Command, args []string) error { return reclaim(cmd, e, args[0]) },
 	}
 	return cmd
 }
 
-func reclaim(cmd *cobra.Command, harnessName string) error {
+func reclaim(cmd *cobra.Command, e *env, harnessName string) error {
+	if harnessName != "all" {
+		h := e.harnesses.Get(harnessName)
+		if h == nil {
+			return fmt.Errorf("%s has no subscription to lend", harnessName)
+		}
+		if _, metered := h.(harness.Metered); !metered {
+			return fmt.Errorf("%s has no subscription to lend", harnessName)
+		}
+	}
 	file, err := lease.Load()
 	if err != nil {
 		return err

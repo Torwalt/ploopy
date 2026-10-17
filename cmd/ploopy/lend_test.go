@@ -142,6 +142,47 @@ func TestABadNightlySpanIsRefused(t *testing.T) {
 	}
 }
 
+func TestReclaimOneLeavesTheOther(t *testing.T) {
+	e := lendEnv(t)
+	for _, name := range []string{"claude", "codex"} {
+		if _, err := runCommand(t, newLend(e), name, "--open"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := runCommand(t, newReclaim(e), "claude"); err != nil {
+		t.Fatal(err)
+	}
+	file, err := lease.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(file.Leases) != 1 || file.Leases[0].Harness != "codex" {
+		t.Fatalf("leases %+v", file.Leases)
+	}
+}
+
+func TestReclaimRefusesANameThatIsNotASubscription(t *testing.T) {
+	e := lendEnv(t)
+	if _, err := runCommand(t, newLend(e), "claude", "--open"); err != nil {
+		t.Fatal(err)
+	}
+	before, err := lease.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCommand(t, newReclaim(e), "claud"); err == nil ||
+		!strings.Contains(err.Error(), "claud has no subscription to lend") {
+		t.Fatalf("error %v", err)
+	}
+	after, err := lease.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(after.Leases) != 1 || after.Leases[0] != before.Leases[0] {
+		t.Fatalf("leases changed from %+v to %+v", before.Leases, after.Leases)
+	}
+}
+
 func TestReclaimAll(t *testing.T) {
 	e := lendEnv(t)
 	for _, name := range []string{"claude", "codex"} {
