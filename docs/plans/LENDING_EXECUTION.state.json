@@ -24,6 +24,30 @@
         "reasoning": 33457,
         "cache_read": 3443584
       }
+    },
+    "1.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T12:21:04+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "6737a2d34524f3f89ef5bb406793fe14590507d1",
+      "commits": [
+        "583bb4144f72f36b8462b05a7a5fd95a41f24183 Add the sandbox and its flake app"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `583bb41` adds `dev/sandbox`: `prepare(DIR)` builds `DIR/bin/ploopy` and\n  `fakeagent` (with `claude`, `codex`, `opencode` links), writes the default\n  `scenario.toml`, creates `DIR/repo` on `master` with a two-line `AGENTS.md`,\n  `.ploopy.toml` (`verify = \"test ! -e BROKEN\"`) and an eight-unit toy plan,\n  committed.\n- It adds `enter(DIR)`: prints the cheat sheet and execs `$SHELL` in `DIR/repo`\n  with `DIR/bin` first on `PATH`, `XDG_STATE_HOME`/`XDG_RUNTIME_DIR` inside DIR,\n  and `PLOOPY_SANDBOX=DIR`.\n- `flake.nix` gains the `sandbox` app; `README.md` gains *Trying it out*;\n  `AGENTS.md` gains the development-tools note.\n- `dev/fakeagent/act.go` now takes the handover path from the prompt's last\n  mention of `Write the handover to `.\n\n**Landmark drift**\n\n- The flake `apps` block is the same landmark; it now defines a `sandbox` app\n  beside `default`. `dev/sandbox` is new (1.1 created `dev/`).\n\n**Deviations from the work order**\n\n- The flake app is a `go run ./dev/sandbox` wrapper (`go` and `git` as runtime\n  inputs), not a separate Go derivation. `vendorHash` is unchanged.\n- The scenario is written only when absent, so a rerun of the same DIR keeps the\n  author's edits. A fresh temp DIR gets the documented default.\n- The integration test also gives the child a HOME inside the sandbox; the shell\n  itself does not.\n- Fixed `fakeagent` in this commit because the real skill repeats\n  `Write the handover to` before the session's own handover bullet; the old\n  first-match lookup wrote `DONE` into the worktree.\n\n**What the next session must know**\n\n- `prepare` is the testable half; `enter` only prints and execs the shell.\n- The integration test runs the real built `ploopy` in `DIR/repo` with no tty and\n  checks branch `toy`; it takes about 8 seconds because the default opencode\n  scenario has `seconds = 4` and two units. The run leaves its worktree at\n  `DIR/repo.worktrees/toy`.\n- `prepare` preserves an existing `DIR/repo` (it only initializes when `.git`\n  is absent), so rerunning a sandbox DIR does not reset the toy work.\n- The cheat sheet already prints `ploopy lend ...` per §12, although the lease\n  command lands in a later unit.\n- `nix run .#sandbox` was exercised with `SHELL=false` replaced by a real `true`\n  path; it built through the store source and prepared the layout.\n\n**Open problems**\n\n- None found.",
+      "session_id": "ses_eb6a2960affeLYPo2gsJd4ds7c",
+      "cost_usd": 0.053819154,
+      "harness": "opencode",
+      "elapsed_s": 245,
+      "session_s": 235,
+      "test_s": 9,
+      "tokens": {
+        "input": 172651,
+        "output": 10024,
+        "reasoning": 19132,
+        "cache_read": 3475968
+      }
     }
   }
 }
