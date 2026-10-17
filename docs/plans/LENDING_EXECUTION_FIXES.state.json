@@ -628,6 +628,30 @@
         "reasoning": 3716,
         "cache_read": 1880832
       }
+    },
+    "1.27": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T19:01:13+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "f96a90ca1d97447d64f6a24c37fd4d713398d6e7",
+      "commits": [
+        "c664a53347337111d5bcb808cd169d2395a1fe8e Pin the chained fix plan's settings, stop and push"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `c664a53` adds four chain tests to `cmd/ploopy/review_chain_test.go`, with\n  no production change:\n  - a spend-all adjustment made during the review reaches the fix run;\n  - a fix plan's `agent`, `effort` and `subscriptions` front matter wins;\n  - a non-interactive review with no `--then` starts no fix unit;\n  - `--push` against a bare remote pushes exactly once, after the fix plan.\n- Helpers: `captureSettings` reads the live run announcement during a fix\n  session, and `namedFake` gives a scripted harness its own name/model/effort.\n\n**Landmark drift**\n\n- `finishRun` is now `cmd/ploopy/run.go:384` (the order said 373-383).\n- `overChosen` is `cmd/ploopy/settings.go:416`, `applyPlanSettings`\n  `settings.go:444`, and the default `then` in `resolveSettings`\n  `settings.go:395`. The shift is from the preceding unit's changes.\n\n**Deviations from the work order**\n\n- The tests observe inherited settings through `control.List()` during the fix\n  session rather than through captured stdout, so they assert what the run\n  actually announces.\n- The front-matter test uses a second local fake harness (`other`) with its own\n  model and effort, so changing the harness is observable.\n- The push test counts `pre-receive` invocations in the bare remote and reads\n  the pushed branch's log, proving one push after both fix commits.\n\n**What the next session must know**\n\n- I checked each required mutation and each was caught: removing the\n  `SpendAll` branch in `overChosen`; removing the agent, effort or\n  subscriptions branch in `applyPlanSettings`; defaulting `then` to `fixes`;\n  and pushing once after the review as well.\n- `control.List()` only sees live pids; the fake steps run in the test process,\n  and `worktreeRepo` gives each test a fresh `XDG_RUNTIME_DIR`.\n- The push hook is at `\u003cbare\u003e/hooks/pre-receive`; its append target is a temp\n  file outside the remote, so the push count survives worktree removal.\n\n**Open problems**\n\nNone. `go build`, `go vet`, `gofmt -l`, and `go test ./...` are green.",
+      "session_id": "ses_eb533869bffeJXVR6ZwnZL5XxS",
+      "cost_usd": 0.034113102,
+      "harness": "opencode",
+      "elapsed_s": 198,
+      "session_s": 190,
+      "test_s": 8,
+      "tokens": {
+        "input": 68321,
+        "output": 9057,
+        "reasoning": 15468,
+        "cache_read": 3049984
+      }
     }
   }
 }
