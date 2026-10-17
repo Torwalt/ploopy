@@ -335,6 +335,34 @@
         "reasoning": 1748,
         "cache_read": 442624
       }
+    },
+    "1.15": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:38:43+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "b371abfcebf60cd7e2a684ded16321bfb52adb1b",
+      "commits": [
+        "7c832344653e08ef4cbc7b59b1678ab2385a2b4e Cover lend's lease writing, flags and the steering loader"
+      ],
+      "attempts": 1,
+      "notes": [
+        "`go test ./...` failed once and passed on a rerun"
+      ],
+      "handover": "**What landed**\n\n- `7c83234` adds tests to `cmd/ploopy/lend_test.go` for the write paths,\n  kind mapping, overrides, current-lease defaults, and the loader's broken\n  file and expired-lease handling.\n- Every requested mutation was checked by hand against the new tests: writing\n  until/nightly as open, mapping nightly to `loop.LeaseOpen`, dropping each of\n  the keep/model/effort overrides or the current-lease copy, deleting\n  `l.say(err)`, removing the `said` guard, and replacing `file.Active(now)`\n  with `file.Leases` each turn a test red.\n\n**Landmark drift**\n\n`cmd/ploopy/lend.go:101-146` and `:246-307` still hold the write path and the\nloader, as the work order said. `lend_test.go` only moved at its end.\n\n**Deviations from the work order**\n\nUsed `lendingFromLeases` directly for the three-kind mapping test, one lease\nper subtest, because only two harnesses are metered and a third kind would\notherwise be untested. The expired-lease test drives `lendingLoader.load`,\nwhich is the `lendingAt` path the mutation targets. The until test accepts\nthe instant computed just before or just after the command, so a clock tick\nat 09:00 cannot flake it.\n\n**What the next session must know**\n\n- `lease.Save` still permits a malformed nightly span by design; the existing\n  listing test relies on that.\n- The broken-file test writes the file directly rather than through `Save`,\n  since `Save` refuses invalid JSON.\n- No README change: the tests pin existing behaviour and the README already\n  describes the lend flags and lease defaults.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb546afafffe0ELui1tIQYpgOy",
+      "cost_usd": 0.014986338,
+      "harness": "opencode",
+      "elapsed_s": 103,
+      "session_s": 81,
+      "verify_s": 1,
+      "test_s": 21,
+      "tokens": {
+        "input": 42691,
+        "output": 5212,
+        "reasoning": 4704,
+        "cache_read": 877696
+      }
     }
   }
 }
