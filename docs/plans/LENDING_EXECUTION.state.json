@@ -122,6 +122,30 @@
         "reasoning": 11439,
         "cache_read": 964736
       }
+    },
+    "3.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T12:32:18+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "a66f313584768210d110937551311c58dfcad5dc",
+      "commits": [
+        "d67bcee31264d283d91ce9457f17a9d94019cef4 Run sessions on leases instead of night agents"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `d67bcee` replaces `Night`/`NightAgent` with `Lease`/`Lending` in\n  `internal/loop`. `Room` applies the five §5 rules in order: limit, lease\n  term, effective keep/weekly room, active window (spent, past the lease end\n  unless the run opened it, otherwise usable), then fresh-window fit.\n- `lendPick` tries leases in their given order; `lendWake` shortens an\n  existing wait for a nightly span beginning, a limit lifting, or a spent\n  window resetting. `meter.enter` keys nightly leases on the span start and\n  until/open leases on the zero time.\n- `Options.Night`/`Steer.Night` are `Lending`; `pick` returns whether the\n  session ran on a lease, and `sessionInfo.Away`/history records that Boolean.\n- `cmd/ploopy` bridges the away span and night agents to nightly leases via\n  `toLoopLending`; the fresh-window count is ignored.\n- `night_test.go` is rewritten around leases, keeps the prior behavioural\n  tests, and adds the five requested cases (open lease consecutive fresh\n  windows, until lease past its end, author window before/after the end,\n  passed until lease, all leases out of room).\n- README's away bullets now say the lease end decides fresh windows and the\n  `--night` count is ignored.\n\n**Landmark drift**\n\n- `internal/loop/night.go` still holds `Away`/`ParseAway` as expected; the\n  lease types now live there too.\n- `toLoopNight` is now `toLoopLending`; `chosenRun.nightly` is now `lending`.\n  These are the bridge sites named by the work order.\n\n**Deviations from the work order**\n\n- `EffectiveKeep` only returns 0 for `SpendAll` and the lease's own `Keep`\n  otherwise. The shrinking reserve is deferred to the next unit.\n- `meter.saw` now claims a reported window through overlap with a booked one\n  when the meter's span is zero (until/open), instead of the old span-start\n  rule. This prevents an until/open lease from claiming the author's window.\n- `toLoopLending` returns nil when the away span has no convertible agents.\n- The two D5 fresh-window-count tests were deleted, not kept.\n\n**What the next session must know**\n\n- `Lending.Leases` is used in given order; §7 urgency ordering is not here\n  yet. `EffectiveKeep` has unused `b`/`now` parameters ready for §6.\n- `Away` now means \"ran on a lease\", set from `pick`; the unit's own agent and\n  the secondary record false.\n- For until/open leases the opened-window map is never cleared, so a window is\n  booked at most once per run. For nightly leases it is cleared at each night.\n- `readMeters` does not ask outside a nightly lease's span; until/open leases\n  are always asked when their harness is metered.\n- `lendWake` treats a zero lease end as unbounded.\n- `cmd/ploopy` still uses `control.NightAgent` and `--night`; only the loop\n  contract changed. `rg -n '\\bNight\\b|NightAgent' internal/loop` is empty.\n\n**Open problems**\n\n- None functional. The README wording is transitional until the later units\n  replace the night flags with `ploopy lend`.",
+      "session_id": "ses_eb6988a22ffewOwmQmAzE68frK",
+      "cost_usd": 0.051592764000000006,
+      "harness": "opencode",
+      "elapsed_s": 261,
+      "session_s": 253,
+      "test_s": 7,
+      "tokens": {
+        "input": 86994,
+        "output": 19636,
+        "reasoning": 23566,
+        "cache_read": 4207488
+      }
     }
   }
 }
