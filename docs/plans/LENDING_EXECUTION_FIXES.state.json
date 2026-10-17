@@ -311,6 +311,30 @@
         "reasoning": 491,
         "cache_read": 417920
       }
+    },
+    "1.14": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:37:00+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "a419df6aea8c076bea007aefc8ad003ddde65910",
+      "commits": [
+        "129bbe6077df43b98ddb5c59e79cf6e6d7ebc511 Refuse a malformed nightly span when listing leases"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `129bbe6` makes `ploopy lend` (the listing path) parse every active nightly\n  lease's span with `loop.ParseAway`. A span that will not parse makes the\n  command fail with `lease.Path()` in the message, matching the run path.\n- `TestLendingListRefusesAMalformedNightlySpan` writes a `nightly` lease with\n  span `\"09:00\"` through `lease.Save`, runs `ploopy lend`, and asserts the\n  error names the lease path. It failed before the fix (`claude sonnet high ·\n  nightly 09:00 · keep 20% → 8%` printed, exit 0).\n\n**Landmark drift**\n\n`listLeases` was at `cmd/ploopy/lend.go:198-209` and the run-path span check at\n`cmd/ploopy/lend.go:314-318`, as the work order said. The test file's end moved\nwith the earlier reclaim tests.\n\n**Deviations from the work order**\n\nExtracted the existing run-path `ParseAway` + error formatting into\n`leaseSpan` and reused it in `listLeases`, rather than duplicating the message\nin two places. Behaviour of the run path is unchanged.\n\n**What the next session must know**\n\n- `internal/lease` still leaves `Span` opaque; `Save` accepts a malformed span\n  so the test can write one. Do not move the check into `lease`, per the unit.\n- The listing check runs only for `lease.Nightly` active leases; a malformed\n  span on another kind is ignored, and a nightly lease is always active.\n- No README change: the README does not describe malformed-file behaviour, and\n  nothing in it contradicted the new error.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb5479229ffenWGZR7SxQKCDEI",
+      "cost_usd": 0.007549122,
+      "harness": "opencode",
+      "elapsed_s": 58,
+      "session_s": 51,
+      "test_s": 6,
+      "tokens": {
+        "input": 23739,
+        "output": 2686,
+        "reasoning": 1748,
+        "cache_read": 442624
+      }
     }
   }
 }
