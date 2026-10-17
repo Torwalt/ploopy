@@ -3,6 +3,7 @@ package loop
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -114,12 +115,30 @@ func leaseSpan(lease Lease, now time.Time) (start, end time.Time, inside bool) {
 }
 
 // EffectiveKeep is the share of a subscription's week kept for the author.
+// The reserve shrinks as the weekly reset nears, so leftovers are used first.
 // A lease keeps its own share; an explicit spend-all keeps none.
 func EffectiveKeep(lease Lease, b *harness.Budget, now time.Time, spendAll bool) float64 {
 	if spendAll {
 		return 0
 	}
-	return lease.Keep
+	if lease.Keep >= 1 {
+		return 1
+	}
+	if b == nil || b.Weekly.ResetAt.IsZero() || !b.Weekly.Active(now) {
+		return lease.Keep
+	}
+	left := float64(b.Weekly.ResetAt.Sub(now)) / float64(harness.WeeklyWindow)
+	return lease.Keep * clamp(left, 0, 1)
+}
+
+func clamp(value, low, high float64) float64 {
+	if value < low {
+		return low
+	}
+	if value > high {
+		return high
+	}
+	return value
 }
 
 // Room says whether a lease may take a session at an instant, given what its
@@ -279,14 +298,52 @@ func (l *Loop) lending() *Lending {
 	return l.steer().Lending
 }
 
+// lendChoice is a lease with room, and what the pick knew about it.
+type lendChoice struct {
+	lease Lease
+	b     *harness.Budget
+	fresh bool
+	why   string
+}
+
+// lendOrder puts the lease that should take the session first: a window
+// already open expires, so it goes before a fresh one, the lease resetting
+// first leading; a fresh window goes to the lease that would lose the most of
+// its week by waiting. Ties keep lease-file order.
+func lendOrder(choices []lendChoice, now time.Time, spendAll bool) {
+	sort.SliceStable(choices, func(i, j int) bool {
+		a, b := choices[i], choices[j]
+		if a.fresh != b.fresh {
+			return !a.fresh
+		}
+		if !a.fresh {
+			return a.b.Session.ResetAt.Before(b.b.Session.ResetAt)
+		}
+		return lendUrgency(a.lease, a.b, now, spendAll) >
+			lendUrgency(b.lease, b.b, now, spendAll)
+	})
+}
+
+// lendUrgency is the share of the week a fresh window would lose by waiting:
+// its room over the hours until the week resets. A week not seen, or one that
+// already reset, is nothing to lose.
+func lendUrgency(lease Lease, b *harness.Budget, now time.Time, spendAll bool) float64 {
+	if b == nil || !b.Weekly.ResetAt.After(now) {
+		return 0
+	}
+	hours := b.Weekly.ResetAt.Sub(now).Hours()
+	return (1 - EffectiveKeep(lease, b, now, spendAll) - b.Weekly.UsedAt(now)) / hours
+}
+
 // lendPick is the lease with room for the next session, or nil. why says what
-// decided it. Leases are tried in their given order until the order lands.
+// decided it.
 func (l *Loop) lendPick() (agent *Agent, fresh bool, why string) {
 	lending := l.lending()
 	if lending == nil || len(lending.Leases) == 0 {
 		return nil, false, ""
 	}
 	now := l.opts.Now()
+	var choices []lendChoice
 	var refused []string
 	for i := range lending.Leases {
 		lease := lending.Leases[i]
@@ -301,13 +358,19 @@ func (l *Loop) lendPick() (agent *Agent, fresh bool, why string) {
 		b := m.windows(now)
 		own := b != nil && m.opened[b.Session.ResetAt]
 		ok, fresh, why := lending.Room(lease, b, own, m.limited, now)
-		if ok {
-			agent := lease.Agent
-			return &agent, fresh, why
+		if !ok {
+			refused = append(refused, why)
+			continue
 		}
-		refused = append(refused, why)
+		choices = append(choices, lendChoice{lease: lease, b: b, fresh: fresh, why: why})
 	}
-	return nil, false, "no subscription has room: " + strings.Join(refused, "; ")
+	if len(choices) == 0 {
+		return nil, false, "no subscription has room: " + strings.Join(refused, "; ")
+	}
+	lendOrder(choices, now, lending.SpendAll)
+	best := choices[0]
+	chosen := best.lease.Agent
+	return &chosen, best.fresh, best.why
 }
 
 // readMeters asks every lent harness that can tell for its windows, at most

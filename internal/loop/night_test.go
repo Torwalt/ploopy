@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -54,6 +55,15 @@ func windows(at time.Time, session float64, reset time.Time, weekly float64) *ha
 	}
 }
 
+// weeklyOnly is windows with no session window running, and the week resetting
+// as asked.
+func weeklyOnly(at time.Time, used float64, resetsIn time.Duration) *harness.Budget {
+	return &harness.Budget{
+		At:     at,
+		Weekly: harness.Allowance{Used: used, ResetAt: at.Add(resetsIn), Length: harness.WeeklyWindow},
+	}
+}
+
 func TestALeaseHasRoomOnlyWhileItsWindowsDo(t *testing.T) {
 	claude := &fake.Harness{Named: "claude"}
 	nightly, _ := ParseAway("21:00-09:00")
@@ -78,7 +88,7 @@ func TestALeaseHasRoomOnlyWhileItsWindowsDo(t *testing.T) {
 		{"a window past the end is not the run's", nightlyLease, Lending{}, windows(now, 0.1, at(16, 10, 0), 0.5), false, time.Time{}, now, false, false},
 		{"a window past the end is the run's own", nightlyLease, Lending{}, windows(now, 0.1, at(16, 10, 0), 0.5), true, time.Time{}, now, true, false},
 		{"a limit holds", nightlyLease, Lending{}, nil, false, at(16, 1, 0), now, false, false},
-		{"the weekly keep holds", nightlyLease, Lending{}, windows(now, 0.5, at(16, 1, 0), 0.8), false, time.Time{}, now, false, false},
+		{"the weekly keep holds", nightlyLease, Lending{}, windows(now, 0.5, at(16, 1, 0), 0.9), false, time.Time{}, now, false, false},
 		{"a fresh window must end in time", nightlyLease, Lending{}, windows(now, 0.4, at(15, 22, 0), 0.5), false, time.Time{}, at(16, 4, 30), false, false},
 		{"keeping the whole week holds", Lease{Agent: Agent{Harness: claude}, Kind: LeaseOpen, Keep: 1}, Lending{}, nil, false, time.Time{}, now, false, false},
 		{"an open lease has no end", open, Lending{}, nil, false, time.Time{}, now, true, true},
@@ -92,6 +102,137 @@ func TestALeaseHasRoomOnlyWhileItsWindowsDo(t *testing.T) {
 			t.Errorf("%s: ok %v fresh %v (%s)", c.name, ok, fresh, why)
 		}
 	}
+}
+
+func TestEffectiveKeepShrinksAsTheWeeklyResetNears(t *testing.T) {
+	now := at(15, 12, 0)
+	for _, c := range []struct {
+		name     string
+		used     float64
+		resetsIn time.Duration
+		spendAll bool
+		want     float64
+		room     bool
+	}{
+		{"51% with 120h left", 0.51, 120 * time.Hour, false, 0.2 * 120 / 168, true},
+		{"85% with 120h left", 0.85, 120 * time.Hour, false, 0.2 * 120 / 168, true},
+		{"86% with 120h left", 0.86, 120 * time.Hour, false, 0.2 * 120 / 168, false},
+		{"93% with 36h left", 0.93, 36 * time.Hour, false, 0.2 * 36 / 168, true},
+		{"93% with 36h left spending all", 0.93, 36 * time.Hour, true, 0, true},
+		{"99% with 6h left", 0.99, 6 * time.Hour, false, 0.2 * 6 / 168, true},
+		{"40% with an unknown reset", 0.40, 0, false, 0.2, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			b := weeklyOnly(now, c.used, c.resetsIn)
+			lease := Lease{
+				Agent: Agent{Harness: &fake.Harness{Named: "claude"}},
+				Kind:  LeaseOpen,
+				Keep:  0.2,
+			}
+			got := EffectiveKeep(lease, b, now, c.spendAll)
+			if math.Abs(got-c.want) > 1e-9 {
+				t.Fatalf("keep %.4f, want %.4f", got, c.want)
+			}
+			lending := Lending{SpendAll: c.spendAll}
+			ok, _, why := lending.Room(lease, b, false, time.Time{}, now)
+			if ok != c.room || why == "" {
+				t.Fatalf("room %v (%s), want %v", ok, why, c.room)
+			}
+		})
+	}
+}
+
+func TestAWholeWeekKeptNeverShrinks(t *testing.T) {
+	now := at(15, 12, 0)
+	lease := Lease{Agent: Agent{Harness: &fake.Harness{Named: "claude"}}, Kind: LeaseOpen, Keep: 1}
+	b := weeklyOnly(now, 0.99, time.Hour)
+
+	if got := EffectiveKeep(lease, b, now, false); got != 1 {
+		t.Fatalf("keep %v, want 1", got)
+	}
+	ok, _, why := (Lending{}).Room(lease, b, false, time.Time{}, now)
+	if ok || !strings.Contains(why, "whole week stays yours") {
+		t.Fatalf("room %v (%s), want the whole week kept", ok, why)
+	}
+}
+
+func TestTheMostOfItsWeekToLoseGoesFirst(t *testing.T) {
+	now := at(15, 23, 0)
+	l, _, codex := lendingLoop(t, now, 0.2, 0)
+	claudeBudget := weeklyOnly(now, 0.40, 96*time.Hour)
+	codexBudget := weeklyOnly(now, 0.10, 24*time.Hour)
+	l.meterOf("claude").budget = claudeBudget
+	l.meterOf("codex").budget = codexBudget
+
+	if got := EffectiveKeep(l.opts.Lending.Leases[0], claudeBudget, now, false); math.Abs(got-0.2*96/168) > 1e-9 {
+		t.Fatalf("claude keeps %v of its week", got)
+	}
+	if got := lendUrgency(l.opts.Lending.Leases[1], codexBudget, now, false); math.Abs(got-0.9/24) > 1e-9 {
+		t.Fatalf("codex urgency %v%%/h, want 3.75", got*100)
+	}
+
+	agent, fresh, _ := l.lendPick()
+	if agent == nil || agent.Harness.Name() != codex.Name() || !fresh {
+		t.Fatalf("picked %+v fresh %v, want codex opening a fresh window", agent, fresh)
+	}
+}
+
+func TestAnOpenWindowGoesBeforeAFreshOne(t *testing.T) {
+	now := at(15, 23, 0)
+	l, _, _ := lendingLoop(t, now, 0.2, 0)
+	running := weeklyOnly(now, 0.40, 96*time.Hour)
+	running.Session = harness.Allowance{Used: 0.5, ResetAt: now.Add(time.Hour), Length: harness.SessionWindow}
+	l.meterOf("claude").budget = running
+	l.meterOf("codex").budget = weeklyOnly(now, 0.10, 24*time.Hour)
+
+	agent, fresh, _ := l.lendPick()
+	if agent == nil || agent.Harness.Name() != "claude" || fresh {
+		t.Fatalf("picked %+v fresh %v, want claude's open window", agent, fresh)
+	}
+}
+
+func TestAnUnknownWeeklyBudgetGoesLastAmongFreshWindows(t *testing.T) {
+	now := at(15, 23, 0)
+	claude := &fake.Harness{Named: "claude"}
+	codex := &fake.Harness{Named: "codex"}
+	other := &fake.Harness{Named: "other"}
+	lease := func(h *fake.Harness) Lease {
+		return Lease{Agent: Agent{Harness: h}, Kind: LeaseOpen, Keep: 0.2}
+	}
+	choices := []lendChoice{
+		{lease: lease(claude), b: nil, fresh: true},
+		{lease: Lease{Agent: Agent{Harness: codex}, Kind: LeaseOpen, Keep: 0}, b: weeklyOnly(now, 0.10, 24*time.Hour), fresh: true},
+		{lease: lease(other), b: weeklyOnly(now, 0.50, 100*time.Hour), fresh: true},
+	}
+	lendOrder(choices, now, false)
+
+	var names []string
+	for _, c := range choices {
+		names = append(names, c.lease.Harness.Name())
+	}
+	if got := strings.Join(names, " "); got != "codex other claude" {
+		t.Fatalf("order %s, want codex other claude", got)
+	}
+}
+
+// lendingLoop builds a loop with an open lease for claude then codex, keeping
+// the shares asked for, and a fixed clock.
+func lendingLoop(t *testing.T, now time.Time, claudeKeep, codexKeep float64) (*Loop, *fake.Harness, *fake.Harness) {
+	t.Helper()
+	f := setup(t, twoUnits)
+	f.h.Named = "opencode"
+	claude := &fake.Harness{Named: "claude"}
+	codex := &fake.Harness{Named: "codex"}
+	f.opts.Lending = &Lending{Leases: []Lease{
+		{Agent: Agent{Harness: claude, Model: "sonnet", Effort: "high"}, Kind: LeaseOpen, Keep: claudeKeep},
+		{Agent: Agent{Harness: codex, Model: "gpt-6.1-sol", Effort: "high"}, Kind: LeaseOpen, Keep: codexKeep},
+	}}
+	f.opts.Now = func() time.Time { return now }
+	runner, err := New(f.root, f.opts, &silent{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return runner, claude, codex
 }
 
 func TestTheAwaySpanKeepsItsClockTimesAcrossDaylightSaving(t *testing.T) {
@@ -243,7 +384,7 @@ func TestTheWeeklyKeepKeepsTheSubscriptionOut(t *testing.T) {
 		{Do: commits("one.go", "first"), Outcome: done()},
 		{Do: commits("two.go", "second"), Outcome: done()},
 	}, nil, start)
-	claude.Meter = windows(start, 0.1, start.Add(time.Hour), 0.85)
+	claude.Meter = windows(start, 0.1, start.Add(time.Hour), 0.9)
 
 	if result := f.run(); result.Status != "done" {
 		t.Fatalf("run %+v", result)
@@ -600,5 +741,43 @@ func TestWithEveryLeaseOutOfRoomTheBedrockRunsWithoutWaiting(t *testing.T) {
 	if len(f.slept) != 0 || claude.Started() != 0 || codex.Started() != 0 || f.h.Started() != 2 {
 		t.Fatalf("slept %v, claude ran %d sessions, codex %d, the primary %d",
 			f.slept, claude.Started(), codex.Started(), f.h.Started())
+	}
+}
+
+// The lease that would lose the most of its week takes the first unit; once
+// its window is spent, the other takes the next.
+func TestTheMostUrgentLeaseRunsUntilItsWindowIsSpent(t *testing.T) {
+	start := at(15, 23, 0)
+	f := setup(t, twoUnits)
+	f.h.Named = "opencode"
+	claude := fake.New(fake.Step{Do: commits("two.go", "second"), Outcome: done()})
+	claude.Named = "claude"
+	claude.Meter = weeklyOnly(start, 0.40, 96*time.Hour)
+	codex := fake.New(fake.Step{
+		Do: commits("one.go", "first"),
+		Outcome: harness.Outcome{
+			Marker: harness.Done,
+			Budget: windows(start, 1, start.Add(harness.SessionWindow), 0.11),
+		},
+	})
+	codex.Named = "codex"
+	codex.Meter = weeklyOnly(start, 0.10, 24*time.Hour)
+	f.opts.Lending = &Lending{Leases: []Lease{
+		{Agent: Agent{Harness: claude, Model: "sonnet", Effort: "high"}, Kind: LeaseOpen, Keep: 0.2},
+		{Agent: Agent{Harness: codex, Model: "gpt-6.1-sol", Effort: "high"}, Kind: LeaseOpen, Keep: 0},
+	}}
+	f.opts.Now = func() time.Time { return start }
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if codex.Started() != 1 || claude.Started() != 1 || f.h.Started() != 0 {
+		t.Fatalf("codex ran %d sessions, claude %d, the primary %d",
+			codex.Started(), claude.Started(), f.h.Started())
+	}
+	for id, want := range map[string]string{"1.1": "codex", "1.2": "claude"} {
+		if entry := f.state().Entry(id); entry.Harness != want {
+			t.Fatalf("unit %s ran on %q, want %q", id, entry.Harness, want)
+		}
 	}
 }

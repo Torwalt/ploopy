@@ -164,15 +164,18 @@ opencode deepseek/deepseek-flash high takes the rest · per unit $0.05 · 4 min 
 ```
 
 It is asked every time, since the windows differ every night. Inside the span,
-each session goes to the first subscription with room, else to the run's own
-agent:
+each session goes to the subscription with room that ploopy puts first, else to
+the run's own agent. A window already open goes before a fresh one; among fresh
+ones, the subscription with the most of its week to lose goes first:
 
 - a window that resets before you are back is used up for free;
 - a fresh window opens only when it would end before you are back;
 - a subscription at its usage limit hands over without waiting;
 - one that cannot run, logged out or not installed, hands over too and sits
   out half an hour;
-- none goes past the share of the week you keep (20% unless you choose).
+- none goes past the share of the week you keep (20% unless you choose). That
+  reserve shrinks as the weekly reset nears, so a week's leftovers go before
+  they reset.
 
 Outside the span the subscriptions are yours. `--night claude=2,codex=1` names
 them, but the number after `=` is ignored: the span's end decides which fresh
