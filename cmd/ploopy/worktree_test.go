@@ -207,7 +207,49 @@ func TestOtherChangesOnTheBranchMoveWithIt(t *testing.T) {
 		strings.Contains(out, "README.md") || strings.Contains(out, "half.go") {
 		t.Fatalf("only the author's path should stay in the main checkout:\n%s", out)
 	}
+	for _, dir := range []string{e.root, root} {
+		if out := output(t, dir, "stash", "list"); out != "" {
+			t.Fatalf("the stash should be empty in %s:\n%s", dir, out)
+		}
+	}
 }
+
+func TestAFailedHandOffPutsTheChangesBack(t *testing.T) {
+	e := mainRepo(t)
+	onBranch(t, e)
+	e.cfg.AuthorPaths = []string{"NOTES.md"}
+	git(t, e.root, "switch", "-q", "pass")
+	write(t, e.root, "README.md", "half done\n")
+	write(t, e.root, "half.go", "package half\n")
+	write(t, e.root, "NOTES.md", "mine\n")
+	if err := os.MkdirAll(worktreesDir(e.root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(t.TempDir(), "gone"), worktreePath(e.root, "pass")); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := context.Background()
+	c, err := e.find(ctx, "PASS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.place(ctx, c); err == nil {
+		t.Fatal("a worktree cannot be made where the path is already taken")
+	}
+	if got := output(t, e.root, "branch", "--show-current"); got != "pass" {
+		t.Fatalf("the main checkout should be back on pass, it is on %q", got)
+	}
+	for path, want := range map[string]string{"README.md": "half done\n", "half.go": "package half\n"} {
+		if got, _ := os.ReadFile(filepath.Join(e.root, path)); string(got) != want {
+			t.Fatalf("%s was not put back in the main checkout: %q", path, got)
+		}
+	}
+	if out := output(t, e.root, "stash", "list"); out != "" {
+		t.Fatalf("the stash should be empty:\n%s", out)
+	}
+}
+
 func TestAReviewFromMasterIsWrittenInTheBranchsWorktree(t *testing.T) {
 	e := mainRepo(t)
 	onBranch(t, e)
