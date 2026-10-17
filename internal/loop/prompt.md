@@ -30,6 +30,8 @@ Read these first, in this order, in full:
 
 {{failure}}
 
+{{uncommitted}}
+
 ## Work order
 
 {{work_order}}

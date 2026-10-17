@@ -143,6 +143,22 @@ func (r *Repo) HandOff(ctx context.Context, branch, onto, path string) error {
 	return nil
 }
 
+// StashPaths stashes exactly paths, untracked ones included, so a hand-off to
+// another checkout at the same commit can carry them.
+func (r *Repo) StashPaths(ctx context.Context, paths []string) error {
+	ctx = context.WithoutCancel(ctx)
+	_, err := r.git(ctx, append([]string{"stash", "push", "--quiet", "--include-untracked",
+		"--message", "ploopy hand-off", "--"}, paths...)...)
+	return err
+}
+
+// StashPop restores the most recent stash in this checkout.
+func (r *Repo) StashPop(ctx context.Context) error {
+	ctx = context.WithoutCancel(ctx)
+	_, err := r.git(ctx, "stash", "pop", "--quiet")
+	return err
+}
+
 // Change is one entry of the working tree's status.
 type Change struct {
 	Status string // the two porcelain columns

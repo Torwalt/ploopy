@@ -254,6 +254,19 @@ func TestAReviewSessionThatLeavesTheTreeDirtyFails(t *testing.T) {
 	}
 }
 
+func TestAReviewStartedOnADirtyTreeStillRefuses(t *testing.T) {
+	f, _ := reviewFixture(t, []fake.Step{{Do: finds("1.1", "No findings.\n"), Outcome: done()}})
+	writeFile(t, f.root, "scratch.go", "uncommitted\n")
+
+	result := f.run()
+	if result.Status != "failed" || !strings.Contains(result.Message, "dirty") {
+		t.Fatalf("run %+v", result)
+	}
+	if f.h.Started() != 0 {
+		t.Fatal("a review must not start on a dirty tree")
+	}
+}
+
 func TestATriageThatTouchesAnythingElseStopsTheReview(t *testing.T) {
 	collect := []fake.Step{
 		{Do: finds("1.1", "F1\n"), Outcome: done()},

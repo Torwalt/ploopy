@@ -178,29 +178,36 @@ func TestTheMainCheckoutHandsItsBranchToAWorktree(t *testing.T) {
 	}
 }
 
-func TestOtherChangesOnTheBranchStopTheHandOff(t *testing.T) {
+func TestOtherChangesOnTheBranchMoveWithIt(t *testing.T) {
 	e := mainRepo(t)
 	onBranch(t, e)
+	e.cfg.AuthorPaths = []string{"NOTES.md"}
 	git(t, e.root, "switch", "-q", "pass")
 	write(t, e.root, "README.md", "half done\n")
+	write(t, e.root, "half.go", "package half\n")
+	write(t, e.root, "NOTES.md", "mine\n")
 
-	ctx := context.Background()
-	c, err := e.find(ctx, "PASS")
-	if err != nil {
-		t.Fatal(err)
+	root := placed(t, e)
+	if got := output(t, e.root, "branch", "--show-current"); got != "master" {
+		t.Fatalf("the main checkout should move to master, it is on %q", got)
 	}
-	_, err = e.place(ctx, c)
-	if err == nil || !strings.Contains(err.Error(), "README.md") {
-		t.Fatalf("the change should stop it and be named, got %v", err)
+	if got := output(t, root, "branch", "--show-current"); got != "pass" {
+		t.Fatalf("the worktree should hold pass, it holds %q", got)
 	}
-	if got := output(t, e.root, "branch", "--show-current"); got != "pass" {
-		t.Fatalf("nothing should move, the main checkout is on %q", got)
+	for path, want := range map[string]string{"README.md": "half done\n", "half.go": "package half\n"} {
+		if got, _ := os.ReadFile(filepath.Join(root, path)); string(got) != want {
+			t.Fatalf("%s did not move with the branch: %q", path, got)
+		}
 	}
-	if exists(worktreePath(e.root, "pass")) {
-		t.Fatal("no worktree should be made")
+	if out := output(t, root, "status", "--porcelain"); !strings.Contains(out, "README.md") ||
+		!strings.Contains(out, "half.go") {
+		t.Fatalf("the worktree should hold the changes uncommitted:\n%s", out)
+	}
+	if out := output(t, e.root, "status", "--porcelain"); !strings.Contains(out, "NOTES.md") ||
+		strings.Contains(out, "README.md") || strings.Contains(out, "half.go") {
+		t.Fatalf("only the author's path should stay in the main checkout:\n%s", out)
 	}
 }
-
 func TestAReviewFromMasterIsWrittenInTheBranchsWorktree(t *testing.T) {
 	e := mainRepo(t)
 	onBranch(t, e)

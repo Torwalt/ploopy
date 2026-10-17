@@ -52,16 +52,17 @@ func checksLine(verify, test string, wantsTests bool) string {
 }
 
 type promptArgs struct {
-	Skill      string
-	Plan       *plan.Plan
-	Unit       plan.Unit
-	Context    []string
-	Handover   string
-	Previous   string
-	Failure    string
-	WantsTests bool
-	Verify     string
-	Test       string
+	Skill       string
+	Plan        *plan.Plan
+	Unit        plan.Unit
+	Context     []string
+	Handover    string
+	Previous    string
+	Failure     string
+	Uncommitted string
+	WantsTests  bool
+	Verify      string
+	Test        string
 }
 
 // reading lists the documents a session reads first.
@@ -86,16 +87,17 @@ func fill(template string, values map[string]string) string {
 // renderPrompt is everything one session starts from.
 func renderPrompt(args promptArgs) string {
 	values := map[string]string{
-		"unit":       args.Unit.ID,
-		"title":      args.Unit.Title,
-		"plan":       args.Plan.Path,
-		"skill":      skillBody(args.Skill),
-		"context":    reading(args.Context),
-		"tests":      checksLine(args.Verify, args.Test, args.WantsTests),
-		"handover":   args.Handover,
-		"previous":   strings.TrimSpace(orDefault(args.Previous, noPrevious)),
-		"failure":    strings.TrimSpace(orDefault(args.Failure, noFailure)),
-		"work_order": strings.TrimSpace(args.Plan.WorkOrder(args.Unit)),
+		"unit":        args.Unit.ID,
+		"title":       args.Unit.Title,
+		"plan":        args.Plan.Path,
+		"skill":       skillBody(args.Skill),
+		"context":     reading(args.Context),
+		"tests":       checksLine(args.Verify, args.Test, args.WantsTests),
+		"handover":    args.Handover,
+		"previous":    strings.TrimSpace(orDefault(args.Previous, noPrevious)),
+		"failure":     strings.TrimSpace(orDefault(args.Failure, noFailure)),
+		"uncommitted": args.Uncommitted,
+		"work_order":  strings.TrimSpace(args.Plan.WorkOrder(args.Unit)),
 	}
 	return fill(promptTemplate, values)
 }

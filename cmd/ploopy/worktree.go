@@ -104,28 +104,50 @@ func (e *env) place(ctx context.Context, c catalog.Copy) (string, error) {
 }
 
 // handOff moves the branch the main checkout has out to a worktree, and the
-// main checkout to the default branch. Changes the plan does not account for
-// stop it: they belong to the branch, and the run would not see them.
+// main checkout to the default branch. Uncommitted changes go with the branch:
+// they belong to it, and a run would not see them in the main checkout.
 func (e *env) handOff(ctx context.Context, c catalog.Copy, main, onto string, trees []repo.Worktree) (string, error) {
 	if err := commitPending(ctx, e, main, c.Plan); err != nil {
 		return "", err
 	}
 	r := repo.New(main, e.cfg.AuthorPaths)
-	dirt, err := r.DirtLines(ctx)
+	dirt, err := r.Dirt(ctx)
 	if err != nil {
 		return "", err
-	}
-	if len(dirt) > 0 {
-		return "", fmt.Errorf("%s runs in a worktree of %s, and %s moves to %s for it; "+
-			"commit or stash these changes on %s first:\n%s",
-			c.Plan.Path, c.Branch, main, onto, c.Branch, strings.Join(dirt, "\n"))
 	}
 	path, err := e.freePath(ctx, main, trees, c.Branch)
 	if err != nil {
 		return "", err
 	}
+
+	paths := make([]string, 0, 2*len(dirt))
+	for _, change := range dirt {
+		if change.From != "" {
+			paths = append(paths, change.From)
+		}
+		paths = append(paths, change.Path)
+	}
+	if len(paths) > 0 {
+		if err := r.StashPaths(ctx, paths); err != nil {
+			return "", err
+		}
+	}
 	if err := r.HandOff(ctx, c.Branch, onto, path); err != nil {
+		if len(paths) > 0 {
+			if popErr := r.StashPop(context.WithoutCancel(ctx)); popErr != nil {
+				return "", fmt.Errorf("%w; putting the changes back in %s failed too: %w", err, main, popErr)
+			}
+		}
 		return "", err
+	}
+	if len(paths) > 0 {
+		if err := repo.New(path, nil).StashPop(context.WithoutCancel(ctx)); err != nil {
+			if popErr := r.StashPop(context.WithoutCancel(ctx)); popErr != nil {
+				return "", fmt.Errorf("%w; putting the changes back in %s failed too: %w", err, main, popErr)
+			}
+			return "", err
+		}
+		fmt.Printf("moved %d uncommitted change(s) with %s\n", len(dirt), c.Branch)
 	}
 	fmt.Printf("%s is on %s now; %s is checked out in %s\n", main, onto, c.Branch, path)
 	return path, nil
