@@ -108,6 +108,7 @@ func newSettingsBoard(ctx context.Context, e *env, p *plan.Plan, g given, s *run
 	}
 	sb.records = loadHistory(ctx, sb.root)
 	sb.drafts, sb.leaseErr = loadLeaseDrafts(ctx, e, sb.records, time.Now())
+	sb.normalize()
 	sb.rebuild()
 	return sb
 }
@@ -170,6 +171,7 @@ func newAdjustBoard(ctx context.Context, e *env, live control.Live) *settingsBoa
 	}
 	sb.records = loadHistory(ctx, sb.root)
 	sb.drafts, sb.leaseErr = loadLeaseDrafts(ctx, e, sb.records, time.Now())
+	sb.normalize()
 	sb.rebuild()
 	return sb
 }
@@ -212,15 +214,20 @@ func (sb *settingsBoard) normalize() {
 		return
 	}
 	if sb.lastAgent != "" && sb.lastAgent != sb.s.Harness {
-		sb.s.Model = h.Models()[0]
+		if !sb.given.model {
+			sb.s.Model = h.Models()[0]
+		}
+		if !sb.given.effort {
+			sb.s.Effort = preferredEffort(h)
+		}
+	}
+	if !sb.given.effort && !contains(h.Efforts(), sb.s.Effort) {
 		sb.s.Effort = preferredEffort(h)
 	}
-	if !contains(h.Efforts(), sb.s.Effort) {
-		sb.s.Effort = preferredEffort(h)
-	}
-	if agent := decodeAgent(sb.secondary); agent != nil {
+	if agent := decodeAgent(sb.secondary); agent != nil && !sb.given.secondary {
 		if agent.Harness == sb.s.Harness || sb.env.harnesses.Get(agent.Harness) == nil {
 			sb.secondary = ""
+			sb.s.Secondary = nil
 		}
 	}
 	sb.lastAgent = sb.s.Harness
@@ -237,10 +244,14 @@ func (sb *settingsBoard) normalizeTriage() {
 		h = sb.env.harnesses.Get(d.agent)
 	}
 	if d.last != d.agent {
-		d.model = triageModels(sb.env, d.agent)[0]
-		d.effort = preferredEffort(h)
+		if !d.given["model"] {
+			d.model = triageModels(sb.env, d.agent)[0]
+		}
+		if !d.given["effort"] {
+			d.effort = preferredEffort(h)
+		}
 	}
-	if !contains(h.Efforts(), d.effort) {
+	if !d.given["effort"] && !contains(h.Efforts(), d.effort) {
 		d.effort = preferredEffort(h)
 	}
 	if d.budget == "" {

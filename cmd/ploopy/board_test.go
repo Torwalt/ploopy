@@ -16,6 +16,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/harness/opencode"
 	"github.com/Torwalt/ploopy/internal/lease"
 	"github.com/Torwalt/ploopy/internal/plan"
+	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
 
@@ -210,5 +211,107 @@ func TestThenIsAnAdjustFlag(t *testing.T) {
 	change, err := changeFromFlags(cmd, e, f)
 	if err != nil || change.Then != "fixes" {
 		t.Fatalf("--then fixes changed %+v, error %v", change, err)
+	}
+}
+
+func TestChangingTheAgentKeepsAGivenModelOrEffort(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		args []string
+		key  rune
+		want string
+	}{
+		{"model", []string{"--model", "opus"}, 'm', "opus"},
+		{"effort", []string{"--effort", "xhigh"}, 'e', "xhigh"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := boardEnv(t)
+			p := plan.Parse("", "docs/plans/PASS.md")
+			cmd, f := settingsCommand(t, tc.args...)
+			s, g, err := givenSettings(cmd, e, p, f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			fill(e, &s, g, nil)
+			board := newSettingsBoard(context.Background(), e, p, g, &s, "pass", 3)
+
+			key(board.board, '1')
+			key(board.board, 'a')
+			if s.Harness != "opencode" {
+				t.Fatalf("the agent changed to %q", s.Harness)
+			}
+			field := fieldByKey(t, board.board.Columns[0], tc.key)
+			if got := *field.Value; got != tc.want {
+				t.Fatalf("%c is %q, want the given %q", tc.key, got, tc.want)
+			}
+			if field.Locked != "from a flag" {
+				t.Fatalf("%c is locked with %q", tc.key, field.Locked)
+			}
+		})
+	}
+}
+
+func TestChangingTheTriageAgentKeepsAGivenModel(t *testing.T) {
+	e := boardEnv(t)
+	p := plan.Parse("---\nreviews: docs/plans/PASS.md\n---\n", "docs/plans/PASS_REVIEW.md")
+	tri := review.Triage{Agent: "claude", Model: "sonnet", Effort: "high"}
+	board := newReviewBoard(context.Background(), e, p, given{}, &runSettings{
+		Harness: "claude", Model: "sonnet", Effort: "high",
+	}, "pass", 3, tri, map[string]bool{"model": true}, "")
+
+	at, _ := columnByTitle(t, board.board, "Triage")
+	key(board.board, rune('1'+at))
+	key(board.board, 'a')
+	if board.triage.agent != "opencode" {
+		t.Fatalf("the triage agent changed to %q", board.triage.agent)
+	}
+	_, column := columnByTitle(t, board.board, "Triage")
+	field := fieldByKey(t, column, 'm')
+	if got := *field.Value; got != "sonnet" {
+		t.Fatalf("the triage model is %q, want the given sonnet", got)
+	}
+	if field.Locked != "from a flag" {
+		t.Fatalf("the triage model is locked with %q", field.Locked)
+	}
+}
+
+func TestTheRunBoardClearsASecondaryOnItsOwnBedrockBeforeTheFirstFrame(t *testing.T) {
+	e := boardEnv(t)
+	p := plan.Parse("---\nagent: claude\n---\n", "docs/plans/PASS.md")
+	s := runSettings{
+		Harness: "claude", Model: "sonnet", Effort: "medium",
+		Secondary: &control.Agent{Harness: "claude", Model: "sonnet", Effort: "medium"},
+	}
+	board := newSettingsBoard(context.Background(), e, p, given{}, &s, "pass", 3)
+
+	if board.secondary != "" || s.Secondary != nil {
+		t.Fatalf("the secondary on the bedrock is %q, %+v", board.secondary, s.Secondary)
+	}
+	field := fieldByKey(t, board.board.Columns[0], 'l')
+	if got := *field.Value; got != "" {
+		t.Fatalf("the limit field reads %q, want wait it out", got)
+	}
+}
+
+func TestEnterRefusesAGivenEffortTheChosenAgentDoesNotOffer(t *testing.T) {
+	e := boardEnv(t)
+	p := plan.Parse("", "docs/plans/PASS.md")
+	cmd, f := settingsCommand(t, "--effort", "xhigh")
+	s, g, err := givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fill(e, &s, g, nil)
+	board := newSettingsBoard(context.Background(), e, p, g, &s, "pass", 3)
+
+	key(board.board, '1')
+	key(board.board, 'a')
+	if s.Harness != "opencode" {
+		t.Fatalf("the agent changed to %q", s.Harness)
+	}
+	board.board.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	board.read()
+	if _, err := resolveSettings(e, *board.s); err == nil || !strings.Contains(err.Error(), "effort") {
+		t.Fatalf("Enter with a given xhigh on opencode: %v", err)
 	}
 }
