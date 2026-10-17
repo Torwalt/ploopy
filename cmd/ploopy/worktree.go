@@ -141,9 +141,9 @@ func (e *env) handOff(ctx context.Context, c catalog.Copy, main, onto string, tr
 		return "", err
 	}
 	if len(paths) > 0 {
-		if err := repo.New(path, nil).StashPop(context.WithoutCancel(ctx)); err != nil {
-			if popErr := r.StashPop(context.WithoutCancel(ctx)); popErr != nil {
-				return "", fmt.Errorf("%w; putting the changes back in %s failed too: %w", err, main, popErr)
+		if err := e.popStashIn(context.WithoutCancel(ctx), path); err != nil {
+			if undoErr := e.undoHandOff(ctx, main, c.Branch, path); undoErr != nil {
+				return "", fmt.Errorf("%w; undoing the hand-off failed too: %w", err, undoErr)
 			}
 			return "", err
 		}
@@ -151,6 +151,34 @@ func (e *env) handOff(ctx context.Context, c catalog.Copy, main, onto string, tr
 	}
 	fmt.Printf("%s is on %s now; %s is checked out in %s\n", main, onto, c.Branch, path)
 	return path, nil
+}
+
+// popStashIn restores a hand-off's stash in a checkout. Tests replace it to
+// make the pop in the new worktree fail.
+func (e *env) popStashIn(ctx context.Context, root string) error {
+	if e.popStash != nil {
+		return e.popStash(ctx, root)
+	}
+	return repo.New(root, nil).StashPop(ctx)
+}
+
+// undoHandOff takes back a hand-off whose stash pop failed in the worktree it
+// made: the worktree and whatever the failed pop half-applied there go, the
+// main checkout returns to the branch, and the stash is popped there. The
+// changes end where they began, in the main checkout, on the branch.
+func (e *env) undoHandOff(ctx context.Context, main, branch, path string) error {
+	ctx = context.WithoutCancel(ctx)
+	r := repo.New(main, e.cfg.AuthorPaths)
+	if err := r.DiscardWorktree(ctx, path, worktreesDir(main)); err != nil {
+		return fmt.Errorf("removing %s failed: %w", path, err)
+	}
+	if err := r.Switch(ctx, branch); err != nil {
+		return fmt.Errorf("switching %s back to %s failed: %w", main, branch, err)
+	}
+	if err := r.StashPop(ctx); err != nil {
+		return fmt.Errorf("putting the changes back in %s failed: %w", main, err)
+	}
+	return nil
 }
 
 // branchOff gives a plan on the default branch, or on no branch, a branch of

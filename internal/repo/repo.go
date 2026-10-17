@@ -506,7 +506,21 @@ func (r *Repo) PruneWorktrees(ctx context.Context) error {
 // and top, top included, that it leaves empty. git refuses a worktree with
 // untracked or modified files; ignored ones go with it.
 func (r *Repo) RemoveWorktree(ctx context.Context, path, top string) error {
-	if _, err := r.git(ctx, "worktree", "remove", path); err != nil {
+	return r.removeWorktree(ctx, path, top, false)
+}
+
+// DiscardWorktree deletes the worktree at path even when it holds changes,
+// then each directory between it and top, top included, that it leaves empty.
+func (r *Repo) DiscardWorktree(ctx context.Context, path, top string) error {
+	return r.removeWorktree(ctx, path, top, true)
+}
+
+func (r *Repo) removeWorktree(ctx context.Context, path, top string, force bool) error {
+	args := []string{"worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	if _, err := r.git(ctx, append(args, path)...); err != nil {
 		return err
 	}
 	sep := string(filepath.Separator)

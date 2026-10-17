@@ -34,7 +34,8 @@ type env struct {
 	root      string
 	cfg       config.Config
 	harnesses harness.Set
-	extra     []string // arguments after --, passed to the harness
+	extra     []string                                     // arguments after --, passed to the harness
+	popStash  func(ctx context.Context, root string) error // tests make a pop fail
 }
 
 func main() {

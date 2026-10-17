@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -324,6 +325,50 @@ func TestAFailedHandOffPutsTheChangesBack(t *testing.T) {
 	}
 	if exists(filepath.Join(e.root, "gone.txt")) || exists(filepath.Join(e.root, "old.txt")) {
 		t.Fatal("the staged deletion and the old name should be back as staged deletions")
+	}
+	if out := output(t, e.root, "stash", "list"); out != "" {
+		t.Fatalf("the stash should be empty:\n%s", out)
+	}
+}
+
+func TestAFailedPopInTheNewWorktreeUndoesTheHandOff(t *testing.T) {
+	e := mainRepo(t)
+	onBranch(t, e)
+	e.cfg.AuthorPaths = []string{"NOTES.md"}
+	git(t, e.root, "switch", "-q", "pass")
+	write(t, e.root, "README.md", "half done\n")
+	write(t, e.root, "half.go", "package half\n")
+	write(t, e.root, "NOTES.md", "mine\n")
+	popErr := errors.New("the pop in the worktree was refused")
+	e.popStash = func(_ context.Context, root string) error {
+		write(t, root, "half-applied.txt", "half\n")
+		return popErr
+	}
+
+	ctx := context.Background()
+	c, err := e.find(ctx, "PASS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.place(ctx, c); !errors.Is(err, popErr) {
+		t.Fatalf("the hand-off should fail with the pop's error, got %v", err)
+	}
+	if exists(worktreePath(e.root, "pass")) {
+		t.Fatal("the worktree the failed pop left should be gone")
+	}
+	if got := output(t, e.root, "branch", "--show-current"); got != "pass" {
+		t.Fatalf("the main checkout should be back on pass, it is on %q", got)
+	}
+	for path, want := range map[string]string{"README.md": "half done\n", "half.go": "package half\n"} {
+		if got, _ := os.ReadFile(filepath.Join(e.root, path)); string(got) != want {
+			t.Fatalf("%s was not put back in the main checkout: %q", path, got)
+		}
+	}
+	if got, _ := os.ReadFile(filepath.Join(e.root, "NOTES.md")); string(got) != "mine\n" {
+		t.Fatalf("the author's path should stay in the main checkout: %q", got)
+	}
+	if got := output(t, e.root, "show", "master:README.md"); got != "start" {
+		t.Fatalf("master should not receive the branch's changes, its README is %q", got)
 	}
 	if out := output(t, e.root, "stash", "list"); out != "" {
 		t.Fatalf("the stash should be empty:\n%s", out)
