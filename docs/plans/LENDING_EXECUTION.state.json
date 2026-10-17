@@ -268,6 +268,30 @@
         "reasoning": 49606,
         "cache_read": 9364480
       }
+    },
+    "4.3": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T12:59:25+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "ca16b5ced8ace07ae8ce234efdf345188720e8b3",
+      "commits": [
+        "593ae562326e14d9c12c01b77cddd452c0ca5cef Adjust a running run on the board"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `593ae56` makes `adjustInteractively` show the same board as a run, with the\n  bedrock's agent, model and effort locked (\"a running run keeps its agent\"),\n  live `l`/`o`, and an `x` stop in the Run column.\n- Enter writes changed leases and applies every visible setting through\n  `control.Adjust`. `pickRun` still runs before the board.\n- The old adjust pages and their label helpers are gone. The README *Start*\n  section now describes adjust.\n\n**Landmark drift**\n\n- None. `settingsBoard` and its column builders were where the previous\n  handover said. New code is `newAdjustBoard`, `adjustChange`, `applyAdjust`\n  and `read` in `cmd/ploopy/board.go`.\n\n**Deviations from the work order**\n\n- Added a `root` field to `settingsBoard` so the adjust board reads history and\n  pushability from the live run's worktree, not the caller's directory.\n- `applyAdjust` sends every field, including a cleared secondary and explicit\n  push/spend/stop values, because `control.Settings.Over` treats nil and empty\n  as \"leave alone\".\n\n**What the next session must know**\n\n- The adjust board reads the bedrock from `control.Live.Agent` (label form) and\n  everything else from `Live.Wanted`.\n- Subscription drafts still come from `loadLeaseDrafts`; `saveLeases` writes\n  only changed ones.\n- `cmd/ploopy/board_test.go` now has `liveRun` and a `key` helper; the apply\n  test drives column 3 (Run) and column 2 (claude) directly without tea.\n- `newSettingsBoard` still takes the run's plan; `newAdjustBoard` reloads the\n  plan and state from the live worktree only for the title and open count.\n\n**Open problems**\n\n- A live run whose status has an unknown or empty `Agent` string would leave\n  the bedrock column with no harness; real runs always announce one.\n- The board still cannot be exercised through bubbletea in tests, so the tests\n  call `read`/`applyAdjust` directly rather than pressing Enter.",
+      "session_id": "ses_eb67dcb4affeAmuRIYZqaI9BGY",
+      "cost_usd": 0.029304635999999988,
+      "harness": "opencode",
+      "elapsed_s": 135,
+      "session_s": 132,
+      "test_s": 2,
+      "tokens": {
+        "input": 66318,
+        "output": 7521,
+        "reasoning": 13314,
+        "cache_read": 2285312
+      }
     }
   }
 }
