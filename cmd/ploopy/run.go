@@ -17,6 +17,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
+	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
@@ -52,6 +53,7 @@ type runFlags struct {
 	peak          string
 	subscriptions string
 	spendAll      bool
+	then          string
 	quiet         bool
 	grace         time.Duration
 	away          string
@@ -123,33 +125,76 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	_ = flags.MarkDeprecated("weekly-reserve", "lend subscriptions with `ploopy lend`")
 }
 
+// planRun is one plan's run, up to the moment it ends. What follows the run
+// is deferred so a review can hand over to its fix plan first.
+type planRun struct {
+	root     string
+	branch   string
+	cfg      config.Config
+	p        *plan.Plan
+	runner   *loop.Loop
+	report   *ui.Reporter
+	result   loop.Result
+	complete bool
+	wanted   control.Settings
+	chosen   chosenRun
+}
+
 func runPlan(cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) error {
 	ctx := cmd.Context()
+	last, err := runOnce(ctx, cmd, e, f, chosen)
+	if err != nil || last == nil {
+		return err
+	}
+
+	for {
+		fixes, ok := chainedFixPlan(ctx, last)
+		if !ok {
+			break
+		}
+		next, err := runFixPlan(ctx, cmd, e, f, last, fixes)
+		if err != nil {
+			finishRun(ctx, e, f, last)
+			return err
+		}
+		last = next
+	}
+
+	finishRun(ctx, e, f, last)
+	if last.result.Status != "done" {
+		return fmt.Errorf("%s", last.result.Message)
+	}
+	return nil
+}
+
+// runOnce carries one plan to its end, without pushing, leaving its worktree
+// or taking the end action.
+func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) (*planRun, error) {
 	c, err := choosePlan(ctx, e, f)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if c.Live != nil {
 		if !ui.Interactive() {
-			return fmt.Errorf("%s is already running in %s; change it with `ploopy adjust`", c.Plan.Path, c.Live.Root)
+			return nil, fmt.Errorf("%s is already running in %s; change it with `ploopy adjust`", c.Plan.Path, c.Live.Root)
 		}
 		fmt.Printf("%s is already running in %s.\n", c.Plan.Path, c.Live.Root)
-		return adjustInteractively(ctx, e, *c.Live)
+		return nil, adjustInteractively(ctx, e, *c.Live)
 	}
 	t, err := prepareTarget(ctx, e, f, c)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	p, cfg := c.Plan, t.cfg
 	if errs := lintReport(e, t.root, p, os.Stderr, false); len(errs) > 0 {
-		return fmt.Errorf("%s does not lint; fix it before running it", p.Path)
+		return nil, fmt.Errorf("%s does not lint; fix it before running it", p.Path)
 	}
 
 	var pick chosenRun
 	if chosen == nil {
 		settled, err := chooseSettings(ctx, cmd, e, p, f, t.branch, openUnits(p, c.State))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		pick = settled
 	} else {
@@ -158,7 +203,7 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) error {
 
 	skill, err := skillsAt(t.root, cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	verify, test := f.verify, f.testCmd
 	if verify == "" {
@@ -168,7 +213,7 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) error {
 		test = cfg.Test
 	}
 	if f.tests && test == "" {
-		return fmt.Errorf("--test needs a test command: set `test` in .ploopy.toml or pass --test-cmd")
+		return nil, fmt.Errorf("--test needs a test command: set `test` in .ploopy.toml or pass --test-cmd")
 	}
 
 	report := ui.NewReporter(os.Stdout, os.Stderr)
@@ -209,9 +254,9 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) error {
 	if f.dryRun {
 		runner, err := loop.New(t.root, opts, report)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		return dryRun(ctx, runner, c, f)
+		return nil, dryRun(ctx, runner, c, f)
 	}
 
 	root := t.root
@@ -224,13 +269,17 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) error {
 	branch, _ := repo.New(root, nil).Branch(ctx)
 	opts.Branch = branch
 	opts.Lending = leases.load(time.Now(), pick.subscriptions, pick.spendAll)
+	then := pick.then
+	if p.Reviews() == "" {
+		then = ""
+	}
 	steer := announce(control.Status{
 		Root: root, Plan: p.Path, Branch: branch,
 		Agent: pick.agent.Label(),
 		Settings: control.Settings{
 			Finish: string(pick.finish), Peak: peakName(pick.waitOffPeak), Push: &pick.push,
 			Secondary:     toControlAgent(pick.secondary),
-			Subscriptions: pick.subscriptions, SpendAll: &pick.spendAll,
+			Subscriptions: pick.subscriptions, SpendAll: &pick.spendAll, Then: then,
 		},
 	}, e.harnesses, leases, report)
 	defer steer.close()
@@ -238,7 +287,7 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) error {
 
 	runner, err := loop.New(root, opts, tracked{Reporter: report, steer: steer})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, pick.agent.Harness.Name(),
@@ -278,20 +327,59 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) error {
 	}
 	report.Degraded(result.Stats.Degraded)
 
-	wanted := steer.wanted()
-	if wanted.Pushes() {
-		pushBranch(ctx, root, runner, report)
+	return &planRun{
+		root: root, branch: branch, cfg: cfg, p: p, runner: runner, report: report,
+		result: result, complete: complete, wanted: steer.wanted(), chosen: pick,
+	}, nil
+}
+
+// chainedFixPlan is the fix plan a complete review hands over to, when Then
+// says so and the triage wrote one.
+func chainedFixPlan(ctx context.Context, r *planRun) (string, bool) {
+	if ctx.Err() != nil || r.p == nil || r.p.Reviews() == "" || !r.complete ||
+		r.result.Stopped || r.wanted.Stops() {
+		return "", false
+	}
+	if thenValue(r.wanted.Then) != "fixes" {
+		return "", false
+	}
+	fixes := review.FixesPath(r.p.Reviews())
+	if !isFile(filepath.Join(r.root, fixes)) {
+		return "", false
+	}
+	return fixes, true
+}
+
+// runFixPlan runs a review's fix plan in the review's worktree and settings,
+// but with the fix plan's own front matter where it gives some.
+func runFixPlan(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, reviewRun *planRun, fixes string) (*planRun, error) {
+	p, err := plan.Load(filepath.Join(reviewRun.root, fixes), fixes)
+	if err != nil {
+		return nil, err
+	}
+	settings, err := applyPlanSettings(e, p, overChosen(e, reviewRun.chosen, reviewRun.wanted))
+	if err != nil {
+		return nil, err
+	}
+	next := *f
+	next.planName = fixes
+	next.from, next.until, next.units = "", "", 0
+	next.dryRun = false
+	return runOnce(ctx, cmd, e, &next, &settings)
+}
+
+// finishRun pushes, leaves the worktree and takes the end action once, after
+// the last plan the run carried.
+func finishRun(ctx context.Context, e *env, f *runFlags, r *planRun) {
+	if r.wanted.Pushes() {
+		pushBranch(ctx, r.root, r.runner, r.report)
 	}
 	// Only a worktree ploopy made is removed: one the author made is theirs,
 	// and a run started inside a worktree has its shell there.
-	if branch != "" && e.ours(ctx, root) {
-		leaveWorktree(ctx, e, root, branch, p.Path, cfg, complete, runner, report)
+	if r.branch != "" && e.ours(ctx, r.root) {
+		leaveWorktree(ctx, e, r.root, r.branch, r.p.Path, r.cfg, r.complete, r.runner, r.report)
 	}
-	endAction(ctx, runner, report, ui.Finish(wanted.Finish), f.grace)
-	if result.Status != "done" {
-		return fmt.Errorf("%s", result.Message)
-	}
-	return nil
+	endAction(ctx, r.runner, r.report, ui.Finish(r.wanted.Finish), f.grace)
 }
 
 // pushBranch sends the branch to its remote once the run is over, whatever

@@ -11,8 +11,12 @@ stops, and records progress in `<PLAN>.state.json` beside the plan.
    the last run and the leases. The run goes to a worktree of the plan's
    branch; keep working on master.
 3. `ploopy adjust` from any terminal changes what the run does next.
-4. In the morning, still on master: `ploopy review <NAME>`, read what it puts
-   to you, run the fix plan it wrote.
+4. Review the night's work: `ploopy review <NAME>` writes and runs the review,
+   then stops. `ploopy review <NAME> --then fixes` goes on overnight: the
+   review, its triage and the fix plan it writes run in one invocation, and the
+   branch is pushed, the worktree left and the end action taken once, after the
+   fixes. The board's `n` chooses the same, and `ploopy adjust --then fixes`
+   changes it while the review runs.
 5. `ploopy land <branch>` closes all three plans, rebases the branch onto master,
    runs the checks, and fast-forwards master. Master is yours to push.
 
@@ -99,7 +103,8 @@ runs it like any plan:
   answer it and show locked. The board's values go to the review's run without
   asking again. A review already written whose triage has not run opens with
   its triage as that review has it, and changing it commits the change; once
-  the triage has run its column is locked.
+  the triage has run its column is locked. The Run column's `n` says what
+  follows the review: stop, or run the fix plan it writes.
 - the triage session weighs every finding with the `review-triage` skill. It
   writes `<NAME>_FIXES.md`, an ordinary plan for every finding that holds. It
   makes a recommended choice for each design finding so the plan can run
@@ -107,6 +112,15 @@ runs it like any plan:
   the author* at the end of the review. The author can revise those choices
   before running the fix plan. The triage may commit those two files and
   nothing else.
+
+`ploopy review <NAME> --then fixes`, or `n` set to run the fix plan on the
+board, goes on once the review is complete and its fix plan exists: the fix
+plan runs in the same worktree with the review's resolved settings, except
+what the fix plan's front matter gives, and no board is shown. Pushing, leaving
+the worktree and the end action happen once, after the fix plan. The default,
+`--then stop`, ends after the review as before, and a review stopped before its
+triage, failed, or left without a fix plan never starts one. `ploopy adjust
+--then fixes` and `--then stop` change the choice while the review runs.
 
 A repository adds its own review checklist at `.agents/review-checklist.md`, or
 names one with `review_checklist` in `.ploopy.toml`; collecting sessions go

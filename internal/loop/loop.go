@@ -165,6 +165,7 @@ func sleep(ctx context.Context, d time.Duration) error {
 type Result struct {
 	Status  string // "done" or "failed"
 	Message string
+	Stopped bool // the author asked it to stop
 	Stats   stats.Run
 }
 
@@ -451,14 +452,18 @@ func (l *Loop) Run(ctx context.Context) Result {
 		if err := l.peakGate(ctx); err != nil {
 			if errors.Is(err, errStopped) {
 				l.report.Say("stopping before %s, as asked", unit.ID)
-				return l.finish("stopped before " + unit.ID + " as asked")
+				result := l.finish("stopped before " + unit.ID + " as asked")
+				result.Stopped = true
+				return result
 			}
 			return l.failRun(err.Error())
 		}
 		if err := l.runUnit(ctx, *unit); err != nil {
 			if errors.Is(err, errStopped) {
 				l.report.Say("stopping during %s, as asked; it stays open", unit.ID)
-				return l.finish("stopped during " + unit.ID + " as asked")
+				result := l.finish("stopped during " + unit.ID + " as asked")
+				result.Stopped = true
+				return result
 			}
 			return l.failRun(fmt.Sprintf("%s. Resume with: ploopy run --plan %s", err, l.opts.PlanPath))
 		}
@@ -466,7 +471,9 @@ func (l *Loop) Run(ctx context.Context) Result {
 
 		if l.steer().Stop {
 			l.report.Say("stopping after %s, as asked", unit.ID)
-			return l.finish("stopped after " + unit.ID + " as asked")
+			result := l.finish("stopped after " + unit.ID + " as asked")
+			result.Stopped = true
+			return result
 		}
 
 		if l.opts.Until != "" && unit.ID == l.opts.Until {

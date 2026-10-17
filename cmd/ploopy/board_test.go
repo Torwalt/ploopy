@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/spf13/cobra"
 
 	"github.com/Torwalt/ploopy/internal/config"
 	"github.com/Torwalt/ploopy/internal/control"
@@ -129,12 +130,17 @@ func TestTheAdjustBoardLocksTheBedrockAndOffersStop(t *testing.T) {
 	if run.Title != "Run" {
 		t.Fatalf("the last column is %q", run.Title)
 	}
+	var stop, then bool
 	for _, field := range run.Fields {
-		if field.Key == 'x' {
-			return
-		}
+		stop = stop || field.Key == 'x'
+		then = then || field.Key == 'n'
 	}
-	t.Fatal("the adjust board offers no stop field")
+	if !stop {
+		t.Fatal("the adjust board offers no stop field")
+	}
+	if !then {
+		t.Fatal("the adjust board offers no then field")
+	}
 }
 
 func TestTheAdjustBoardAppliesItsSettingsAndLeases(t *testing.T) {
@@ -176,5 +182,19 @@ func TestTheAdjustBoardAppliesItsSettingsAndLeases(t *testing.T) {
 	active := file.Active(now)
 	if len(active) != 1 || active[0].Harness != "claude" || active[0].Kind != lease.Until {
 		t.Fatalf("leases are %+v", active)
+	}
+}
+
+func TestThenIsAnAdjustFlag(t *testing.T) {
+	e := boardEnv(t)
+	f := &adjustFlags{}
+	cmd := &cobra.Command{Use: "adjust"}
+	cmd.Flags().StringVar(&f.then, "then", "", "")
+	if err := cmd.ParseFlags([]string{"--then", "fixes"}); err != nil {
+		t.Fatal(err)
+	}
+	change, err := changeFromFlags(cmd, e, f)
+	if err != nil || change.Then != "fixes" {
+		t.Fatalf("--then fixes changed %+v, error %v", change, err)
 	}
 }

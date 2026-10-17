@@ -27,6 +27,7 @@ type adjustFlags struct {
 	secondaryEff  string
 	subscriptions string
 	spendAll      bool
+	then          string
 	away          string
 	night         string
 	reserve       int
@@ -40,7 +41,8 @@ func newAdjust(e *env) *cobra.Command {
 		Long: "Change what a running run does next: its end action, whether it\n" +
 			"pushes, whether it stops after the current unit, the agent that takes\n" +
 			"over on a usage limit, what a unit due in peak hours does, which lent\n" +
-			"subscriptions it may use, and whether it keeps a reserve.\n\n" +
+			"subscriptions it may use, whether it keeps a reserve, and whether a\n" +
+			"review goes on to run its fix plan.\n\n" +
 			"With nothing passed, ploopy asks. It works from any directory.",
 		Args: cobra.NoArgs,
 		// A run is adjusted from anywhere, not only from inside its repository.
@@ -62,6 +64,7 @@ func newAdjust(e *env) *cobra.Command {
 	flags.StringVar(&f.subscriptions, "subscriptions", "",
 		"lent subscriptions to use: all, none, or names such as claude,codex")
 	flags.BoolVar(&f.spendAll, "spend-all", false, "spend the subscriptions' weeks, keeping no reserve")
+	flags.StringVar(&f.then, "then", "", "after a review: stop, or fixes to run the fix plan it writes")
 	flags.StringVar(&f.away, "away", "", "")
 	_ = flags.MarkDeprecated("away", "lend subscriptions with `ploopy lend`")
 	flags.StringVar(&f.night, "night", "", "")
@@ -192,6 +195,12 @@ func changeFromFlags(cmd *cobra.Command, e *env, f *adjustFlags) (control.Settin
 	}
 	if flags.Changed("spend-all") {
 		change.SpendAll = &f.spendAll
+	}
+	if flags.Changed("then") {
+		if !validThen(f.then) {
+			return change, fmt.Errorf("--then must be stop or fixes, not %s", f.then)
+		}
+		change.Then = f.then
 	}
 	return change, nil
 }

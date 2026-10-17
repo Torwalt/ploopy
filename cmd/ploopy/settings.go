@@ -31,12 +31,14 @@ type runSettings struct {
 	SpendAll      bool           `json:"spendAll,omitempty"`
 	Push          bool           `json:"push,omitempty"`
 	Finish        string         `json:"finish,omitempty"`
+	Then          string         `json:"then,omitempty"`
 }
 
 // given is which settings the author already gave, as flags or in the plan's
 // front matter. The board shows those locked and says where they came from.
 type given struct {
 	harness, model, effort, secondary, peak, subscriptions, spendAll, push, finish bool
+	then                                                                           bool
 	sources                                                                        map[string]string
 }
 
@@ -64,6 +66,7 @@ type chosenRun struct {
 	spendAll      bool
 	push          bool
 	finish        ui.Finish
+	then          string
 }
 
 // chooseSettings puts everything on one board, prefilled from the last run
@@ -176,7 +179,25 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		s.Finish, g.finish = f.finish, true
 		g.from("finish", "from a flag")
 	}
+	if f.then != "" {
+		if !validThen(f.then) {
+			return s, g, fmt.Errorf("--then must be stop or fixes, not %s", f.then)
+		}
+		s.Then, g.then = f.then, true
+		g.from("then", "from a flag")
+	}
 	return s, g, nil
+}
+
+// validThen reports whether v names what follows a review.
+func validThen(v string) bool { return v == "stop" || v == "fixes" }
+
+// thenValue settles an unset Then as the default: stop.
+func thenValue(v string) string {
+	if v == "fixes" {
+		return "fixes"
+	}
+	return "stop"
 }
 
 // unattended settles a run nobody is watching: it needs the harness and the
@@ -249,6 +270,9 @@ func fill(e *env, s *runSettings, g given, last *runSettings) {
 		if last != nil && ui.Finish(last.Finish).Valid() {
 			s.Finish = last.Finish
 		}
+	}
+	if !g.then {
+		s.Then = "stop"
 	}
 }
 
@@ -369,6 +393,13 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 	if finish == "" {
 		finish = ui.FinishNone
 	}
+	then := s.Then
+	if then == "" {
+		then = "stop"
+	}
+	if !validThen(then) {
+		return chosenRun{}, fmt.Errorf("then must be stop or fixes, not %s", then)
+	}
 	return chosenRun{
 		agent:         loop.Agent{Harness: h, Model: s.Model, Effort: s.Effort},
 		secondary:     toLoopAgent(e.harnesses, s.Secondary),
@@ -377,7 +408,68 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 		spendAll:      s.SpendAll,
 		push:          s.Push,
 		finish:        finish,
+		then:          then,
 	}, nil
+}
+
+// overChosen lays what the author adjusted during a run over the settings it
+// started with, so a chained run keeps those changes to the end.
+func overChosen(e *env, c chosenRun, w control.Settings) chosenRun {
+	if w.Finish != "" {
+		c.finish = ui.Finish(w.Finish)
+	}
+	if w.Peak != "" {
+		c.waitOffPeak = w.Peak == "wait"
+	}
+	if w.Push != nil {
+		c.push = *w.Push
+	}
+	if w.Secondary != nil {
+		c.secondary = toLoopAgent(e.harnesses, w.SecondaryAgent())
+	}
+	if w.Subscriptions != "" {
+		c.subscriptions = w.Subscriptions
+	}
+	if w.SpendAll != nil {
+		c.spendAll = *w.SpendAll
+	}
+	if w.Then != "" {
+		c.then = w.Then
+	}
+	return c
+}
+
+// applyPlanSettings lays a plan's front matter over the settings a chained run
+// inherited, so a fix plan may choose its own agent, model, effort or
+// subscription set.
+func applyPlanSettings(e *env, p *plan.Plan, c chosenRun) (chosenRun, error) {
+	if name := p.Settings["agent"]; name != "" {
+		h := e.harnesses.Get(name)
+		if h == nil {
+			return c, fmt.Errorf("%s asks for agent %s, which ploopy cannot drive here", p.Path, name)
+		}
+		if c.agent.Harness != h {
+			c.agent = loop.Agent{Harness: h, Model: h.Models()[0], Effort: preferredEffort(h)}
+		}
+	}
+	if model := p.Settings["model"]; model != "" {
+		c.agent.Model = model
+	}
+	if effort := p.Settings["effort"]; effort != "" {
+		if !contains(c.agent.Harness.Efforts(), effort) {
+			return c, fmt.Errorf("the effort for %s must be one of %s, not %s",
+				c.agent.Harness.Name(), strings.Join(c.agent.Harness.Efforts(), ", "), effort)
+		}
+		c.agent.Effort = effort
+	}
+	if set := p.Settings["subscriptions"]; set != "" {
+		resolved, err := subscriptionSet(e.harnesses, set)
+		if err != nil {
+			return c, err
+		}
+		c.subscriptions = resolved
+	}
+	return c, nil
 }
 
 // lastRunPath is in the repository's git directory, which its worktrees share
