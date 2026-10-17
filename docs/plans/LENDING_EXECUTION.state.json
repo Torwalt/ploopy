@@ -316,6 +316,30 @@
         "reasoning": 6213,
         "cache_read": 894592
       }
+    },
+    "5.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T13:05:36+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "46171a86458dc78b19a3477e1cc9e3c1b20b6dd0",
+      "commits": [
+        "0cac501ad2f53d0bff70daab160f8427fca00fce Put a review's triage on the run board"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `0cac501` puts a review's triage on the run board: `newReviewBoard` adds a\n  Triage column (`a` agent, `m` model, `e` effort, `b` cap) before Run while\n  keeping the run's bedrock, subscription and Run columns.\n- The triage is resolved once by `reviewTriage` (flags, the written review's\n  triage, the last triage, then the default). A pending change is committed\n  through `writeTriage`, the same path `retriage` now uses; a triage that has\n  run locks its column with \"the triage has run\".\n- `runPlan` takes an optional pre-chosen `chosenRun`, so the review board's\n  values are not asked for again. The separate triage page and `askTriage` are\n  gone; README's *Review* section and the review command help describe the\n  board.\n\n**Landmark drift**\n\n- None. `chooseTriage`, `askAgent`, `runPlan`, `newSettingsBoard` and the\n  review functions were where the order said. `askAgent` stays for the land\n  repair page.\n\n**Deviations from the work order**\n\n- A new review is written before its board is shown, with the triage resolved\n  without prompting; a change made on the board is then committed as a\n  retriage. A cancel therefore leaves a written review behind instead of\n  writing nothing.\n- Interactive flag changes to a pending review are committed after the board\n  returns, not before it opens. Non-interactive and `--write-only` still apply\n  and commit them before running.\n- `chooseTriage` now only resolves and validates; it no longer prompts.\n\n**What the next session must know**\n\n- Review flow in `cmd/ploopy/review.go`: `reviewTriage` supplies the triage,\n  `newReviewBoard` builds the board, `board.finish` resolves run settings,\n  writes changed leases and remembers last-run/last-triage, then\n  `runPlan(..., \u0026chosen)` runs without a second board.\n- `reviewTriage(ctx, cmd, e, f, p, s)` returns the triage, flag givens and\n  whether it has run. Pass `nil, nil` for a new review.\n- `triageRanLock` lives in `cmd/ploopy/board.go`; triage flag givens are named\n  `agent`, `model`, `effort`, `budget` (`triageGivens`).\n- `cmd/ploopy/review_board_test.go` covers the three board cases.\n\n**Open problems**\n\n- The interactive review path is covered at the board level, not end-to-end\n  through a pty; the command's own flow is only exercised non-interactively.\n- The Run column's `n` (stop / run the fix plan) from §13 belongs to the later\n  D14 unit and is deliberately absent here.",
+      "session_id": "ses_eb67a905bffecKJLytytOaJvFY",
+      "cost_usd": 0.05355987000000001,
+      "harness": "opencode",
+      "elapsed_s": 293,
+      "session_s": 289,
+      "test_s": 4,
+      "tokens": {
+        "input": 85861,
+        "output": 15628,
+        "reasoning": 24970,
+        "cache_read": 5440640
+      }
     }
   }
 }
