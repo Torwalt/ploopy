@@ -1,131 +1,8 @@
 # ploopy
 
-Runs a plan overnight, one unit per fresh Claude Code, opencode or Codex session. The
+Runs a plan one unit per fresh Claude Code, opencode or Codex session. The
 agent commits; ploopy judges from git whether the unit landed, retries or
 stops, and records progress in `<PLAN>.state.json` beside the plan.
-
-## Flow
-
-1. Write `docs/plans/<NAME>.md` with the `plan-writing` skill.
-2. `ploopy` → run a plan → confirm the board, Enter. It opens prefilled from
-   the last run and the leases. The run goes to a worktree of the plan's
-   branch; keep working on master.
-3. `ploopy adjust` from any terminal changes what the run does next.
-4. Review the night's work: `ploopy review <NAME>` writes and runs the review,
-   then stops. `ploopy review <NAME> --then fixes` goes on overnight: the
-   review, its triage and the fix plan it writes run in one invocation, and the
-   branch is pushed, the worktree left and the end action taken once, after the
-   fixes. The board's `n` chooses the same, and `ploopy adjust --then fixes`
-   changes it while the review runs.
-5. `ploopy land <branch>` closes all three plans, rebases the branch onto master,
-   runs the checks, and fast-forwards master. Master is yours to push.
-
-## Trying it out
-
-A sandbox runs ploopy without real sessions or real plans. Either command opens
-a shell in a toy repository with fake `claude`, `codex` and `opencode` on
-`PATH`, and its own state directories:
-
-```sh
-go run ./dev/sandbox
-nix run .#sandbox
-```
-
-It prints the directory it made. Edit `scenario.toml` there to change how long a
-session takes, how much of a window it uses, its cost or its outcome (`done`,
-`blocked`, `nothing`, `red`, `dirty`, `limit` or `logged-out`).
-`repo/docs/plans/TOY.md` is the plan, with eight tiny units. Then run `ploopy`,
-or `ploopy review TOY`.
-
-## Worktrees
-
-Every run, and every review, goes to a worktree of the plan's branch at
-`<repo>.worktrees/<branch>`, whichever checkout ploopy is started from:
-
-- a worktree that holds the branch is used as it is;
-- a branch checked out nowhere is checked out there;
-- a branch the main checkout has moves there, and the main checkout to the
-  default branch. Uncommitted changes besides the plan and the author's own
-  paths move with the branch, into the worktree the run sees;
-- a plan on the default branch gets a branch named after it, `PLAYTEST_FIXES`
-  → `playtest-fixes`, at the commit it is on. A later run finds that branch
-  again;
-- a plan not yet committed is committed on the branch the run uses, and taken
-  out of the default branch's checkout;
-- what a removed worktree left behind at that path is cleared, and anything
-  else there is moved aside.
-
-`close`, `mark`, `report --commit` and `show` check a branch out the same way
-when no checkout holds it.
-
-A run never refuses uncommitted changes. Each session that starts on them is
-told which paths are dirty and whether an earlier attempt or the worktree
-before this run left them, and a red check on inherited changes goes to the
-first session instead of stopping the run. A review still refuses them, because
-its sessions change nothing.
-
-## Land
-
-`ploopy land [BRANCH]` refuses a branch that still has open units. Otherwise:
-
-- every plan on the branch is closed, each in a commit carrying its report;
-- the branch is rebased onto the default branch and `verify` and `test` run on
-  the result, each once more before it counts as failed;
-- a conflict, or a check that fails on the rebased branch, goes to a session
-  with the `land-repair` skill. During a conflict the session resolves and
-  stages, and ploopy continues the rebase; after a failing check it adds
-  commits. git and the checks judge it, up to `--attempts` sessions per repair.
-  Who repairs is asked on a page of its own, and remembered;
-- the default branch is fast-forwarded where it is checked out. If it moved
-  during the checks, the branch is rebased again;
-- a branch that was pushed before is pushed again with a lease, ploopy's
-  worktree for it is removed and the branch deleted.
-
-A failed repair leaves the default branch as it was: after a conflict the
-rebase is aborted, after a failing check the branch stays rebased so the
-failure can be looked at. Logs go to `.git/ploopy/land/<branch>/`.
-`--no-agent` stops at the first conflict or failure instead.
-
-## Review
-
-`ploopy review <NAME>` writes `<NAME>_REVIEW.md` beside the plan, commits it and
-runs it like any plan:
-
-- one session per landed unit, with the run's agent, reads that unit's work
-  order, handover and commits and writes findings with the `plan-review` skill.
-  It changes nothing: a review session that commits stops the run;
-- one more session looks only at the seams between the units;
-- one board asks everything before either runs: the run's columns for the
-  collecting sessions — the bedrock, the lent subscriptions and the run's own
-  settings — with a Triage column before the Run column. The Triage column is
-  the agent, model, effort and spending cap of the session that weighs the
-  findings: Opus at first and then like last time, and the `--triage-*` flags
-  answer it and show locked. The board's values go to the review's run without
-  asking again. A review already written whose triage has not run opens with
-  its triage as that review has it, and changing it commits the change; once
-  the triage has run, or while the review is running, its column is locked.
-  The Run column's `n` says what
-  follows the review: stop, or run the fix plan it writes.
-- the triage session weighs every finding with the `review-triage` skill. It
-  writes `<NAME>_FIXES.md`, an ordinary plan for every finding that holds. It
-  makes a recommended choice for each design finding so the plan can run
-  immediately, and records each recommendation and its alternatives under *For
-  the author* at the end of the review. The author can revise those choices
-  before running the fix plan. The triage may commit those two files and
-  nothing else.
-
-`ploopy review <NAME> --then fixes`, or `n` set to run the fix plan on the
-board, goes on once the review is complete and its fix plan exists: the fix
-plan runs in the same worktree with the review's resolved settings, except
-what the fix plan's front matter gives, and no board is shown. Pushing, leaving
-the worktree and the end action happen once, after the fix plan. The default,
-`--then stop`, ends after the review as before, and a review stopped before its
-triage, failed, or left without a fix plan never starts one. `ploopy adjust
---then fixes` and `--then stop` change the choice while the review runs.
-
-A repository adds its own review checklist at `.agents/review-checklist.md`, or
-names one with `review_checklist` in `.ploopy.toml`; collecting sessions go
-through it item by item.
 
 ## Start
 
@@ -159,150 +36,69 @@ ploopy · PASS_FIXES on pass-fixes · 12 open units
  enter start   1–4 column   letter next   shift+letter back   +/- hour   esc
 ```
 
-Pressing a command's letter picks it at once; the arrows and Enter still work.
-While a run is going on, `a` changes it.
+A command's letter picks it; while a run is going on in this repository, `a`
+changes it. The board opens prefilled from the last run; a setting given as a
+flag or in the plan's front matter shows locked. Every answer is also a flag:
+`ploopy run --help`.
 
-Enter starts with these settings. A setting given as a flag or in the plan's
-front matter is locked and says where it came from. Changing a subscription's
-lease writes it to the lease file for every run; reclaimed, it shows `mine`.
-Changing the bedrock's agent to a subscription removes that subscription's
-column. The footer forecasts the run from the repository's history and the
-windows each subscription last reported.
+## Features
 
-`ploopy adjust` shows the same board for a run that is going, after asking
-which run when several are. The bedrock's agent, model and effort are locked,
-and `x` stops it after the current unit. Enter applies the settings to the
-chosen run and writes any changed leases for every run.
+**Run.** Write `docs/plans/<NAME>.md` with the `plan-writing` skill, then run it.
+- Each unit gets a fresh session; commits since its base, a clean tree and the
+  `verify`/`test` checks from `.ploopy.toml` decide whether it landed.
+- A stopped run records the session it cut off and resumes there next time.
 
-Every answer is also a flag: `ploopy run --help`.
+**Worktrees.** A plan runs in `<repo>.worktrees/<branch>`, its branch named
+after it (`PLAYTEST_FIXES` → `playtest-fixes`), so master stays yours.
+- A worktree belongs to one plan and its review and fix plans; other plans the
+  branch carries have no say over it.
+- It is removed once that family is complete or closed.
 
-## Subscriptions
+**Adjust.** `ploopy adjust` opens the board for a run going on in this
+repository.
+- Changes apply from the next unit; `x` stops after the current one.
 
-The run's own agent is the *bedrock*: it always works. Claude and Codex are
-*subscriptions*: they take a session when you lend them, and nothing ever
-waits for one. Lending is per machine, not per run, and every run reads the
-same lease file.
+**Subscriptions.** The run's own agent is the *bedrock*; Claude and Codex take
+sessions only while lent.
+- `ploopy lend claude --until 09:00`, `--nightly 21:00-09:00` or `--open`;
+  `ploopy reclaim claude|all` takes them back.
+- Windows about to reset go first, 20% of each week stays yours (`--keep`), and
+  a subscription at its limit hands over without waiting.
 
-`ploopy lend` lists what is lent. `ploopy lend claude --until 09:00`,
-`ploopy lend codex --open`, or `ploopy lend claude --nightly 21:00-09:00` lends
-a subscription; `--keep` says how much of its week stays yours, `--model` and
-`--effort` how it runs. `ploopy reclaim claude` takes one back and
-`ploopy reclaim all` takes them all. They work from any directory, like
-`ploopy adjust`.
+**Review.** `ploopy review <NAME>` writes and runs `<NAME>_REVIEW.md`: one
+read-only session per landed unit and one for the seams, then a triage that
+writes `<NAME>_FIXES.md`.
+- `--then fixes`, or `n` on the board, runs the fix plan in the same worktree
+  right after.
+- A repository adds its own checklist at `.agents/review-checklist.md`.
 
-- an `until` lease lasts to the next such clock time, or to an RFC 3339 instant
-  in the file;
-- a `nightly` lease is lent every day inside its span, such as 21:00-09:00;
-- an `open` lease lasts until reclaimed.
+**Land.** `ploopy land [BRANCH]` closes the branch's plans, rebases it onto the
+default branch, runs the checks and fast-forwards.
+- A conflict or red check goes to a `land-repair` session; `--no-agent` stops
+  instead.
+- The worktree and branch are removed; master is yours to push.
 
-Each lease keeps a share of its subscription's week for you, 20% unless
-`--keep` says otherwise. The reserve shrinks as the weekly reset nears, so a
-week's leftovers are used before they reset, and `--keep 0` spends the lot.
-The board shows each subscription's lease and windows; `u` cycles mine, until,
-nightly and until reclaimed, and `+`/`-` move the lease's end hour.
+**History.** Every session is logged to `.git/ploopy/history.jsonl`, shared by
+all worktrees.
+- `ploopy history` shows what a unit took each agent and where the usage
+  windows stand; the board's footer forecasts the run from it.
 
-A run uses every lent subscription by default. Its plan may narrow that with
-`subscriptions:` in front matter: `all`, `none` for the bedrock only, or names
-such as `claude codex`. A run says so at the start when the plan is narrower
-than `all`. The same choice is `ploopy run --subscriptions all|none|claude,codex`
-and `ploopy adjust --subscriptions …`. An empty `--subscriptions=` means `all`
-on either, so it clears a narrower plan or last run. `--spend-all` spends the
-subscriptions' weeks instead of keeping their reserves, and is also on
-`adjust`. The board
-offers the set as all lent, each subscription alone, or the bedrock only, and
-spending as keep reserves or spend all. A subscription outside the set is
-dimmed and says `not this run`.
+**Agents.** Claude Code, opencode and Codex run through their installed CLI and
+login; pick one in the Bedrock column or with `agent:`, `model:`, `effort:` in
+front matter.
+- Units are judged from git, so an adapter whose output format drifted costs no
+  unit; it is reported in red at the end of the run.
 
-Inside its lease, each session goes to the subscription with room that ploopy
-puts first, else to the bedrock. A window already open goes before a fresh
-one, and the one that resets first leads; among fresh ones, the subscription
-with the most of its week to lose goes first:
-
-- a window that resets before you reclaim the subscription is used up for
-  free;
-- a fresh window opens only when it would end before the lease does;
-- a subscription at its usage limit hands over without waiting;
-- one that cannot run, logged out or not installed, hands over too and sits
-  out half an hour;
-- none goes past the share of the week you keep.
-
-A lease only lets a subscription take sessions; the bedrock takes everything
-else. Claude reports its windows only from inside a session, so before the
-first one ploopy goes by the last it saw; Codex's are read live through
-`codex app-server`, without a model call.
-
-## History
-
-Every session goes to `.git/ploopy/history.jsonl`, shared by all worktrees and
-kept when one is removed. `ploopy history` says what a landed unit took each
-agent here, every attempt included, and where the windows stand; the board's
-footer forecasts a run from the same history. An estimate needs three landed
-units of one agent; units run on a lent subscription are preferred once there are
-three, because your own use moves the windows during the day. `--import` adds the
-sessions the checkouts' stats logs still hold, Claude's windows read back out of
-its transcripts.
-
-## When an adapter falls short
-
-A harness that changes its output format must not cost a unit, and must not go
-unnoticed. Each adapter knows what a finished session reports — Claude a result
-event, its cost, tokens and usage windows; Codex a thread and token usage;
-opencode its steps — and counts structured lines that no longer decode. Plain
-output beside the stream, such as a warning, does not count. Units are judged
-from git as always; what fell short is said once when it first happens, marked
-in the stats log and the report, and repeated in red at the end of the run:
-
-```
-[ploopy] harness adapter degraded
-  Units were judged from git as always; these sessions' cost, tokens or usage windows are incomplete.
-  claude sonnet high: 2 of 2 session(s)
-    no result event: cost, tokens and turns are unknown
-    1 line did not decode: result: json: cannot unmarshal string into Go struct field streamLine.num_turns of type int
-    logs: .ploopy/night/logs/1.2-0.log, .ploopy/night/logs/1.3-0.log
-```
-
-## Codex
-
-Choose `codex` in the board's Bedrock column for runs and reviews, in its
-Triage column for a review's triage, or with `l` as the bedrock's usage-limit
-fallback. It uses the installed Codex CLI and its existing login, config,
-MCP servers and skills. `nix develop` includes the CLI; authenticate with
-`codex login` before running unattended.
-
-For a review entirely with Codex, choose it in both the Bedrock and Triage
-columns.
-The same choices can be passed as flags:
+## Try it
 
 ```sh
-ploopy review PASS --agent codex --effort high --triage-agent codex
-ploopy run --plan PASS --agent codex --effort high
+go run ./dev/sandbox      # or: nix run .#sandbox
 ```
 
-Plans may set `agent: codex`, `model: gpt-6.1-sol` and `effort: high` in
-front matter, or `Agent: codex`, `Model:` and `Effort:` on individual units.
-The model picker offers GPT-6.1 Sol, Astra, Luna, GPT-6 Sol and GPT-5.6 Sol;
-`--model` accepts other model names. Efforts are `low`, `medium`, `high`,
-`xhigh` and `max`. Availability follows your Codex account.
+A toy repository with fake `claude`, `codex` and `opencode`; edit its
+`scenario.toml` to change how sessions end.
 
-The adapter runs `codex exec --json`, sends the work order on stdin, and
-records text, tool activity, token usage and the actual thread ID. Before and
-after each session it reads the account's usage windows from `codex
-app-server`. `ploopy
-replay` shows `codex resume <thread-id>` to reopen it. It recognizes usage
-limits for the normal wait/fallback policy. Codex's stream reports no dollar
-cost or spending-cap control: costs stay unknown and a nonzero `--budget`,
-`--triage-budget` or unit `Budget:` is refused before the session starts.
+## Develop
 
-Like the other unattended adapters, Codex runs with approval and sandbox
-bypasses so it can build, test and commit without a terminal. It enables
-hooks, installs ploopy's Bash git-command guard, and bypasses hook trust for
-that invocation; this also runs enabled user/project hooks. Native web search
-is disabled. Extra CLI arguments after `--` can override Codex settings.
-See the official [non-interactive interface](https://learn.chatgpt.com/docs/non-interactive-mode)
-and [hook contract](https://learn.chatgpt.com/docs/hooks).
-
-To write a plan interactively in Codex, copy `skills/plan-writing/` from this
-repository into your project's `.agents/skills/plan-writing/` (or your
-user-level `~/.agents/skills/plan-writing/`), then ask Codex to use
-`$plan-writing`. Planning remains an interactive harness session; ploopy
-executes the resulting committed plan.
+`nix develop` (direnv loads it) has go, the three harnesses and `ploopy` built
+from this checkout on every call.
