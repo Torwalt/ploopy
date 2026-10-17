@@ -319,6 +319,30 @@
         "reasoning": 65111,
         "cache_read": 12080768
       }
+    },
+    "2.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T16:25:27+02:00",
+      "agent": "claude opus high",
+      "base": "69fafccb894d34d49c192c17d5aeb7bb83912571",
+      "commits": [
+        "c516ade1081a91363100d4c913a848b3883a3023 Triage the lending review into a fix plan"
+      ],
+      "attempts": 1,
+      "handover": "Triage of LENDING_EXECUTION_REVIEW, committed with the fix plan.\n\n- 63 findings: 12 slips, 42 gaps, 2 design go to docs/plans/LENDING_EXECUTION_FIXES.md in 29 units; 4 folded as duplicates; 3 dropped (1.2 F3, 1.6 F3, 1.13 F1).\n- Design: F-D1 (failed pop in the new worktree undoes the hand-off, unit 1.8); F-D2 (the board never changes a given value and normalizes before its first frame, unit 1.20). Named F-D* to avoid LENDING.md's D1-D14.\n- Unsure, left to its unit's failing test: 1.4 F1 (git stash push with a staged deletion's pathspec failing yet leaving a stash), taken on the collector's reproduction.\n- Most gaps are missing tests; units 1.3, 1.10, 1.11, 1.15, 1.17, 1.19, 1.22-1.24, 1.27 are test-only.",
+      "session_id": "5ee97ba9-b4c3-48d6-a796-f74fe67292f0",
+      "cost_usd": 2.5054872,
+      "harness": "claude",
+      "elapsed_s": 361,
+      "session_s": 361,
+      "tokens": {
+        "input": 66,
+        "output": 24364,
+        "reasoning": 13196,
+        "cache_read": 3282316,
+        "cache_write": 137195
+      }
     }
   }
 }
