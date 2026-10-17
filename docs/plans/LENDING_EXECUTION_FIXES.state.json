@@ -191,6 +191,30 @@
         "reasoning": 7492,
         "cache_read": 1673728
       }
+    },
+    "1.9": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:29:46+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "5e71762874b0a5805276c8ee590c75ccf9ae25fe",
+      "commits": [
+        "4dfde0e8da5a006b3c5a46dfbb727c4a292e8fc1 Validate leases before saving and reject non-object files"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `4dfde0e` extracts the lease checks into `validate(f, path)` and calls it\n  from both `Load` and `Save`, so `Save` cannot write a file `Load` refuses.\n- `Load` now rejects any top-level JSON value that is not an object, which\n  covers `null` (previously read as an empty `File`).\n- Tests now pin `Save`'s raw on-disk name order, `Load`'s order from\n  hand-written unsorted JSON, every invalid-lease branch through both entry\n  points (with the file unchanged on a failed `Save`), non-object documents,\n  and `\"leases\": []` from `Save(File{})`.\n\n**Landmark drift**\n\nNone. `Load`, `Save` and `Set` were where the unit said; the line numbers were\nclose to the plan's.\n\n**Deviations from the work order**\n\n- The non-object check is a trimmed first-byte test for `{` before\n  `json.Unmarshal`. It reads as \"not a JSON object\" rather than surfacing the\n  decoder's message, and still lets malformed objects (`{not json`) fall\n  through to the existing path-naming decode error.\n- `Save` validates after sorting/cloning, so a duplicate is still caught and the\n  on-disk file is untouched.\n\n**What the next session must know**\n\n- `validate` takes the path so both callers name `Path()` in their errors.\n- `Save(File{})` relies on `append([]Lease{}, nil...)` producing a non-nil empty\n  slice; that is what makes the JSON `[]` rather than `null`. A test now holds\n  that.\n- `TestLeasesAreKeptInNameOrder` was replaced by the two direct order tests; no\n  test files were deleted.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb54e62b0ffeEFn2gsKICcfNVx",
+      "cost_usd": 0.013034993999999996,
+      "harness": "opencode",
+      "elapsed_s": 71,
+      "session_s": 64,
+      "test_s": 7,
+      "tokens": {
+        "input": 30919,
+        "output": 5091,
+        "reasoning": 5118,
+        "cache_read": 757248
+      }
     }
   }
 }
