@@ -32,7 +32,7 @@ type Record struct {
 	CostUSD   float64         `json:"cost_usd,omitempty"`
 	Before    *harness.Budget `json:"before,omitempty"`
 	After     *harness.Budget `json:"after,omitempty"`
-	Away      bool            `json:"away,omitempty"` // ran while the author was away from the subscriptions
+	Away      bool            `json:"away,omitempty"` // ran on a lent subscription
 	WorkOrder int             `json:"work_order,omitempty"`
 	Degraded  []string        `json:"degraded,omitempty"`
 }

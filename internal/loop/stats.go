@@ -19,7 +19,7 @@ type sessionInfo struct {
 	Took      time.Duration `json:"took"`
 	Tools     int           `json:"tools,omitempty"`
 	WorkOrder int           `json:"work_order,omitempty"` // bytes of the unit's work order
-	Away      bool          `json:"away,omitempty"`       // started while the author was away from the subscriptions
+	Away      bool          `json:"away,omitempty"`       // ran on a lent subscription
 }
 
 // spent is what a unit has taken so far, across its sessions and the runs

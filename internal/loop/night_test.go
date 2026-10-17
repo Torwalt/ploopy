@@ -358,6 +358,23 @@ func TestALentSubscriptionAtItsLimitHandsOverWithoutWaiting(t *testing.T) {
 	if claude.Started() != 1 || f.h.Started() != 2 {
 		t.Fatalf("claude ran %d sessions, the primary %d", claude.Started(), f.h.Started())
 	}
+	records, err := history.Load(f.opts.History)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bedrock int
+	for _, record := range records {
+		wantAway := record.Harness == "claude"
+		if record.Away != wantAway {
+			t.Fatalf("record %+v: away %v, want %v", record, record.Away, wantAway)
+		}
+		if record.Harness == "opencode" {
+			bedrock++
+		}
+	}
+	if bedrock != 2 || len(records) != 3 {
+		t.Fatalf("history %+v, want one lent and two bedrock sessions", records)
+	}
 }
 
 func TestOutsideTheAwaySpanThePrimaryRuns(t *testing.T) {
@@ -497,6 +514,32 @@ func TestAFreshWindowOpenedLastIsUsedUp(t *testing.T) {
 	}
 }
 
+// The fresh window an until lease opened near its end is still the run's own
+// when the harness reports a reset a few minutes off the booked one.
+func TestAnUntilLeaseUsesAFreshWindowItOpenedNearItsEnd(t *testing.T) {
+	start := at(15, 22, 0)
+	booked := start.Add(harness.SessionWindow)
+	reported := booked.Add(8 * time.Minute)
+	f, claude, _ := nightFixture(t, nil, []fake.Step{
+		{Do: commits("one.go", "first"), Outcome: harness.Outcome{
+			Marker: harness.Done,
+			Budget: windows(start, 0.2, reported, 0.5),
+		}},
+		{Do: commits("two.go", "second"), Outcome: done()},
+	}, start)
+	f.opts.Lending = &Lending{Leases: []Lease{{
+		Agent: Agent{Harness: claude, Model: "sonnet", Effort: "high"},
+		Kind:  LeaseUntil, Until: booked.Add(3 * time.Minute), Keep: 0,
+	}}}
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if claude.Started() != 2 || f.h.Started() != 0 {
+		t.Fatalf("claude ran %d sessions, the primary %d", claude.Started(), f.h.Started())
+	}
+}
+
 // A subscription that cannot run, logged out or not installed, hands the
 // session over like one at its limit instead of failing the night.
 func TestALentSubscriptionThatCannotRunHandsOver(t *testing.T) {
@@ -617,6 +660,82 @@ func TestAUnitsOwnAgentIsNotWokenByLending(t *testing.T) {
 	}
 	if len(f.slept) != 1 || f.slept[0] != 3*time.Hour {
 		t.Fatalf("slept %v, want one wait for the own agent's reset", f.slept)
+	}
+}
+
+// The bedrock waiting out peak hours is woken when a nightly lease begins.
+func TestABedrockInPeakHoursWakesWhenANightlyLeaseBegins(t *testing.T) {
+	start := at(15, 20, 30) // 18:30 UTC, half an hour before 21:00 local
+	f, claude, _ := nightFixture(t, nil, []fake.Step{
+		{Do: commits("one.go", "first"), Outcome: done()},
+		{Do: commits("two.go", "second"), Outcome: done()},
+	}, start)
+	f.h.Windows = []harness.Window{{Days: []time.Weekday{start.Weekday()}, Start: 18 * 60, End: 21 * 60}}
+	f.opts.WaitOffPeak = true
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if len(f.slept) != 1 || f.slept[0] != 30*time.Minute {
+		t.Fatalf("slept %v, want one wait of 30m to the lease's start", f.slept)
+	}
+	if claude.Started() != 2 || f.h.Started() != 0 {
+		t.Fatalf("claude ran %d sessions, the primary %d", claude.Started(), f.h.Started())
+	}
+}
+
+// The bedrock waiting out its own limit is woken when a lent subscription's
+// limit lifts.
+func TestABedrockLimitWaitWakesWhenALentLimitLifts(t *testing.T) {
+	start := at(15, 21, 0)
+	lifted := start.Add(time.Hour)
+	f, claude, _ := nightFixtureFor(t, twoUnits, []fake.Step{
+		{Outcome: harness.Outcome{RateLimit: &harness.RateLimit{Reason: "session limit", ResetAt: start.Add(2 * time.Hour)}}},
+	}, []fake.Step{
+		{Outcome: harness.Outcome{RateLimit: &harness.RateLimit{Reason: "session limit", ResetAt: lifted}}},
+		{Do: commits("one.go", "first"), Outcome: done()},
+	}, start)
+	f.opts.Lending = &Lending{Leases: []Lease{{
+		Agent: Agent{Harness: claude, Model: "sonnet", Effort: "high"},
+		Kind:  LeaseOpen, Keep: 0,
+	}}}
+	f.opts.Until = "1.1"
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if len(f.slept) != 1 || f.slept[0] != time.Hour {
+		t.Fatalf("slept %v, want one wait of 1h to the lent limit's lift", f.slept)
+	}
+	if claude.Started() != 2 || f.h.Started() != 1 {
+		t.Fatalf("claude ran %d sessions, the primary %d", claude.Started(), f.h.Started())
+	}
+}
+
+// The bedrock waiting out its own limit is woken when a spent window resets.
+func TestABedrockLimitWaitWakesWhenASpentWindowResets(t *testing.T) {
+	start := at(15, 21, 0)
+	reset := start.Add(time.Hour)
+	f, claude, _ := nightFixtureFor(t, twoUnits, []fake.Step{
+		{Outcome: harness.Outcome{RateLimit: &harness.RateLimit{Reason: "session limit", ResetAt: start.Add(2 * time.Hour)}}},
+	}, []fake.Step{
+		{Do: commits("one.go", "first"), Outcome: done()},
+	}, start)
+	f.opts.Lending = &Lending{Leases: []Lease{{
+		Agent: Agent{Harness: claude, Model: "sonnet", Effort: "high"},
+		Kind:  LeaseOpen, Keep: 0,
+	}}}
+	claude.Meter = windows(start, 1, reset, 0.1)
+	f.opts.Until = "1.1"
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if len(f.slept) != 1 || f.slept[0] != time.Hour+2*time.Minute {
+		t.Fatalf("slept %v, want one wait of 1h2m to the window's reset", f.slept)
+	}
+	if claude.Started() != 1 || f.h.Started() != 1 {
+		t.Fatalf("claude ran %d sessions, the primary %d", claude.Started(), f.h.Started())
 	}
 }
 
