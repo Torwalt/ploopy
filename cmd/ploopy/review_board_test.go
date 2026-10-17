@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
@@ -178,6 +180,7 @@ func TestAReviewWhoseTriageRanHasALockedTriageColumn(t *testing.T) {
 }
 
 func TestTheReviewBoardOffersThenAfterTheReview(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	e, _ := worktreeRepo(t, nil)
 	p := plan.Parse("---\nreviews: docs/plans/PASS.md\n---\n", "docs/plans/PASS_REVIEW.md")
 	board := reviewBoard(t, e, p, defaultTriage, nil, "")
@@ -187,7 +190,17 @@ func TestTheReviewBoardOffersThenAfterTheReview(t *testing.T) {
 		t.Fatalf("then starts as %q, want stop", got)
 	}
 	key(board.board, rune('1'+at))
-	key(board.board, 'n')
+	chosen, err := board.start(func() error {
+		key(board.board, 'n')
+		board.board.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chosen.then != "fixes" {
+		t.Fatalf("the board chose then %q, want fixes", chosen.then)
+	}
 	if got := *field.Value; got != "fixes" {
 		t.Fatalf("then cycles to %q, want fixes", got)
 	}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
 
 	"github.com/Torwalt/ploopy/internal/config"
@@ -109,6 +111,22 @@ func liveRunPlan(t *testing.T, e *env, settings control.Settings, planPath strin
 	return lives[0]
 }
 
+// pushableRepo makes e.root a checkout whose pass branch has somewhere to go,
+// so the adjust board offers its push field.
+func pushableRepo(t *testing.T, e *env) {
+	t.Helper()
+	git(t, e.root, "init", "-q", "-b", "master")
+	git(t, e.root, "config", "user.name", "Test")
+	git(t, e.root, "config", "user.email", "test@example.com")
+	write(t, e.root, "README.md", "start\n")
+	git(t, e.root, "add", "-A")
+	git(t, e.root, "commit", "-q", "-m", "first")
+	git(t, e.root, "branch", "pass")
+	remote := t.TempDir()
+	git(t, remote, "init", "-q", "--bare")
+	git(t, e.root, "remote", "add", "origin", remote)
+}
+
 func key(b *ui.Board, r rune) {
 	b.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 }
@@ -131,6 +149,18 @@ func TestTheAdjustBoardLocksTheBedrockAndOffersStop(t *testing.T) {
 	for key, seen := range locked {
 		if !seen {
 			t.Fatalf("the bedrock has no %c field", key)
+		}
+	}
+	for _, want := range []struct {
+		key   rune
+		value string
+	}{
+		{'a', "opencode"},
+		{'m', "deepseek/deepseek-flash"},
+		{'e', "high"},
+	} {
+		if got := *fieldByKey(t, board.board.Columns[0], want.key).Value; got != want.value {
+			t.Fatalf("the bedrock's %c is %q, want %q from the live run", want.key, got, want.value)
 		}
 	}
 
@@ -168,6 +198,23 @@ func TestTheAdjustBoardOffersThenOnAReviewRun(t *testing.T) {
 		t.Fatalf("the last column is %q", run.Title)
 	}
 	fieldByKey(t, run, 'n')
+
+	if err := board.applyBoard(live, time.Now(), func() error {
+		key(board.board, rune('1'+len(board.board.Columns)-1))
+		key(board.board, 'n')
+		board.board.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	lives, err := control.List()
+	if err != nil || len(lives) != 1 {
+		t.Fatalf("listed %v, %v", lives, err)
+	}
+	if got := lives[0].Wanted.Then; got != "fixes" {
+		t.Fatalf("then applied as %q, want fixes", got)
+	}
 }
 
 func TestTheAdjustBoardSaysEnterApplies(t *testing.T) {
@@ -186,21 +233,27 @@ func TestTheAdjustBoardSaysEnterApplies(t *testing.T) {
 
 func TestTheAdjustBoardAppliesItsSettingsAndLeases(t *testing.T) {
 	e := boardEnv(t)
+	pushableRepo(t, e)
 	live := liveRun(t, e, control.Settings{Subscriptions: "all"})
 	board := newAdjustBoard(context.Background(), e, live)
 
-	// Column 3 is Run; column 2 is the claude subscription.
-	key(board.board, '3')
-	key(board.board, 's')
-	key(board.board, 'f')
-	key(board.board, 'x')
-	key(board.board, 'w')
-	key(board.board, '2')
-	key(board.board, 'u')
-
 	now := time.Now()
-	board.read()
-	if err := board.applyAdjust(live, now); err != nil {
+	err := board.applyBoard(live, now, func() error {
+		// Column 1 is the bedrock, column 3 Run, column 2 claude.
+		key(board.board, '1')
+		key(board.board, 'l')
+		key(board.board, '3')
+		key(board.board, 's')
+		key(board.board, 'f')
+		key(board.board, 'x')
+		key(board.board, 'w')
+		key(board.board, 'p')
+		key(board.board, '2')
+		key(board.board, 'u')
+		board.board.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		return nil
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -215,6 +268,12 @@ func TestTheAdjustBoardAppliesItsSettingsAndLeases(t *testing.T) {
 	if wanted.SpendAll == nil || !*wanted.SpendAll {
 		t.Fatalf("spend all applied as %v", wanted.SpendAll)
 	}
+	if !wanted.Pushes() {
+		t.Fatalf("push applied as %v", wanted.Push)
+	}
+	if agent := wanted.SecondaryAgent(); agent == nil || agent.Harness != "claude" {
+		t.Fatalf("the limit agent applied as %+v", wanted.Secondary)
+	}
 
 	file, err := lease.Load()
 	if err != nil {
@@ -223,6 +282,89 @@ func TestTheAdjustBoardAppliesItsSettingsAndLeases(t *testing.T) {
 	active := file.Active(now)
 	if len(active) != 1 || active[0].Harness != "claude" || active[0].Kind != lease.Until {
 		t.Fatalf("leases are %+v", active)
+	}
+}
+
+func TestTheRunBoardWritesTheLeasesItChanged(t *testing.T) {
+	e := boardEnv(t)
+	t.Setenv("PATH", t.TempDir())
+	e.harnesses = allHarnesses()
+	unchanged := lease.Lease{Harness: "codex", Model: "gpt-6.1-sol", Effort: "high", Kind: lease.Open, Keep: 0}
+	if err := lease.Save(lease.File{Leases: []lease.Lease{unchanged}}); err != nil {
+		t.Fatal(err)
+	}
+
+	p := plan.Parse("", "docs/plans/PASS.md")
+	cmd, f := settingsCommand(t, "--agent", "opencode", "--effort", "high", "--model", "deepseek/deepseek-flash")
+	s, g, err := givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fill(e, &s, g, nil)
+	board := newSettingsBoard(context.Background(), e, p, g, &s, "pass", 3)
+
+	if _, err := board.start(func() error {
+		// Column 2 is claude; a subscription's term, model and keep edit
+		// its draft lease.
+		key(board.board, '2')
+		key(board.board, 'u')
+		key(board.board, 'm')
+		key(board.board, 'k')
+		board.board.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	file, err := lease.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	byHarness := map[string]lease.Lease{}
+	for _, l := range file.Leases {
+		byHarness[l.Harness] = l
+	}
+	claude, ok := byHarness["claude"]
+	if !ok {
+		t.Fatalf("the edited lease was not written: %+v", file.Leases)
+	}
+	if claude.Kind != lease.Until || claude.Model != "opus" || claude.Keep != 30 {
+		t.Fatalf("the edited lease landed as %+v", claude)
+	}
+	if got := byHarness["codex"]; got != unchanged {
+		t.Fatalf("the unchanged lease became %+v, want %+v", got, unchanged)
+	}
+}
+
+func TestTheRunBoardWritesNoLeaseOnCancel(t *testing.T) {
+	e := boardEnv(t)
+	t.Setenv("PATH", t.TempDir())
+	e.harnesses = allHarnesses()
+
+	p := plan.Parse("", "docs/plans/PASS.md")
+	cmd, f := settingsCommand(t, "--agent", "opencode", "--effort", "high", "--model", "deepseek/deepseek-flash")
+	s, g, err := givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fill(e, &s, g, nil)
+	board := newSettingsBoard(context.Background(), e, p, g, &s, "pass", 3)
+
+	_, err = board.start(func() error {
+		key(board.board, '2')
+		key(board.board, 'u')
+		board.board.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		return huh.ErrUserAborted
+	})
+	if !errors.Is(err, huh.ErrUserAborted) {
+		t.Fatalf("cancel returned %v", err)
+	}
+	file, err := lease.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(file.Leases) != 0 {
+		t.Fatalf("cancel wrote leases %+v", file.Leases)
 	}
 }
 

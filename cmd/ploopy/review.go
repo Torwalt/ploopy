@@ -178,10 +178,10 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 		locked = triageRanLock
 	}
 	board := newReviewBoard(ctx, e, c.Plan, g, &settings, t.branch, openUnits(c.Plan, c.State), triage, givens, locked)
-	if err := board.run(); err != nil {
+	chosen, err := board.start(func() error {
+		_, err := board.board.Run()
 		return err
-	}
-	chosen, err := board.finish(time.Now())
+	})
 	if err != nil {
 		return err
 	}

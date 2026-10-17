@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 
@@ -88,10 +87,10 @@ func chooseSettings(ctx context.Context, cmd *cobra.Command, e *env, p *plan.Pla
 	last := loadLast(ctx, e.root)
 	fill(e, &s, g, last)
 	board := newSettingsBoard(ctx, e, p, g, &s, branch, open)
-	if err := board.run(); err != nil {
-		return chosenRun{}, err
-	}
-	return board.finish(time.Now())
+	return board.start(func() error {
+		_, err := board.board.Run()
+		return err
+	})
 }
 
 // givenSettings is what the flags say, then what the plan's front matter says.

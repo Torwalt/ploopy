@@ -207,10 +207,10 @@ func changeFromFlags(cmd *cobra.Command, e *env, f *adjustFlags) (control.Settin
 
 func adjustInteractively(ctx context.Context, e *env, live control.Live) error {
 	board := newAdjustBoard(ctx, e, live)
-	if err := board.run(); err != nil {
+	return board.applyBoard(live, time.Now(), func() error {
+		_, err := board.board.Run()
 		return err
-	}
-	return board.applyAdjust(live, time.Now())
+	})
 }
 
 var peakChoices = []ui.Choice{

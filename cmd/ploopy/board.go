@@ -420,12 +420,35 @@ func (sb *settingsBoard) footer() []string {
 	return lines
 }
 
-func (sb *settingsBoard) run() error {
-	if _, err := sb.board.Run(); err != nil {
+// boardPresent shows the board and returns when it closes. A test supplies
+// one that sends key events instead of starting a terminal.
+type boardPresent func() error
+
+// runBoard takes what the board shows into the settings.
+func (sb *settingsBoard) runBoard(present boardPresent) error {
+	if err := present(); err != nil {
 		return err
 	}
 	sb.read()
 	return nil
+}
+
+// start is what the interactive path does for a run: show the board, then
+// resolve, save and remember what it returned.
+func (sb *settingsBoard) start(present boardPresent) (chosenRun, error) {
+	if err := sb.runBoard(present); err != nil {
+		return chosenRun{}, err
+	}
+	return sb.finish(time.Now())
+}
+
+// applyBoard is what `ploopy adjust` does: show the board, then write the
+// leases it changed and lay its settings over the live run.
+func (sb *settingsBoard) applyBoard(live control.Live, now time.Time, present boardPresent) error {
+	if err := sb.runBoard(present); err != nil {
+		return err
+	}
+	return sb.applyAdjust(live, now)
 }
 
 // finish resolves the board's settings, writes the leases it changed and
