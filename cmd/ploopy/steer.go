@@ -71,11 +71,11 @@ func (s *steering) loopSteering() loop.Steering {
 // Steer answers the loop.
 func (s *steering) Steer() loop.Steer {
 	wanted := s.wanted()
-	night, _ := toLoopNight(s.harnesses, wanted.AwaySpan(), wanted.Night, wanted.Reserve)
+	lending, _ := toLoopLending(s.harnesses, wanted.AwaySpan(), wanted.Night, wanted.Reserve)
 	return loop.Steer{
 		WaitOffPeak: wanted.Peak == "wait",
 		Secondary:   toLoopAgent(s.harnesses, wanted.SecondaryAgent()),
-		Night:       night,
+		Lending:     lending,
 		Stop:        wanted.Stops(),
 	}
 }

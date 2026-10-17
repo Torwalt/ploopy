@@ -94,9 +94,10 @@ func reservePercent(reserve *int) int {
 	return *reserve
 }
 
-// toLoopNight resolves how a run uses the subscriptions while the author is
-// away, or nil when the author is not.
-func toLoopNight(harnesses harness.Set, away string, agents []control.NightAgent, reserve *int) (*loop.Night, error) {
+// toLoopLending bridges today's away span and night agents to nightly leases,
+// or nil when the author is not away. The fresh-window count is ignored: a
+// lease's end decides how many windows fit.
+func toLoopLending(harnesses harness.Set, away string, agents []control.NightAgent, reserve *int) (*loop.Lending, error) {
 	if away == "" || away == "none" {
 		return nil, nil
 	}
@@ -104,13 +105,22 @@ func toLoopNight(harnesses harness.Set, away string, agents []control.NightAgent
 	if err != nil {
 		return nil, err
 	}
-	night := &loop.Night{Away: span, Reserve: float64(reservePercent(reserve)) / 100}
+	lending := &loop.Lending{}
 	for _, a := range agents {
+		if a.Windows < 0 {
+			continue
+		}
 		if agent := toLoopAgent(harnesses, &a.Agent); agent != nil {
-			night.Agents = append(night.Agents, loop.NightAgent{Agent: *agent, Windows: a.Windows})
+			lending.Leases = append(lending.Leases, loop.Lease{
+				Agent: *agent, Kind: loop.LeaseNightly, Span: span,
+				Keep: float64(reservePercent(reserve)) / 100,
+			})
 		}
 	}
-	return night, nil
+	if len(lending.Leases) == 0 {
+		return nil, nil
+	}
+	return lending, nil
 }
 
 // historyPath is the repository's history, in its git directory, which its

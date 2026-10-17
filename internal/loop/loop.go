@@ -89,9 +89,8 @@ type Options struct {
 	// they end. The author decides it before the run; nothing is asked during it.
 	WaitOffPeak bool
 
-	// Night lets the author's subscriptions take sessions while the author is
-	// away from them, or nil.
-	Night *Night
+	// Lending lets the author's subscriptions take sessions, or nil.
+	Lending *Lending
 
 	// History is the repository's record of every session across plans, or
 	// empty to keep none. Branch is what the run works on, for that record.
@@ -109,7 +108,7 @@ type Options struct {
 type Steer struct {
 	WaitOffPeak bool
 	Secondary   *Agent
-	Night       *Night
+	Lending     *Lending
 	Stop        bool // stop once the current unit is done
 }
 
@@ -201,9 +200,9 @@ type Loop struct {
 	mark    time.Time                // when the current unit's clock last moved
 	checked map[string]time.Duration // verify and test time since the last session
 
-	meters    map[string]*meter // by harness
-	nightSaid string            // the last reason given for who runs a session
-	ran       map[string]int    // sessions per agent, for what degraded
+	meters   map[string]*meter // by harness
+	lendSaid string            // the last reason given for who runs a session
+	ran      map[string]int    // sessions per agent, for what degraded
 }
 
 // New prepares a run. The plan itself is read again before every unit.
@@ -499,16 +498,16 @@ func (l *Loop) agent() Agent {
 	return agent
 }
 
-// pick is who runs the next session: the unit's own agent, else a night
-// agent with room, else the secondary while the primary is limited, else the
-// primary. why says what decided it, when the night did.
-func (l *Loop) pick() (agent Agent, night, fresh bool, why string) {
+// pick is who runs the next session: the unit's own agent, else a lent
+// subscription with room, else the secondary while the primary is limited,
+// else the primary. why says what decided it, when a lease did.
+func (l *Loop) pick() (agent Agent, lent, fresh bool, why string) {
 	if l.own != nil {
 		return *l.own, false, false, ""
 	}
-	n, fresh, why := l.nightPick()
-	if n != nil {
-		return n.Agent, true, fresh, why
+	lease, fresh, why := l.lendPick()
+	if lease != nil {
+		return *lease, true, fresh, why
 	}
 	if secondary := l.secondary(); l.onSecondary && secondary != nil {
 		return *secondary, false, false, why
@@ -519,10 +518,10 @@ func (l *Loop) pick() (agent Agent, night, fresh bool, why string) {
 // sayPick tells the author why an agent other than the planned one runs a
 // session, each reason once.
 func (l *Loop) sayPick(agent Agent, u plan.Unit, why string) {
-	if why == "" || why == l.nightSaid {
+	if why == "" || why == l.lendSaid {
 		return
 	}
-	l.nightSaid = why
+	l.lendSaid = why
 	l.record("night", why+"; "+agent.Label()+" runs "+u.ID)
 	l.report.Say("%s, so %s runs %s", why, agent.Label(), u.ID)
 }
@@ -537,9 +536,9 @@ func (l *Loop) recorded(r *sessionRecord) (Agent, bool) {
 	if secondary := l.secondary(); secondary != nil {
 		known = append(known, secondary.Harness)
 	}
-	if n := l.night(); n != nil {
-		for _, a := range n.Agents {
-			known = append(known, a.Harness)
+	if lending := l.lending(); lending != nil {
+		for _, lease := range lending.Leases {
+			known = append(known, lease.Harness)
 		}
 	}
 	h := append(known, l.opts.Harnesses...).Get(r.Harness)
@@ -576,7 +575,7 @@ func (l *Loop) secondary() *Agent { return l.steer().Secondary }
 // steer is what the author wants now.
 func (l *Loop) steer() Steer {
 	if l.opts.Steering == nil {
-		return Steer{WaitOffPeak: l.opts.WaitOffPeak, Secondary: l.opts.Secondary, Night: l.opts.Night}
+		return Steer{WaitOffPeak: l.opts.WaitOffPeak, Secondary: l.opts.Secondary, Lending: l.opts.Lending}
 	}
 	return l.opts.Steering.Steer()
 }
@@ -736,13 +735,13 @@ func (l *Loop) peakGate(ctx context.Context) error {
 		}
 
 		// On the secondary, the primary may come back before the peak ends,
-		// and a night agent may get room.
+		// and a lease may get room.
 		wake := until
 		if l.onSecondary && l.primaryFree.After(now) && l.primaryFree.Before(until) {
 			wake = l.primaryFree
 		}
-		if night := l.nightWake(); !night.IsZero() && night.Before(wake) {
-			wake = night
+		if lend := l.lendWake(); !lend.IsZero() && lend.Before(wake) {
+			wake = lend
 		}
 		l.record("peak", "waiting for off-peak until "+wake.Format(time.RFC3339))
 		l.report.Say("%s bills double until %s; waiting until %s",
@@ -817,7 +816,7 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 		if replay == nil {
 			l.readMeters(ctx)
 		}
-		agent, night, fresh, why := l.pick()
+		agent, lent, fresh, why := l.pick()
 
 		if replay != nil {
 			outcome, stem, tail, info = replay.Outcome, replay.Stem, replay.Tail, replay.Info
@@ -857,9 +856,9 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 				return err
 			}
 
-			outcome, tail, info, err = l.session(ctx, p, u, agent, prompt, stem, logPath)
+			outcome, tail, info, err = l.session(ctx, p, u, agent, lent, prompt, stem, logPath)
 			if err != nil && ctx.Err() == nil {
-				if !night {
+				if !lent {
 					return err
 				}
 				l.benched(agent, "could not start: "+firstLine(err.Error()))
@@ -901,8 +900,8 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 						return err
 					}
 				}
-				// A night agent's limit only takes it out of turn.
-				if night {
+				// A lent subscription's limit only takes it out of turn.
+				if lent {
 					l.record("limit", agent.Label()+" hit its usage limit; the next session goes to who has room")
 					continue
 				}
@@ -920,8 +919,8 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 			}
 			if outcome.Exit != 0 && !outcome.TimedOut && !changed {
 				l.account(u, stem, agent, info, outcome, "transient", fmt.Sprintf("exited %d", outcome.Exit))
-				// A night agent that cannot run hands over rather than cost the unit its tries.
-				if night {
+				// A lent subscription that cannot run hands over rather than cost the unit its tries.
+				if lent {
 					l.benched(agent, fmt.Sprintf("exited %d without touching the repository", outcome.Exit))
 					continue
 				}
@@ -1006,7 +1005,7 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 
 // session runs one agent and streams what it does to the reporter, keeping the
 // tail for the handover fallback.
-func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agent, prompt, stem, logPath string) (harness.Outcome, string, sessionInfo, error) {
+func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agent, lent bool, prompt, stem, logPath string) (harness.Outcome, string, sessionInfo, error) {
 	budget := l.opts.MaxBudgetUSD
 	if own := u.Budget(); own > 0 {
 		budget = own
@@ -1025,10 +1024,7 @@ func (l *Loop) session(ctx context.Context, p *plan.Plan, u plan.Unit, agent Age
 		LogPath:      logPath,
 	}
 
-	info := sessionInfo{Started: l.opts.Now(), WorkOrder: len(p.WorkOrder(u))}
-	if night := l.night(); night != nil {
-		_, _, info.Away = night.Away.Span(info.Started)
-	}
+	info := sessionInfo{Started: l.opts.Now(), WorkOrder: len(p.WorkOrder(u)), Away: lent}
 	session, err := agent.Harness.Start(ctx, spec)
 	if err != nil {
 		return harness.Outcome{}, "", info, err
@@ -1118,8 +1114,8 @@ func (l *Loop) waitOutLimit(ctx context.Context, agent Agent, limit *harness.Rat
 	if l.onSecondary && l.primaryFree.After(now) && l.primaryFree.Before(now.Add(wait)) {
 		wait = l.primaryFree.Sub(now)
 	}
-	if night := l.nightWake(); !night.IsZero() && night.Before(now.Add(wait)) {
-		wait = night.Sub(now)
+	if lend := l.lendWake(); !lend.IsZero() && lend.Before(now.Add(wait)) {
+		wait = lend.Sub(now)
 	}
 	until := now.Add(wait)
 	l.record("limit", "usage limit; waiting until "+until.Format(time.RFC3339))

@@ -54,37 +54,43 @@ func windows(at time.Time, session float64, reset time.Time, weekly float64) *ha
 	}
 }
 
-func TestANightAgentHasRoomOnlyWhileItsWindowsDo(t *testing.T) {
-	agent := NightAgent{Agent: Agent{Harness: &fake.Harness{Named: "claude"}}, Windows: 2}
-	night := Night{Reserve: 0.2}
-	now, end := at(15, 23, 0), at(16, 9, 0)
+func TestALeaseHasRoomOnlyWhileItsWindowsDo(t *testing.T) {
+	claude := &fake.Harness{Named: "claude"}
+	nightly, _ := ParseAway("21:00-09:00")
+	now := at(15, 23, 0)
+	nightlyLease := Lease{Agent: Agent{Harness: claude}, Kind: LeaseNightly, Span: nightly, Keep: 0.2}
+	until := Lease{Agent: Agent{Harness: claude}, Kind: LeaseUntil, Until: now.Add(time.Hour), Keep: 0.2}
+	open := Lease{Agent: Agent{Harness: claude}, Kind: LeaseOpen, Keep: 0.2}
 	for _, c := range []struct {
 		name    string
+		lease   Lease
+		lending Lending
 		budget  *harness.Budget
-		opened  int
+		own     bool
 		limited time.Time
 		now     time.Time
 		ok      bool
 		fresh   bool
 	}{
-		{"unknown windows open a fresh one", nil, 0, time.Time{}, now, true, true},
-		{"the author's window resets before the end", windows(now, 0.5, at(16, 1, 0), 0.5), 0, time.Time{}, now, true, false},
-		{"a spent window waits", windows(now, 1, at(16, 1, 0), 0.5), 0, time.Time{}, now, false, false},
-		{"a window past the end is the author's", windows(now, 0.1, at(16, 10, 0), 0.5), 0, time.Time{}, at(16, 6, 0), false, false},
-		{"a limit holds", nil, 0, at(16, 1, 0), now, false, false},
-		{"the weekly reserve holds", windows(now, 0.5, at(16, 1, 0), 0.8), 0, time.Time{}, now, false, false},
-		{"a fresh window must end in time", windows(now, 0.4, at(15, 22, 0), 0.5), 0, time.Time{}, at(16, 4, 30), false, false},
-		{"the approved windows are spent", nil, 2, time.Time{}, now, false, false},
+		{"unknown windows open a fresh one", nightlyLease, Lending{}, nil, false, time.Time{}, now, true, true},
+		{"the author's window resets before the end", nightlyLease, Lending{}, windows(now, 0.5, at(16, 1, 0), 0.5), false, time.Time{}, now, true, false},
+		{"a spent window waits", nightlyLease, Lending{}, windows(now, 1, at(16, 1, 0), 0.5), false, time.Time{}, now, false, false},
+		{"a window past the end is not the run's", nightlyLease, Lending{}, windows(now, 0.1, at(16, 10, 0), 0.5), false, time.Time{}, now, false, false},
+		{"a window past the end is the run's own", nightlyLease, Lending{}, windows(now, 0.1, at(16, 10, 0), 0.5), true, time.Time{}, now, true, false},
+		{"a limit holds", nightlyLease, Lending{}, nil, false, at(16, 1, 0), now, false, false},
+		{"the weekly keep holds", nightlyLease, Lending{}, windows(now, 0.5, at(16, 1, 0), 0.8), false, time.Time{}, now, false, false},
+		{"a fresh window must end in time", nightlyLease, Lending{}, windows(now, 0.4, at(15, 22, 0), 0.5), false, time.Time{}, at(16, 4, 30), false, false},
+		{"keeping the whole week holds", Lease{Agent: Agent{Harness: claude}, Kind: LeaseOpen, Keep: 1}, Lending{}, nil, false, time.Time{}, now, false, false},
+		{"an open lease has no end", open, Lending{}, nil, false, time.Time{}, now, true, true},
+		{"spending all ignores the keep", Lease{Agent: Agent{Harness: claude}, Kind: LeaseOpen, Keep: 1}, Lending{SpendAll: true}, nil, false, time.Time{}, now, true, true},
+		{"a passed until lease lends nothing", Lease{Agent: Agent{Harness: claude}, Kind: LeaseUntil, Until: now.Add(-time.Minute)}, Lending{}, nil, false, time.Time{}, now, false, false},
+		{"an until lease whose window resets before its end", until, Lending{}, windows(now, 0.5, now.Add(30*time.Minute), 0.5), false, time.Time{}, now, true, false},
+		{"an until lease whose window resets after its end", until, Lending{}, windows(now, 0.1, now.Add(2*time.Hour), 0.5), false, time.Time{}, now, false, false},
 	} {
-		ok, fresh, why := night.Room(agent, c.budget, c.opened, c.limited, c.now, end)
+		ok, fresh, why := c.lending.Room(c.lease, c.budget, c.own, c.limited, c.now)
 		if ok != c.ok || fresh != c.fresh || why == "" {
 			t.Errorf("%s: ok %v fresh %v (%s)", c.name, ok, fresh, why)
 		}
-	}
-	// Keeping the whole week holds even before any window was seen.
-	whole := Night{Reserve: 1}
-	if ok, _, why := whole.Room(agent, nil, 0, time.Time{}, now, end); ok {
-		t.Errorf("a reserve of the whole week let a session in: %s", why)
 	}
 }
 
@@ -119,22 +125,24 @@ func TestTheAwaySpanKeepsItsClockTimesAcrossDaylightSaving(t *testing.T) {
 	}
 }
 
-// nightFixture runs two units with a primary that is not metered and a night
-// agent, on a clock that moves with every session.
-func nightFixture(t *testing.T, primary, sub []fake.Step, now time.Time, windows int) (*fixture, *fake.Harness, *time.Time) {
+// nightFixture runs two units with a bedrock that is not metered and one
+// nightly lease on claude, on a clock that moves with every session.
+func nightFixture(t *testing.T, primary, sub []fake.Step, now time.Time) (*fixture, *fake.Harness, *time.Time) {
 	t.Helper()
-	return nightFixtureFor(t, twoUnits, primary, sub, now, windows)
+	return nightFixtureFor(t, twoUnits, primary, sub, now)
 }
 
-func nightFixtureFor(t *testing.T, planText string, primary, sub []fake.Step, now time.Time, windows int) (*fixture, *fake.Harness, *time.Time) {
+func nightFixtureFor(t *testing.T, planText string, primary, sub []fake.Step, now time.Time) (*fixture, *fake.Harness, *time.Time) {
 	t.Helper()
 	f := setup(t, planText, primary...)
 	f.h.Named = "opencode"
 	claude := fake.New(sub...)
 	claude.Named = "claude"
 	away, _ := ParseAway("21:00-09:00")
-	f.opts.Night = &Night{Away: away, Reserve: 0.2,
-		Agents: []NightAgent{{Agent: Agent{Harness: claude, Model: "sonnet", Effort: "high"}, Windows: windows}}}
+	f.opts.Lending = &Lending{Leases: []Lease{{
+		Agent: Agent{Harness: claude, Model: "sonnet", Effort: "high"},
+		Kind:  LeaseNightly, Span: away, Keep: 0.2,
+	}}}
 	f.opts.History = history.Path(t.TempDir())
 	clock := now
 	f.opts.Now = func() time.Time { return clock }
@@ -163,7 +171,7 @@ func TestWhileAwayTheSubscriptionTakesTheUnits(t *testing.T) {
 	f, claude, c := nightFixture(t, nil, []fake.Step{
 		spends(&clock, "one.go", "first", windows(start, 0, fresh, 0.5), windows(start, 0.2, fresh, 0.52)),
 		spends(&clock, "two.go", "second", windows(start, 0.2, fresh, 0.52), windows(start, 0.4, fresh, 0.54)),
-	}, start, 1)
+	}, start)
 	clock = c
 
 	if result := f.run(); result.Status != "done" {
@@ -182,7 +190,7 @@ func TestWhileAwayTheSubscriptionTakesTheUnits(t *testing.T) {
 	}
 }
 
-func TestANightAgentAtItsLimitHandsOverWithoutWaiting(t *testing.T) {
+func TestALentSubscriptionAtItsLimitHandsOverWithoutWaiting(t *testing.T) {
 	start := at(15, 22, 0)
 	var clock *time.Time
 	reset := start.Add(3 * time.Hour)
@@ -195,7 +203,7 @@ func TestANightAgentAtItsLimitHandsOverWithoutWaiting(t *testing.T) {
 			{Do: commits("one.go", "first"), Outcome: done()},
 			{Do: commits("two.go", "second"), Outcome: done()},
 		},
-		[]fake.Step{limit}, start, 2)
+		[]fake.Step{limit}, start)
 	clock = c
 	_ = clock
 
@@ -214,7 +222,7 @@ func TestOutsideTheAwaySpanThePrimaryRuns(t *testing.T) {
 	f, claude, _ := nightFixture(t, []fake.Step{
 		{Do: commits("one.go", "first"), Outcome: done()},
 		{Do: commits("two.go", "second"), Outcome: done()},
-	}, nil, at(15, 14, 0), 2)
+	}, nil, at(15, 14, 0))
 
 	if result := f.run(); result.Status != "done" {
 		t.Fatalf("run %+v", result)
@@ -228,45 +236,19 @@ func TestOutsideTheAwaySpanThePrimaryRuns(t *testing.T) {
 	}
 }
 
-// The week is the author's too: past the reserve the subscription rests.
-func TestTheWeeklyReserveKeepsTheSubscriptionOut(t *testing.T) {
+// The week is the author's too: past the keep the subscription rests.
+func TestTheWeeklyKeepKeepsTheSubscriptionOut(t *testing.T) {
 	start := at(15, 22, 0)
 	f, claude, _ := nightFixture(t, []fake.Step{
 		{Do: commits("one.go", "first"), Outcome: done()},
 		{Do: commits("two.go", "second"), Outcome: done()},
-	}, nil, start, 2)
+	}, nil, start)
 	claude.Meter = windows(start, 0.1, start.Add(time.Hour), 0.85)
 
 	if result := f.run(); result.Status != "done" {
 		t.Fatalf("run %+v", result)
 	}
 	if claude.Started() != 0 || f.h.Started() != 2 {
-		t.Fatalf("claude ran %d sessions, the primary %d", claude.Started(), f.h.Started())
-	}
-}
-
-// Once its approved fresh windows are opened, a subscription waits for the
-// next night.
-func TestOnlyTheApprovedFreshWindowsAreOpened(t *testing.T) {
-	start := at(15, 22, 0)
-	var clock *time.Time
-	first := start.Add(5 * time.Hour)
-	long := spends(&clock, "one.go", "first", windows(start, 0, first, 0.5), windows(start, 0.6, first, 0.55))
-	inner := long.Do
-	// The unit outlasts the window, so the next one would need a fresh window.
-	long.Do = func(dir string) error {
-		*clock = clock.Add(5 * time.Hour)
-		return inner(dir)
-	}
-	f, claude, c := nightFixture(t,
-		[]fake.Step{{Do: commits("two.go", "second"), Outcome: done()}},
-		[]fake.Step{long}, start, 1)
-	clock = c
-
-	if result := f.run(); result.Status != "done" {
-		t.Fatalf("run %+v", result)
-	}
-	if claude.Started() != 1 || f.h.Started() != 1 {
 		t.Fatalf("claude ran %d sessions, the primary %d", claude.Started(), f.h.Started())
 	}
 }
@@ -297,7 +279,7 @@ func TestADegradedAdapterIsBookedForTheEndOfTheRun(t *testing.T) {
 	}
 }
 
-// threeUnits is twoUnits with a third unit, for nights that span windows.
+// threeUnits is twoUnits with a third unit, for leases that span windows.
 const threeUnits = twoUnits + `
 ### 1.3 Three
 
@@ -314,7 +296,7 @@ func TestAWindowNoSessionReportedRunsUntilItWouldReset(t *testing.T) {
 	f, claude, c := nightFixture(t, nil, []fake.Step{
 		spends(&clock, "one.go", "first", nil, nil),
 		spends(&clock, "two.go", "second", nil, nil),
-	}, start, 1)
+	}, start)
 	clock = c
 
 	if result := f.run(); result.Status != "done" {
@@ -342,45 +324,13 @@ func TestAWindowSeenLaterIsTheOneTheRunBooked(t *testing.T) {
 		spends(&clock, "one.go", "first", nil, nil),
 		seen,
 		spends(&clock, "three.go", "third", nil, nil),
-	}, start, 2)
+	}, start)
 	clock = c
 
 	if result := f.run(); result.Status != "done" {
 		t.Fatalf("run %+v", result)
 	}
 	if claude.Started() != 3 || f.h.Started() != 0 {
-		t.Fatalf("claude ran %d sessions, the primary %d", claude.Started(), f.h.Started())
-	}
-}
-
-// A span moved mid-run keeps counting the windows already opened in it.
-func TestMovingTheSpanDoesNotOpenTheApprovedWindowsAgain(t *testing.T) {
-	start := at(15, 21, 0)
-	var clock *time.Time
-	reset := start.Add(5 * time.Hour)
-	s := newSteering(Steer{})
-	first := spends(&clock, "one.go", "first", windows(start, 0, reset, 0.5), windows(start, 0.95, reset, 0.55))
-	inner := first.Do
-	first.Do = func(dir string) error {
-		later, _ := ParseAway("21:30-09:00")
-		s.set(func(now *Steer) {
-			moved := *now.Night
-			moved.Away = later
-			now.Night = &moved
-		})
-		*clock = reset.Add(time.Minute)
-		return inner(dir)
-	}
-	f, claude, c := nightFixture(t, []fake.Step{{Do: commits("two.go", "second"), Outcome: done()}},
-		[]fake.Step{first}, start, 1)
-	clock = c
-	s.now.Night = f.opts.Night
-	f.opts.Steering = s
-
-	if result := f.run(); result.Status != "done" {
-		t.Fatalf("run %+v", result)
-	}
-	if claude.Started() != 1 || f.h.Started() != 1 {
 		t.Fatalf("claude ran %d sessions, the primary %d", claude.Started(), f.h.Started())
 	}
 }
@@ -394,7 +344,7 @@ func TestAFreshWindowOpenedLastIsUsedUp(t *testing.T) {
 	f, claude, c := nightFixture(t, nil, []fake.Step{
 		spends(&clock, "one.go", "first", windows(start, 0, reset, 0.5), windows(start, 0.3, reset, 0.51)),
 		spends(&clock, "two.go", "second", windows(start, 0.3, reset, 0.51), windows(start, 0.6, reset, 0.52)),
-	}, start, 1)
+	}, start)
 	clock = c
 
 	if result := f.run(); result.Status != "done" {
@@ -407,7 +357,7 @@ func TestAFreshWindowOpenedLastIsUsedUp(t *testing.T) {
 
 // A subscription that cannot run, logged out or not installed, hands the
 // session over like one at its limit instead of failing the night.
-func TestANightAgentThatCannotRunHandsOver(t *testing.T) {
+func TestALentSubscriptionThatCannotRunHandsOver(t *testing.T) {
 	for _, broken := range []fake.Step{
 		{Outcome: harness.Outcome{Exit: 1}},
 		{Err: errors.New(`exec: "claude": executable file not found in $PATH`)},
@@ -415,7 +365,7 @@ func TestANightAgentThatCannotRunHandsOver(t *testing.T) {
 		f, claude, _ := nightFixture(t, []fake.Step{
 			{Do: commits("one.go", "first"), Outcome: done()},
 			{Do: commits("two.go", "second"), Outcome: done()},
-		}, []fake.Step{broken}, at(15, 22, 0), 2)
+		}, []fake.Step{broken}, at(15, 22, 0))
 
 		if result := f.run(); result.Status != "done" {
 			t.Fatalf("run %+v", result)
@@ -432,7 +382,7 @@ func TestANightAgentThatCannotRunHandsOver(t *testing.T) {
 // The session a crashed run left unjudged is booked to the agent that ran it,
 // whoever would take the next one.
 func TestAnUnjudgedNightSessionIsBookedToItsAgent(t *testing.T) {
-	f, _, _ := nightFixture(t, []fake.Step{{Do: commits("one.go", "first"), Outcome: done()}}, nil, at(15, 14, 0), 2)
+	f, _, _ := nightFixture(t, []fake.Step{{Do: commits("one.go", "first"), Outcome: done()}}, nil, at(15, 14, 0))
 	f.opts.Until = "1.1"
 	if result := f.run(); result.Status != "done" {
 		t.Fatalf("first run %+v", result)
@@ -472,12 +422,12 @@ func TestAnUnjudgedNightSessionIsBookedToItsAgent(t *testing.T) {
 	}
 }
 
-// A unit that names its own agent waits out that agent's limit: a night
-// agent getting room does not help it.
-func TestAUnitsOwnAgentIsNotWokenByTheNight(t *testing.T) {
+// A unit that names its own agent waits out that agent's limit: a lease
+// getting room does not help it.
+func TestAUnitsOwnAgentIsNotWokenByLending(t *testing.T) {
 	plan := strings.Replace(twoUnits, "**Goal:** the first thing.", "Agent: own\n\n**Goal:** the first thing.", 1)
 	start := at(15, 22, 0)
-	f, claude, _ := nightFixtureFor(t, plan, nil, []fake.Step{{Do: commits("two.go", "second"), Outcome: done()}}, start, 2)
+	f, claude, _ := nightFixtureFor(t, plan, nil, []fake.Step{{Do: commits("two.go", "second"), Outcome: done()}}, start)
 	own := fake.New(limited(at(16, 1, 0)), fake.Step{Do: commits("one.go", "first"), Outcome: done()})
 	own.Named = "own"
 	f.opts.Harnesses = harness.Set{f.h, own}
@@ -491,8 +441,8 @@ func TestAUnitsOwnAgentIsNotWokenByTheNight(t *testing.T) {
 	}
 }
 
-// A unit due in the primary's peak hours waits for off-peak when the night
-// agent's windows, read before the gate, leave it no room.
+// A unit due in the primary's peak hours waits for off-peak when the lease's
+// windows, read before the gate, leave it no room.
 func TestThePeakGateGoesByTheWindowsReadNow(t *testing.T) {
 	start := at(16, 3, 30) // Friday 01:30 UTC
 	var clock *time.Time
@@ -503,7 +453,7 @@ func TestThePeakGateGoesByTheWindowsReadNow(t *testing.T) {
 			return commits("one.go", "first")(dir)
 		}, Outcome: done()},
 		{Do: commits("two.go", "second"), Outcome: done()},
-	}, nil, start, 2)
+	}, nil, start)
 	clock = c
 	f.h.Windows = []harness.Window{{Days: []time.Weekday{time.Friday}, Start: 60, End: 4 * 60}}
 	f.opts.WaitOffPeak = true
@@ -514,5 +464,141 @@ func TestThePeakGateGoesByTheWindowsReadNow(t *testing.T) {
 	}
 	if claude.Started() != 0 || !first.Equal(at(16, 6, 0)) {
 		t.Fatalf("claude ran %d sessions; 1.1 started at %v, want 04:00 UTC", claude.Started(), first)
+	}
+}
+
+// An open lease opens a fresh window whenever none is running.
+func TestAnOpenLeaseOpensConsecutiveFreshWindows(t *testing.T) {
+	start := at(15, 22, 0)
+	var clock *time.Time
+	first := spends(&clock, "one.go", "first", nil, nil)
+	inner := first.Do
+	first.Do = func(dir string) error {
+		*clock = start.Add(6 * time.Hour)
+		return inner(dir)
+	}
+	f, claude, c := nightFixture(t, nil, []fake.Step{
+		first,
+		spends(&clock, "two.go", "second", nil, nil),
+	}, start)
+	clock = c
+	f.opts.Lending = &Lending{Leases: []Lease{{
+		Agent: Agent{Harness: claude, Model: "sonnet", Effort: "high"},
+		Kind:  LeaseOpen, Keep: 0,
+	}}}
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if claude.Started() != 2 || f.h.Started() != 0 {
+		t.Fatalf("claude ran %d sessions, the primary %d", claude.Started(), f.h.Started())
+	}
+}
+
+// A fresh window has to end before an until lease does.
+func TestAnUntilLeaseRefusesAFreshWindowThatWouldRunPastIt(t *testing.T) {
+	start := at(15, 22, 0)
+	f, claude, _ := nightFixture(t, []fake.Step{
+		{Do: commits("one.go", "first"), Outcome: done()},
+		{Do: commits("two.go", "second"), Outcome: done()},
+	}, nil, start)
+	f.opts.Lending = &Lending{Leases: []Lease{{
+		Agent: Agent{Harness: claude, Model: "sonnet", Effort: "high"},
+		Kind:  LeaseUntil, Until: start.Add(4 * time.Hour), Keep: 0,
+	}}}
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if len(f.slept) != 0 || claude.Started() != 0 || f.h.Started() != 2 {
+		t.Fatalf("slept %v, claude ran %d sessions, the primary %d", f.slept, claude.Started(), f.h.Started())
+	}
+}
+
+// A window the author opened and that resets before an until lease ends is
+// used up without opening a fresh one.
+func TestAnUntilLeaseUsesTheAuthorsWindowThatResetsBeforeItEnds(t *testing.T) {
+	start := at(15, 22, 0)
+	f, claude, _ := nightFixture(t, nil, []fake.Step{
+		{Do: commits("one.go", "first"), Outcome: done()},
+	}, start)
+	f.opts.Until = "1.1"
+	f.opts.Lending = &Lending{Leases: []Lease{{
+		Agent: Agent{Harness: claude, Model: "sonnet", Effort: "high"},
+		Kind:  LeaseUntil, Until: start.Add(11 * time.Hour), Keep: 0,
+	}}}
+	claude.Meter = windows(start, 0.5, start.Add(time.Hour), 0.1)
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if claude.Started() != 1 || f.h.Started() != 0 {
+		t.Fatalf("claude ran %d sessions, the primary %d", claude.Started(), f.h.Started())
+	}
+}
+
+// A window the author opened that resets after an until lease ends is theirs.
+func TestAnUntilLeaseRefusesTheAuthorsWindowThatResetsAfterItEnds(t *testing.T) {
+	start := at(15, 22, 0)
+	f, claude, _ := nightFixture(t, []fake.Step{
+		{Do: commits("one.go", "first"), Outcome: done()},
+		{Do: commits("two.go", "second"), Outcome: done()},
+	}, nil, start)
+	f.opts.Lending = &Lending{Leases: []Lease{{
+		Agent: Agent{Harness: claude, Model: "sonnet", Effort: "high"},
+		Kind:  LeaseUntil, Until: start.Add(2 * time.Hour), Keep: 0,
+	}}}
+	claude.Meter = windows(start, 0.1, start.Add(8*time.Hour), 0.1)
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if len(f.slept) != 0 || claude.Started() != 0 || f.h.Started() != 2 {
+		t.Fatalf("slept %v, claude ran %d sessions, the primary %d", f.slept, claude.Started(), f.h.Started())
+	}
+}
+
+// A passed until lease lends nothing at all.
+func TestAPassedUntilLeaseLendsNothing(t *testing.T) {
+	start := at(15, 22, 0)
+	f, claude, _ := nightFixture(t, []fake.Step{
+		{Do: commits("one.go", "first"), Outcome: done()},
+		{Do: commits("two.go", "second"), Outcome: done()},
+	}, nil, start)
+	f.opts.Lending = &Lending{Leases: []Lease{{
+		Agent: Agent{Harness: claude, Model: "sonnet", Effort: "high"},
+		Kind:  LeaseUntil, Until: start.Add(-time.Minute), Keep: 0,
+	}}}
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if len(f.slept) != 0 || claude.Started() != 0 || f.h.Started() != 2 {
+		t.Fatalf("slept %v, claude ran %d sessions, the primary %d", f.slept, claude.Started(), f.h.Started())
+	}
+}
+
+// With every lease out of room the bedrock takes the unit at once.
+func TestWithEveryLeaseOutOfRoomTheBedrockRunsWithoutWaiting(t *testing.T) {
+	start := at(15, 14, 0)
+	f, claude, _ := nightFixture(t, []fake.Step{
+		{Do: commits("one.go", "first"), Outcome: done()},
+		{Do: commits("two.go", "second"), Outcome: done()},
+	}, nil, start)
+	codex := fake.New()
+	codex.Named = "codex"
+	codex.Meter = windows(start, 0.1, start.Add(time.Hour), 0.9)
+	nightly, _ := ParseAway("21:00-09:00")
+	f.opts.Lending = &Lending{Leases: []Lease{
+		{Agent: Agent{Harness: claude, Model: "sonnet", Effort: "high"}, Kind: LeaseNightly, Span: nightly, Keep: 0.2},
+		{Agent: Agent{Harness: codex, Model: "gpt-6.1-sol", Effort: "high"}, Kind: LeaseOpen, Keep: 0.2},
+	}}
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if len(f.slept) != 0 || claude.Started() != 0 || codex.Started() != 0 || f.h.Started() != 2 {
+		t.Fatalf("slept %v, claude ran %d sessions, codex %d, the primary %d",
+			f.slept, claude.Started(), codex.Started(), f.h.Started())
 	}
 }
