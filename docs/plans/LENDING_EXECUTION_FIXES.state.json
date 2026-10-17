@@ -459,6 +459,30 @@
         "reasoning": 2330,
         "cache_read": 598656
       }
+    },
+    "1.20": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:45:48+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "dcb1c4b9746d844579b216cc99f755e22f4ce761",
+      "commits": [
+        "3bc9a6a7b3817db0c38ca91f98b131e39f504ae5 Keep given settings when the board normalizes"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `3bc9a6a` implements F-D2 in `cmd/ploopy/board.go`: `normalize` and\n  `normalizeTriage` only replace model or effort when they were not given, and\n  a stale secondary is cleared only when it was not given.\n- `newSettingsBoard` and `newAdjustBoard` call `normalize` again before their\n  first render, restoring the pre-review-board behavior.\n- Four new tests in `cmd/ploopy/board_test.go` cover a given model, a given\n  effort, a triage model from a flag, a last-run secondary on the bedrock, and\n  Enter refusing a given effort the chosen agent lacks.\n\n**Landmark drift**\n\nThe work order's `normalize` was at `:211-217`; it is now at\n`cmd/ploopy/board.go:208`. `normalizeTriage` was at `:236-239`; it is now at\n`:238`. `newSettingsBoard` and `newAdjustBoard` still sit at the named\nconstructors; the missing `normalize` calls are now restored there.\n\n**Deviations from the work order**\n\nThe secondary-clearing correction is also guarded by `given.secondary`, per\nF-D2's \"correct only values that were not given\". A secondary given by a flag\ntherefore keeps its value instead of being silently cleared.\n\n**What the next session must know**\n\n- All four new tests were checked against `HEAD` in a clean archive; each fails\n  there and passes after the change.\n- `normalize` now also sets `s.Secondary` to nil when it clears the board's\n  string, so a board inspected before Enter agrees with the UI.\n- The adjust board marks the bedrock's model and effort as given with\n  `adjustLock`; `normalize` therefore no longer replaces an invalid effort\n  there. `applyAdjust` never sends the bedrock's model or effort anyway.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb540664effeAm900u21ARp5pq",
+      "cost_usd": 0.022834289999999997,
+      "harness": "opencode",
+      "elapsed_s": 116,
+      "session_s": 109,
+      "test_s": 7,
+      "tokens": {
+        "input": 57899,
+        "output": 5167,
+        "reasoning": 9689,
+        "cache_read": 1745280
+      }
     }
   }
 }
