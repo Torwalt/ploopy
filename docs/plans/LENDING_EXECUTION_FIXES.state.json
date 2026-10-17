@@ -411,6 +411,30 @@
         "reasoning": 7513,
         "cache_read": 1275520
       }
+    },
+    "1.18": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:42:54+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "596ce678a7b8fe640f7e434621b2faaf4570c53c",
+      "commits": [
+        "11ce9be48a0fa58e5d513f7d1c8f47e3c2d6b122 Show focus over dim and locked on the board"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `11ce9be` highlights the focused column's title and the field under the\n  cursor before dim and locked, so the adjust board shows its cursor from the\n  first frame.\n- `ui.Board.Action` names what Enter does in the help line (default `start`);\n  the adjust board sets it to `apply`.\n- New tests in `internal/ui/board_test.go` and `cmd/ploopy/board_test.go` check\n  the focused styles over dim/locked and the adjust help line.\n\n**Landmark drift**\n\nNone: `columnLines` and `View` were where the work order said; `newAdjustBoard`\nstill builds through `settingsBoard.rebuild`.\n\n**Deviations from the work order**\n\nThe style test sets the lipgloss colour profile to ANSI for its duration (and\nrestores Ascii), because the focused and dim styles render identically with no\ncolour profile. It compares against `styles()` output in `View`. Focus wins\noutright over dim/locked; the styles are not composed.\n\n**What the next session must know**\n\n- `rebuild` is the single constructor of `ui.Board`, so `Action` is set there\n  for adjust and stays `start` for run and review boards.\n- A future board that needs another Enter wording sets `Board.Action` after\n  construction or in `rebuild`.\n- The test changes the global lipgloss profile; it is not parallel-safe.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb54290a7ffe1lrxPrGt3opo4L",
+      "cost_usd": 0.014217203999999997,
+      "harness": "opencode",
+      "elapsed_s": 84,
+      "session_s": 77,
+      "test_s": 7,
+      "tokens": {
+        "input": 40794,
+        "output": 4288,
+        "reasoning": 3253,
+        "cache_read": 1191168
+      }
     }
   }
 }
