@@ -34,9 +34,10 @@ type BoardField struct {
 // Board is the keyboard board. Enter returns the values in column and field
 // order; Esc, q and ctrl-c return huh.ErrUserAborted.
 type Board struct {
-	Title   string
-	Columns []Column
-	Footer  func() []string
+	Title    string
+	Columns  []Column
+	Footer   func() []string
+	OnChange func() // runs before the footer after focus, cursor or a value changes
 
 	width  int
 	focus  int
@@ -58,6 +59,32 @@ func NewBoard(title string, columns []Column, footer func() []string) *Board {
 	}
 	b.refreshFooter()
 	return b
+}
+
+// SetColumns replaces the columns, keeping the focus and cursor where they
+// still point. A caller whose columns depend on a value rebuilds them here.
+func (b *Board) SetColumns(columns []Column) {
+	b.Columns = columns
+	if len(b.cursor) < len(columns) {
+		b.cursor = append(b.cursor, make([]int, len(columns)-len(b.cursor))...)
+	} else {
+		b.cursor = b.cursor[:len(columns)]
+	}
+	for i := range b.cursor {
+		fields := len(columns[i].Fields)
+		if b.cursor[i] >= fields {
+			b.cursor[i] = fields - 1
+		}
+		if b.cursor[i] < 0 {
+			b.cursor[i] = 0
+		}
+	}
+	if b.focus >= len(columns) {
+		b.focus = len(columns) - 1
+	}
+	if b.focus < 0 {
+		b.focus = 0
+	}
 }
 
 // Init implements tea.Model.
@@ -164,7 +191,7 @@ func (b *Board) setFocus(column int) {
 	}
 	b.focus = column
 	b.notice = ""
-	b.refreshFooter()
+	b.changed()
 }
 
 func (b *Board) moveFocus(delta int) {
@@ -189,7 +216,7 @@ func (b *Board) moveCursor(delta int) {
 	}
 	b.cursor[b.focus] = cursor
 	b.notice = ""
-	b.refreshFooter()
+	b.changed()
 }
 
 func (b *Board) cycleCursor(direction int) {
@@ -238,7 +265,7 @@ func (b *Board) cycle(field *BoardField, direction int) {
 	}
 	*field.Value = choices[next].Value
 	b.notice = ""
-	b.refreshFooter()
+	b.changed()
 }
 
 func (b *Board) adjustTime(direction int, start bool) {
@@ -256,7 +283,7 @@ func (b *Board) adjustTime(direction int, start bool) {
 	}
 	*field.Value = value
 	b.notice = ""
-	b.refreshFooter()
+	b.changed()
 }
 
 func (b *Board) timeField() *BoardField {
@@ -295,6 +322,13 @@ func (b *Board) snapshot() []string {
 		}
 	}
 	return values
+}
+
+func (b *Board) changed() {
+	if b.OnChange != nil {
+		b.OnChange()
+	}
+	b.refreshFooter()
 }
 
 func (b *Board) refreshFooter() {

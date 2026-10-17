@@ -7,7 +7,8 @@ stops, and records progress in `<PLAN>.state.json` beside the plan.
 ## Flow
 
 1. Write `docs/plans/<NAME>.md` with the `plan-writing` skill.
-2. `ploopy` → run a plan → like last time. It runs in a worktree of the plan's
+2. `ploopy` → run a plan → confirm the board, Enter. It opens prefilled from
+   the last run and the leases. The run goes to a worktree of the plan's
    branch; keep working on master.
 3. `ploopy adjust` from any terminal changes what the run does next.
 4. In the morning, still on master: `ploopy review <NAME>`, read what it puts
@@ -120,27 +121,26 @@ $ ploopy
 ┃   mark a unit by hand
 ┃   lint the plans
 
-┃ How should it run?
-┃ > like last time: opencode deepseek/deepseek-flash high · no end action · push at the end · wait
-┃   for off-peak
-┃   change the settings
-
-How should it run?
-┃ Agent
-┃ ← opencode →
-  Model
-  deepseek/deepseek-flash
-  Effort
-  high
-  On a usage limit
-  wait it out
-  A unit due in opencode's peak hours (Mon–Fri 03:00–06:00, 08:00–12:00)
-  wait for off-peak
-  Push the branch when the run ends
-  yes
-  When the run ends
-  nothing — leave the machine as it is
+ploopy · PASS_FIXES on pass-fixes · 12 open units
+──────────────────────────────────────────────────────────────────────────────
+ 1 Bedrock             2 claude                3 codex               4 Run
+ a agent  opencode     u lent  until 09:00     u lent  until I reclaim  s subs  all lent
+ m model  ds-flash     m model sonnet          m model gpt-6.1-sol      w week  keep reserves
+ e effort high         e effort high           e effort high            p push  yes
+ l limit  wait         k keep  20% → 6%        k keep  0%               f end   nothing
+ o peak   wait           5h 51% → 22:10          5h 60% → 20:12
+                          week 51% → Tue          week 9% → Thu
+──────────────────────────────────────────────────────────────────────────────
+ ≈ claude 7 · codex 5 · opencode 0 units · ≈ $0.00 · done ≈ 04:12
+ enter start   1–4 column   letter next   shift+letter back   +/- hour   esc
 ```
+
+Enter starts with these settings. A setting given as a flag or in the plan's
+front matter is locked and says where it came from. Changing a subscription's
+lease writes it to the lease file for every run; reclaimed, it shows `mine`.
+Changing the bedrock's agent to a subscription removes that subscription's
+column. The footer forecasts the run from the repository's history and the
+windows each subscription last reported.
 
 Every answer is also a flag: `ploopy run --help`.
 
@@ -166,16 +166,18 @@ a subscription; `--keep` says how much of its week stays yours, `--model` and
 Each lease keeps a share of its subscription's week for you, 20% unless
 `--keep` says otherwise. The reserve shrinks as the weekly reset nears, so a
 week's leftovers are used before they reset, and `--keep 0` spends the lot.
-The settings page shows the active leases above its questions.
+The board shows each subscription's lease and windows; `u` cycles mine, until,
+nightly and until reclaimed, and `+`/`-` move the lease's end hour.
 
 A run uses every lent subscription by default. Its plan may narrow that with
 `subscriptions:` in front matter: `all`, `none` for the bedrock only, or names
 such as `claude codex`. A run says so at the start when the plan is narrower
 than `all`. The same choice is `ploopy run --subscriptions all|none|claude,codex`
 and `ploopy adjust --subscriptions …`; `--spend-all` spends the subscriptions'
-weeks instead of keeping their reserves, and is also on `adjust`. The settings
-page offers the set as all lent, each subscription alone, or the bedrock only,
-and spending as keep reserves or spend all.
+weeks instead of keeping their reserves, and is also on `adjust`. The board
+offers the set as all lent, each subscription alone, or the bedrock only, and
+spending as keep reserves or spend all. A subscription outside the set is
+dimmed and says `not this run`.
 
 Inside its lease, each session goes to the subscription with room that ploopy
 puts first, else to the bedrock. A window already open goes before a fresh
@@ -199,9 +201,9 @@ first one ploopy goes by the last it saw; Codex's are read live through
 
 Every session goes to `.git/ploopy/history.jsonl`, shared by all worktrees and
 kept when one is removed. `ploopy history` says what a landed unit took each
-agent here, every attempt included, and where the windows stand; the settings
-page shows the same above its questions. An estimate needs three landed units
-of one agent; units run on a lent subscription are preferred once there are
+agent here, every attempt included, and where the windows stand; the board's
+footer forecasts a run from the same history. An estimate needs three landed
+units of one agent; units run on a lent subscription are preferred once there are
 three, because your own use moves the windows during the day. `--import` adds the
 sessions the checkouts' stats logs still hold, Claude's windows read back out of
 its transcripts.
