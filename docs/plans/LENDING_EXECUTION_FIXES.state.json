@@ -435,6 +435,30 @@
         "reasoning": 3253,
         "cache_read": 1191168
       }
+    },
+    "1.19": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T18:43:52+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "e17c655c0de076250a5d87971fb9fc611a266259",
+      "commits": [
+        "03a9b5732c7abcbbde8d13c2c5ba46495ff2a53c Test board hour keys away from the lease field"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `03a9b57` adds two tests in `internal/ui/board_test.go`.\n- `TestTheLeaseEndMovesFromAnyFieldOfASubscriptionColumn` moves the cursor to\n  `k keep` and pins that `+`/`-` still move the lease's end hour.\n- `TestBracketsLeaveASingleClockUntilUnchanged` pins that `[` and `]` leave\n  `until 09:00` unchanged.\n\n**Landmark drift**\n\n`timeField` is now at `internal/ui/board.go:290`, `adjustClock` at `:350`;\nthe work order's line numbers moved with the board landing, the functions are\nunchanged.\n\n**Deviations from the work order**\n\nNone. The cursor is moved with Down rather than the `k` letter, because a\nletter cycles the focused column's field and does not move the cursor.\n\n**What the next session must know**\n\n- Both new tests were checked against the mutations in the work order: deleting\n  `timeField`'s fallback loop fails the first, replacing `adjustClock`'s\n  two-clock guard with `if start { at = 0 }` fails the second.\n- The existing `TestTimeFieldsMoveTheLeaseHours` still covers `+`/`-` and\n  `[`/`]` with the cursor on the clock field itself; the new tests cover the\n  fallback and the single-clock guard.\n\n**Open problems**\n\nNone.",
+      "session_id": "ses_eb541483dffeGujQ03x6zxU01L",
+      "cost_usd": 0.008430018000000001,
+      "harness": "opencode",
+      "elapsed_s": 58,
+      "session_s": 51,
+      "test_s": 6,
+      "tokens": {
+        "input": 26491,
+        "output": 2104,
+        "reasoning": 2330,
+        "cache_read": 598656
+      }
     }
   }
 }
