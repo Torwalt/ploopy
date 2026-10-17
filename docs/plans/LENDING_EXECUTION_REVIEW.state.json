@@ -219,6 +219,26 @@
         "reasoning": 96454,
         "cache_read": 6934784
       }
+    },
+    "1.12": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T15:49:11+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "ba7020accf5fcdcdd6015bda6557aebf9a5a8865",
+      "attempts": 1,
+      "handover": "# Findings: Unit 4.3 of LENDING_EXECUTION, `ploopy adjust` on the board\n\nReviewed: ca16b5ced8ac..593ae562326e, 5 files. Steps: all done.\n\n## F1 — The README says adjust's settings reach every run, but only the picked run is adjusted\n\n- Class: slip\n- Confidence: high\n- Where: `README.md:171-174` (145-148 at `593ae56`)\n- Situation: two runs are going; the author opens `ploopy adjust`, picks one, changes its end action or push setting, and presses Enter.\n- Happens: `applyAdjust` calls `control.Adjust(live.PID, …)` (`cmd/ploopy/board.go:489-499`, 347-357 at `593ae56`), so only the picked run gets the settings. The leases are the only part written for the whole machine, by `saveLeases`. The README says \"Enter applies the settings and any changed leases to every run\", which says both go to every run.\n- Should: say the settings apply to the selected run and the changed leases to every run. The work order's goal is \"Enter applies the run settings through `control.Adjust` and writes the leases\"; §10 says the leases \"reach every run on the machine\", not the settings. The work order also requires the README's adjust paragraph to match.\n- Test: not applicable.\n\n## F2 — The adjust-board test never checks the bedrock shows the live run's agent, model and effort\n\n- Class: gap\n- Confidence: high\n- Where: `cmd/ploopy/board_test.go:108-140` (108-138 at `593ae56`), `cmd/ploopy/board.go:131-139` (same at `593ae56`)\n- Situation: replace `strings.Fields(live.Agent)` with nothing usable, or leave `s.Harness`/`s.Model`/`s.Effort` at their zero values, so `newAdjustBoard` no longer prefills the bedrock from the announced run.\n- Happens: the board's `a`/`m`/`e` fields are still present and still say `adjustLock`, so `TestTheAdjustBoardLocksTheBedrockAndOffersStop` passes with an empty or default bedrock. It asserts the lock and field keys, never `s.Harness`, `s.Model` or `s.Effort`.\n- Should: assert the adjust board's bedrock values are the live run's, e.g. `opencode`, `deepseek/deepseek-flash` and `high` from the status in `liveRun`. The work order's *Done when* says the test shows the bedrock's agent, model and effort locked, and §10 says adjust shows the run's columns.\n- Test: extend the existing test.\n\n## F3 — No test exercises the Enter path that reads the board and applies it\n\n- Class: gap\n- Confidence: high\n- Where: `cmd/ploopy/adjust.go:208-214` (199-205 at `593ae56`), `cmd/ploopy/board.go:409-415` (311-317 at `593ae56`); the test bypasses both at `cmd/ploopy/board_test.go:161-162` (155-156 at `593ae56`)\n- Situation: remove `sb.read()` from `settingsBoard.run`, or remove the `board.applyAdjust(...)` call from `adjustInteractively`.\n- Happens: on a real adjust board, changing `l`, `w` or `p` would never reach `control.Settings`, or nothing would be applied at all; `go test ./...` stays green because `TestTheAdjustBoardAppliesItsSettingsAndLeases` calls `board.read()` and `board.applyAdjust()` itself rather than driving the path that does it.\n- Should: cover the wiring, not just the helpers: at minimum test that the run path calls `read` before applying, and that `adjustInteractively` reaches `control.Adjust` and `lease.Save`. The handover notes tea cannot drive the board in tests, but the read/apply wiring can still be tested through a helper or by invoking `run` with the board's input/output configured.\n- Test: none exists.\n\n## F4 — The adjust board's help line still says \"enter start\"\n\n- Class: gap\n- Confidence: medium\n- Where: `internal/ui/board.go:419` (same at `593ae56`), with no adjust-specific help set in `cmd/ploopy/board.go:120-175`\n- Situation: open `ploopy adjust` and look at the bottom help line under the board.\n- Happens: it says \"enter start   1–9 column …\". Enter on the adjust board calls `control.Adjust`; it does not start anything. The README's adjust paragraph and §10 both say Enter applies in adjust (\"Enter starts (in `adjust`: applies)\").\n- Should: show an apply verb on the adjust board, or a neutral \"enter\" for both, so the hint matches what Enter does.\n- Test: none exists.",
+      "session_id": "ses_eb5e5ab58ffeNDpz7E5Yae5krJ",
+      "cost_usd": 0.06555568799999999,
+      "harness": "opencode",
+      "elapsed_s": 350,
+      "session_s": 350,
+      "tokens": {
+        "input": 92376,
+        "output": 8812,
+        "reasoning": 49285,
+        "cache_read": 5613696
+      }
     }
   }
 }
