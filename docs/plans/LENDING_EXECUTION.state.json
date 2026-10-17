@@ -194,6 +194,31 @@
         "reasoning": 26834,
         "cache_read": 5406848
       }
+    },
+    "3.5": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-17T12:45:38+02:00",
+      "agent": "opencode deepseek/deepseek-flash high",
+      "base": "77579a1b3a3650b86923ea9438c276b81bd97405",
+      "commits": [
+        "12ccc8c54063443900afc4bd027d6ba9a193ef81 Limit lending to a run's subscription set"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `12ccc8c` adds a run's subscription set and spend-all. Plan front matter\n  `subscriptions:` and `--subscriptions` select `all`, `none`, or named metered\n  harnesses; `lendingFromLeases` filters leases by it and leaves out the\n  bedrock. A named non-metered harness is refused while settings resolve.\n- `--spend-all` (run and adjust) sets `loop.Lending.SpendAll`.\n  `control.Settings` carries `Subscriptions` and `SpendAll`, with `Over`,\n  `Describe` (\"bedrock only\", \"claude only\", \"spending all of the week\") and\n  adjust flags.\n- The interim settings page offers the set (all lent / each non-bedrock\n  subscription alone / bedrock only) and spending (keep reserves / spend all).\n  A narrow plan set is announced at start.\n\n**Landmark drift**\n\n- The lending loader and lease conversion still live in `cmd/ploopy/lend.go`, as\n  the previous handover said. Its `load` now takes the set and spend-all.\n- No other landmark had moved.\n\n**Deviations from the work order**\n\n- Stored sets are canonical space-separated names; flags accept commas or\n  spaces. Duplicate names collapse.\n- The settings page lists only metered harnesses other than the current\n  bedrock, mirroring the board's \"one column per other subscription\".\n- `adjustInteractively` also gained entries for both settings; the unit only\n  required matching flags.\n- The start announces spend-all as well as a narrow set, and says \"this run\"\n  when a flag supplied a set the plan did not.\n\n**What the next session must know**\n\n- `lendingLoader.load(now, subscriptions, spendAll)` is the only lease-to-loop\n  conversion path. `steering.Steer` passes `wanted.Subscriptions` and\n  `wanted.SpendAll` on every call, so adjust changes take effect without a\n  restart.\n- `control.Settings.Subscriptions` is `\"\"` (unset), `all`, `none`, or\n  space-separated names. `SpendAll` is `*bool` so an unset change leaves it.\n- `Lending.Leases` stays in lease-file order; §7 ordering remains `lendPick`'s\n  job.\n- New tests are in `cmd/ploopy/subscriptions_test.go`, `internal/plan` and\n  `internal/control`.\n\n**Open problems**\n\n- `--subscriptions=` with an empty value is treated as `all`; plan lint still\n  rejects an empty front-matter value. Tighten this if the board or a later\n  unit needs it.\n- The board still has to replace the interim page fields and render the set as\n  dimmed columns; the current page is display/selection only.",
+      "session_id": "ses_eb68cf007ffeXt1JNW6d8G1jjb",
+      "cost_usd": 0.05495739600000001,
+      "harness": "opencode",
+      "elapsed_s": 300,
+      "session_s": 283,
+      "verify_s": 1,
+      "test_s": 16,
+      "tokens": {
+        "input": 95574,
+        "output": 15973,
+        "reasoning": 16757,
+        "cache_read": 6994432
+      }
     }
   }
 }
