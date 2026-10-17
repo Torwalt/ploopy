@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,6 +15,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/history"
 	"github.com/Torwalt/ploopy/internal/lease"
+	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
 
@@ -227,6 +230,151 @@ func TestSteeringReadsLeasesAsTheyChangeAndLeavesTheBedrockOut(t *testing.T) {
 	}
 	if len(lending.Leases) != 2 || !names["claude"] || !names["codex"] || names["opencode"] {
 		t.Fatalf("lending %+v", lending)
+	}
+}
+
+func TestLendUntilWritesTheNextClockInstant(t *testing.T) {
+	e := lendEnv(t)
+	before := time.Now()
+	if _, err := runCommand(t, newLend(e), "claude", "--until", "09:00"); err != nil {
+		t.Fatal(err)
+	}
+	after := time.Now()
+	file, err := lease.Load()
+	if err != nil || len(file.Leases) != 1 {
+		t.Fatalf("leases %+v, error %v", file.Leases, err)
+	}
+	l := file.Leases[0]
+	if l.Kind != lease.Until {
+		t.Fatalf("kind %q, want until", l.Kind)
+	}
+	wantBefore, _ := nextClock("09:00", before)
+	wantAfter, _ := nextClock("09:00", after)
+	if !l.Until.Equal(wantBefore) && !l.Until.Equal(wantAfter) {
+		t.Fatalf("until %v, want %v", l.Until, wantBefore)
+	}
+}
+
+func TestLendNightlyWritesTheSpan(t *testing.T) {
+	e := lendEnv(t)
+	if _, err := runCommand(t, newLend(e), "claude", "--nightly", "21:00-09:00"); err != nil {
+		t.Fatal(err)
+	}
+	file, err := lease.Load()
+	if err != nil || len(file.Leases) != 1 {
+		t.Fatalf("leases %+v, error %v", file.Leases, err)
+	}
+	l := file.Leases[0]
+	if l.Kind != lease.Nightly || l.Span != "21:00-09:00" {
+		t.Fatalf("lease %+v, want nightly 21:00-09:00", l)
+	}
+}
+
+func TestLendingMapsEveryLeaseKind(t *testing.T) {
+	e := lendEnv(t)
+	until := time.Now().Add(2 * time.Hour).Round(0)
+	cases := []struct {
+		name string
+		in   lease.Lease
+		want loop.LeaseKind
+	}{
+		{"until", lease.Lease{Harness: "claude", Kind: lease.Until, Until: until, Keep: 20}, loop.LeaseUntil},
+		{"nightly", lease.Lease{Harness: "claude", Kind: lease.Nightly, Span: "21:00-09:00", Keep: 20}, loop.LeaseNightly},
+		{"open", lease.Lease{Harness: "claude", Kind: lease.Open, Keep: 20}, loop.LeaseOpen},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			lending, err := lendingFromLeases(e.harnesses, "opencode", []lease.Lease{c.in}, "", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if lending == nil || len(lending.Leases) != 1 {
+				t.Fatalf("lending %+v", lending)
+			}
+			got := lending.Leases[0]
+			if got.Kind != c.want {
+				t.Fatalf("kind %q, want %q", got.Kind, c.want)
+			}
+			switch c.want {
+			case loop.LeaseUntil:
+				if !got.Until.Equal(until) {
+					t.Fatalf("until %v, want %v", got.Until, until)
+				}
+			case loop.LeaseNightly:
+				if got.Span.String() != "21:00-09:00" {
+					t.Fatalf("span %q", got.Span.String())
+				}
+			}
+		})
+	}
+}
+
+func TestLendDefaultsToTheCurrentLeasesValuesAndFlagsOverride(t *testing.T) {
+	e := lendEnv(t)
+	current := lease.Lease{
+		Harness: "claude", Model: "opus", Effort: "medium",
+		Kind: lease.Open, Keep: 35,
+	}
+	if err := lease.Save(lease.File{Leases: []lease.Lease{current}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runCommand(t, newLend(e), "claude", "--open"); err != nil {
+		t.Fatal(err)
+	}
+	file, err := lease.Load()
+	if err != nil || len(file.Leases) != 1 {
+		t.Fatalf("leases %+v, error %v", file.Leases, err)
+	}
+	kept := file.Leases[0]
+	if kept.Keep != current.Keep || kept.Model != current.Model || kept.Effort != current.Effort {
+		t.Fatalf("lease %+v, want the current lease's values %+v", kept, current)
+	}
+
+	if _, err := runCommand(t, newLend(e), "claude", "--open",
+		"--keep", "7", "--model", "haiku", "--effort", "xhigh"); err != nil {
+		t.Fatal(err)
+	}
+	file, err = lease.Load()
+	if err != nil || len(file.Leases) != 1 {
+		t.Fatalf("leases %+v, error %v", file.Leases, err)
+	}
+	over := file.Leases[0]
+	if over.Keep != 7 || over.Model != "haiku" || over.Effort != "xhigh" {
+		t.Fatalf("lease %+v, want the flags' values", over)
+	}
+}
+
+func TestTheSteeringLoaderSaysOnceAndLendsNothingOnABrokenFile(t *testing.T) {
+	e := lendEnv(t)
+	if err := os.MkdirAll(filepath.Dir(lease.Path()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lease.Path(), []byte("not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	loader := newLendingLoader(e.harnesses, "opencode", ui.NewReporter(&out, io.Discard))
+	for i := 0; i < 2; i++ {
+		if lending := loader.load(time.Now(), "", false); lending != nil {
+			t.Fatalf("load %d lent %+v from a broken file", i, lending)
+		}
+	}
+	if n := strings.Count(out.String(), "the lease file cannot be read"); n != 1 {
+		t.Fatalf("reported %d times, want once:\n%s", n, out.String())
+	}
+}
+
+func TestTheSteeringLoaderLeavesOutAPassedUntilLease(t *testing.T) {
+	e := lendEnv(t)
+	now := time.Now()
+	if err := lease.Save(lease.File{Leases: []lease.Lease{{
+		Harness: "claude", Kind: lease.Until, Until: now.Add(-time.Hour), Keep: 20,
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	loader := newLendingLoader(e.harnesses, "opencode", ui.NewReporter(io.Discard, io.Discard))
+	if lending := loader.load(now, "", false); lending != nil {
+		t.Fatalf("an expired lease was lent: %+v", lending)
 	}
 }
 
