@@ -87,6 +87,19 @@ const (
 	RepoChecklist   = ".agents/review-checklist.md"
 )
 
+// SkillsDir is where `ploopy skills` writes ploopy's skills by default.
+const SkillsDir = ".agents/skills"
+
+// LocalSkill is the skill holding a repository's own rules for ploopy's
+// skills, a section per skill.
+const LocalSkill = "ploopy-local"
+
+// LocalSkillPaths are where a repository may keep its LocalSkill.
+var LocalSkillPaths = []string{
+	SkillsDir + "/" + LocalSkill + "/SKILL.md",
+	".claude/skills/" + LocalSkill + "/SKILL.md",
+}
+
 // ChecklistPath is the review checklist collecting sessions are given: the
 // one the settings name, else the repository's own, else none.
 func (c Config) ChecklistPath(root string) string {

@@ -66,6 +66,11 @@ session's self-report where the repository can be asked instead.
   actions.
   Nothing else writes to the terminal.
 
+`skills/` holds the skills the binary ships; `ploopy skills` writes them into a
+repository, and a run hands each session the binary's copy plus the
+repository's `ploopy-local` section for it. A change to the lifecycle, a command
+or a session's contract updates the skill that describes it.
+
 ## Conventions
 
 - Adapt at the **event** level, not the command line. The loop must never learn

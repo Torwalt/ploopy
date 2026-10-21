@@ -87,6 +87,15 @@ runs the checks, closes the branch's plans and fast-forwards.
   instead.
 - The worktree and branch are removed; master is yours to push.
 
+**Skills.** `ploopy skills` writes the skills ploopy ships into
+`.agents/skills` (linked into `.claude/skills` when there is a `.claude`):
+`ploopy`, `plan-writing`, `plan-unit`, `plan-review`, `review-triage` and
+`land-repair`.
+- Rerunning it brings them up to date with the binary; runs always use the
+  binary's copy.
+- The repository's own rules go in `ploopy-local`, a section per skill; runs
+  add each section after its skill.
+
 **History.** Every session is logged to `.git/ploopy/history.jsonl`, shared by
 all worktrees.
 - `ploopy history` shows what a unit took each agent and where the usage

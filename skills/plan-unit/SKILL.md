@@ -21,6 +21,8 @@ the checks say about it.
   authority wins.
 - Do not edit the plan, its authority or its `.state.json`, unless the unit says
   so. If a premise is wrong, say so in the handover. The loop records progress.
+  Never delete the plan or its `.state.json`, even when the unit says to: the
+  loop reads both after you finish, and `ploopy land` closes them.
 
 ## Revalidate before editing
 

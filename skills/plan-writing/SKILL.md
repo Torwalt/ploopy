@@ -26,8 +26,10 @@ read the repository rules but not this conversation and not the other units.
    author rather than closing it.
 6. Run `ploopy lint <plan>` until it reports no errors, and read at least one
    unit as the executor will see it: `ploopy show <plan> <id>`.
-7. Commit the plan, and tell the author to run `ploopy`: with no arguments it
-   offers the open plans and asks for the rest.
+7. Commit the plan on the default branch, in the main checkout, and tell the
+   author to run `ploopy`: with no arguments it offers the open plans and asks
+   for the rest. The plan on the default branch is what makes it exist; its
+   run happens on a branch and in a worktree ploopy makes for it.
 
 ## Shapes
 
@@ -127,7 +129,9 @@ this one depends on.
 
 ## Changing a plan in flight
 
-- Edit units that have not landed freely, even while the loop is running: the
+- Once a plan has started, its copy on its branch is the one that runs: edit
+  that one, in the worktree `ploopy status` names, never the default branch's.
+  Edit units that have not landed freely, even while the loop is running: the
   plan is read again before every unit.
 - Never renumber a landed unit: progress is keyed by id. Add new units with new
   ids.
@@ -137,6 +141,9 @@ this one depends on.
 
 ## Closing a pass
 
-When the last unit lands, move what is still true into the long-term documents,
-then delete the plan, its authority and its `.state.json`. Git keeps what was
-planned.
+The last unit moves what is still true into the long-term documents. It never
+deletes the plan or its `.state.json`: the loop reads both after the unit
+lands, and a plan that deletes itself stops the run and loses its report.
+`ploopy land` closes the plan, with its report as the commit body, as it puts
+the branch on the default branch. Delete the authority, if any, in the same
+unit that retires it or by hand afterwards. Git keeps what was planned.

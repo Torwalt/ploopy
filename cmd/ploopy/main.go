@@ -173,6 +173,7 @@ func newRoot(e *env) *cobra.Command {
 		newClose(e),
 		newLand(e),
 		newAdjust(e),
+		newSkills(e),
 		guardCommand(),
 	)
 	return root
@@ -226,7 +227,8 @@ type skills struct {
 }
 
 // skillsAt reads every skill from the checkout when it keeps its own, else
-// from the binary, and the checkout's review checklist when it keeps one.
+// from the binary, each with the checkout's own rules for it, and the
+// checkout's review checklist when it keeps one.
 func skillsAt(root string, cfg config.Config) (skills, error) {
 	var out skills
 	var err error
@@ -245,33 +247,27 @@ func skillsAt(root string, cfg config.Config) (skills, error) {
 	return out, nil
 }
 
-// ownOr is the checkout's own copy of a skill, else the bundled one.
+// ownOr is the checkout's own copy of a skill, else the bundled one, with the
+// checkout's rules for it. A copy `ploopy skills` wrote is not the checkout's
+// own: the binary's is as new or newer.
 func ownOr(root, own, bundled string) string {
-	if text, err := os.ReadFile(filepath.Join(root, own)); err == nil {
-		return string(text)
+	name := filepath.Base(filepath.Dir(own))
+	if text, err := os.ReadFile(filepath.Join(root, own)); err == nil && !generated(string(text)) {
+		return withLocalRules(root, name, string(text))
 	}
-	return bundled
+	return withLocalRules(root, name, bundled)
 }
 
 // skillAt is the plan-unit skill every session is given: the one the settings
 // name, else the checkout's own, else the one the binary ships with.
 func skillAt(root string, cfg config.Config) (string, error) {
-	path := ""
-	switch {
-	case cfg.Skill != "":
-		path = filepath.Join(root, cfg.Skill)
-	default:
-		own := filepath.Join(root, config.RepoSkill)
-		if info, err := os.Stat(own); err == nil && info.Mode().IsRegular() {
-			path = own
-		}
+	if cfg.Skill == "" {
+		return ownOr(root, config.RepoSkill, ploopy.PlanUnitSkill), nil
 	}
-	if path == "" {
-		return ploopy.PlanUnitSkill, nil
-	}
+	path := filepath.Join(root, cfg.Skill)
 	text, err := os.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("no plan-unit skill at %s", path)
 	}
-	return string(text), nil
+	return withLocalRules(root, "plan-unit", string(text)), nil
 }

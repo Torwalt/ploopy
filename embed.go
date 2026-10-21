@@ -2,7 +2,7 @@
 // ploopy works in a repository that has none of its own.
 package ploopy
 
-import _ "embed"
+import "embed"
 
 // PlanUnitSkill is how a session carries out one unit. A repository may
 // override it; see config.SkillPath.
@@ -33,3 +33,9 @@ var ReviewTriageSkill string
 //
 //go:embed skills/land-repair/SKILL.md
 var LandRepairSkill string
+
+// Skills is every skill the binary ships, a directory each, for `ploopy
+// skills` to write into a repository.
+//
+//go:embed skills
+var Skills embed.FS
