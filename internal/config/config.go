@@ -27,6 +27,7 @@ type Config struct {
 	StateCommit string   `toml:"state_commit"`     // message template for the progress commit
 	CloseCommit string   `toml:"close_commit"`     // message template for the commit that closes a plan
 	Push        bool     `toml:"push"`             // push the branch when a run ends
+	Launch      string   `toml:"launch"`           // where a run goes: here, or tmux for a window of its own
 }
 
 // Default is what a repository without a settings file gets.
@@ -64,6 +65,9 @@ func Load(root string) (Config, error) {
 		sort.Strings(unknown)
 		return cfg, fmt.Errorf("%s: unknown key(s) %v", path, unknown)
 	}
+	if cfg.Launch != "" && cfg.Launch != LaunchHere && cfg.Launch != LaunchTmux {
+		return cfg, fmt.Errorf("%s: launch must be %s or %s, not %s", path, LaunchHere, LaunchTmux, cfg.Launch)
+	}
 	if cfg.Plans == "" {
 		cfg.Plans = Default().Plans
 	}
@@ -75,6 +79,13 @@ func Load(root string) (Config, error) {
 	}
 	return cfg, nil
 }
+
+// Where a run goes: the terminal it was started in, or a tmux window of its
+// own.
+const (
+	LaunchHere = "here"
+	LaunchTmux = "tmux"
+)
 
 // RepoSkill is where a repository may keep its own plan-unit skill.
 const RepoSkill = ".agents/skills/plan-unit/SKILL.md"

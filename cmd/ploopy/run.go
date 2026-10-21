@@ -58,6 +58,9 @@ type runFlags struct {
 	away          string
 	night         string
 	reserve       int
+	detach        bool
+	here          bool
+	launched      bool
 }
 
 func newRun(e *env) *cobra.Command {
@@ -102,6 +105,11 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	_ = flags.MarkDeprecated(allowDirty, "uncommitted changes always go to the session")
 	flags.BoolVar(&f.worktree, "worktree", false, "")
 	_ = flags.MarkDeprecated("worktree", "every run goes to a worktree of its branch")
+	flags.StringVar(&f.then, "then", "", "after a review: stop, or fixes to run the fix plan it writes")
+	flags.BoolVar(&f.detach, "detach", false, "run in a tmux window of its own, as `launch = \"tmux\"` does")
+	flags.BoolVar(&f.here, "here", false, "run in this terminal, whatever `launch` says")
+	flags.BoolVar(&f.launched, launchedFlag, false, "")
+	_ = flags.MarkHidden(launchedFlag)
 	flags.BoolVar(&f.dryRun, "dry-run", false, "print the first session's prompt and stop")
 	flags.StringVar(&f.finish, "finish", "", "when the run ends: none, suspend or poweroff")
 	flags.BoolVar(&f.push, "push", false, "push the branch when the run ends, before the end action")
@@ -198,6 +206,10 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 		pick = settled
 	} else {
 		pick = *chosen
+	}
+
+	if detached(e, f) {
+		return nil, launch(ctx, cmd, e, f, p, pick)
 	}
 
 	skill, err := skillsAt(t.root, cfg)

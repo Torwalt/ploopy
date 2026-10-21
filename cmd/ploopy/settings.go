@@ -76,7 +76,7 @@ func chooseSettings(ctx context.Context, cmd *cobra.Command, e *env, p *plan.Pla
 	if err != nil {
 		return chosenRun{}, err
 	}
-	if !ui.Interactive() {
+	if !ui.Interactive() || f.launched {
 		return unattended(e, s)
 	}
 	// A branch that cannot be pushed is not asked about.

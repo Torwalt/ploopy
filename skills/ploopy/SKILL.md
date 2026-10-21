@@ -49,13 +49,14 @@ landed|skipped|pending` records a unit's status when the author asks for it.
 ## Starting a run
 
 A run lasts hours and must outlive the agent session that starts it. Never run
-`ploopy run` through your own shell tool, in the foreground or the background:
-both tie it to your session. Start it where something else owns the process,
-such as a new detached tmux window in the author's session:
+`ploopy run` through your own shell tool, in the foreground or the background,
+except with `--detach` or with `launch = "tmux"` in `.ploopy.toml`: then ploopy
+starts the run in a tmux window of the current session, `ploopy-<PLAN>`, and
+returns at once. The tmux server owns the run, so it survives your session.
+Without tmux, ask the author to start it.
 
 ```sh
-tmux new-window -d -n ploopy-<plan> -c <main checkout> \
-  'ploopy run --plan <plan> --agent <agent> <flags>; exec $SHELL'
+ploopy run --detach --plan <plan> --agent <agent> <flags>
 ```
 
 Nobody answers a question in a detached window, so pass every choice as a flag:
@@ -63,7 +64,13 @@ at least `--plan` and `--agent`, plus whatever the author asked for (`--model`,
 `--effort`, `--units`, `--until`, `--finish`, `--push`, …; `ploopy run --help`
 lists them). If the author did not say which agent, ask before starting. Run
 `ploopy lint` and `ploopy status` first. Start it from the main checkout:
-ploopy finds or makes the worktree itself.
+ploopy finds or makes the worktree itself. `ploopy review <plan> --detach`
+starts a review the same way. A plan, its reviews and its fix plans share one
+window; a window busy with something else is refused.
+
+Confirm it started with `ploopy status`. Do not stay to watch the run; its
+progress lives in `<PLAN>.state.json` and in `ploopy status`. Never close a
+run's window: the author closes them.
 
 `ploopy adjust` changes a run going on, and `ploopy adjust --stop` stops it
 after the current unit. Never kill a run's process or window.

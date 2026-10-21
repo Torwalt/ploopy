@@ -47,6 +47,11 @@ flag or in the plan's front matter shows locked. Every answer is also a flag:
 - Each unit gets a fresh session; commits since its base, a clean tree and the
   `verify`/`test` checks from `.ploopy.toml` decide whether it landed.
 - A stopped run records the session it cut off and resumes there next time.
+- `launch = "tmux"` in `.ploopy.toml` (or `--detach`) starts the run in a tmux
+  window of the current session, `ploopy-<NAME>`, and returns: the window's
+  shell runs it, so it outlives whatever started it, an agent's session
+  included. A plan's review and fix plans run in its window. Windows stay until
+  you close them; `--here` runs in this terminal instead.
 
 **Lifecycle.** A plan exists while master holds it; its progress lives on its
 branch.

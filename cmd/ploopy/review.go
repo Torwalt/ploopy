@@ -56,7 +56,6 @@ func newReview(e *env) *cobra.Command {
 	_ = cmd.Flags().MarkHidden("all")
 
 	flags := cmd.Flags()
-	flags.StringVar(&f.run.then, "then", "", "after the review: stop, or fixes to run the fix plan it writes")
 	flags.StringVar(&f.since, "since", "", "review only the landed units from this id on")
 	flags.BoolVar(&f.writeOnly, "write-only", false, "write and commit the review without running it")
 	addTriageFlags(cmd, &f)
