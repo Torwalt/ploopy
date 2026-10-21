@@ -34,10 +34,16 @@ func (*Harness) Name() string { return "opencode" }
 // Efforts opencode calls variants.
 func (*Harness) Efforts() []string { return []string{"high", "max"} }
 
-// Models offered, the default first. An empty model leaves the choice to
-// `opencode.json`.
+// Models offered, the default first. `opencode-go/` bills the OpenCode Go
+// subscription and `deepseek/` the DeepSeek API directly. An empty model
+// leaves the choice to `opencode.json`.
 func (*Harness) Models() []string {
-	return []string{"deepseek/deepseek-v4-pro", "deepseek/deepseek-flash"}
+	return []string{
+		"opencode-go/deepseek-v4.1-flash",
+		"deepseek/deepseek-flash",
+		"opencode-go/deepseek-v4-pro",
+		"deepseek/deepseek-v4-pro",
+	}
 }
 
 // PeakWindows is when DeepSeek bills double: 01:00-04:00 and 06:00-10:00 UTC,
