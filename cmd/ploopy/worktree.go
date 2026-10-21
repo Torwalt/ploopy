@@ -12,7 +12,6 @@ import (
 
 	"github.com/Torwalt/ploopy/internal/catalog"
 	"github.com/Torwalt/ploopy/internal/config"
-	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
@@ -70,8 +69,8 @@ func cleanPath(path string) string {
 // A worktree that holds the branch already is used as it is. A branch checked
 // out nowhere gets one; one checked out in the main checkout moves into one,
 // and the main checkout to the default branch. A plan on the default branch
-// gets a branch named after it. A plan not yet committed is committed on the
-// branch the run uses. It returns the worktree.
+// gets a branch named after it, once it is committed there. It returns the
+// worktree.
 func (e *env) place(ctx context.Context, c catalog.Copy) (string, error) {
 	r := e.repo()
 	trees, err := r.Worktrees(ctx)
@@ -182,74 +181,60 @@ func (e *env) undoHandOff(ctx context.Context, main, branch, path string) error 
 	return nil
 }
 
-// branchOff gives a plan on the default branch, or on no branch, a branch of
-// its own at the commit it is on, named after it. A branch of that name that
-// holds the plan already is the one an earlier run made, and is used again.
+// branchOff starts a plan that so far lives on the default branch alone. The
+// default branch is where a plan exists, so the plan and the authority it
+// names are committed there first, as the main checkout has them; the main
+// checkout must hold the default branch. The plan then gets a branch of its
+// own at that commit, named after it. A branch of that name that holds the
+// plan already is the one an earlier run made, and is used again.
 func (e *env) branchOff(ctx context.Context, c catalog.Copy, main, onto string, trees []repo.Worktree) (string, error) {
-	if c.Root == "" {
-		return "", fmt.Errorf("%s is on %s but checked out nowhere", c.Plan.Path, onto)
+	if trees[0].Branch != onto {
+		on := trees[0].Branch
+		if on == "" {
+			on = "no branch"
+		}
+		return "", fmt.Errorf("%s is on %s; a plan starts from %s, so `git switch %s` there first", main, on, onto, onto)
 	}
-	from := repo.New(c.Root, e.cfg.AuthorPaths)
-	base, err := from.Head(ctx)
-	if err != nil {
+	if !isFile(filepath.Join(main, c.Plan.Path)) {
+		return "", fmt.Errorf("%s is not on %s in %s", c.Plan.Path, onto, main)
+	}
+	if err := commitPending(ctx, e, main, c.Plan); err != nil {
 		return "", err
 	}
-	pending, err := pendingPaths(ctx, from, c.Root, c.Plan)
+	base, err := repo.New(main, nil).Head(ctx)
 	if err != nil {
 		return "", err
 	}
 
 	r := e.repo()
 	stem := branchFor(c.Plan.Path)
-	branch, path := "", ""
-	for n := 1; path == ""; n++ {
-		branch = stem
+	for n := 1; ; n++ {
+		branch := stem
 		if n > 1 {
 			branch = fmt.Sprintf("%s-%d", stem, n)
 		}
 		switch {
 		case !r.HasBranch(ctx, branch):
-			if path, err = e.freePath(ctx, main, trees, branch); err != nil {
+			path, err := e.freePath(ctx, main, trees, branch)
+			if err != nil {
 				return "", err
 			}
 			if err := r.NewWorktree(ctx, path, branch, base); err != nil {
 				return "", err
 			}
 			fmt.Printf("%s is on %s; made the branch %s for it, checked out in %s\n", c.Plan.Path, onto, branch, path)
+			return path, nil
 		case r.CommittedAt(ctx, branch, c.Plan.Path):
-			path = checkedOutAt(trees, branch)
+			path := checkedOutAt(trees, branch)
 			if path == "" {
 				if path, err = e.addWorktree(ctx, main, trees, branch); err != nil {
 					return "", err
 				}
 			}
 			fmt.Printf("%s runs on %s, in %s\n", c.Plan.Path, branch, path)
+			return path, nil
 		}
 	}
-
-	if len(pending) == 0 {
-		return path, nil
-	}
-	for _, p := range pending {
-		text, err := os.ReadFile(filepath.Join(c.Root, p))
-		if err != nil {
-			return "", err
-		}
-		if err := os.MkdirAll(filepath.Dir(filepath.Join(path, p)), 0o755); err != nil {
-			return "", err
-		}
-		if err := os.WriteFile(filepath.Join(path, p), text, 0o644); err != nil {
-			return "", err
-		}
-	}
-	if err := repo.New(path, nil).CommitPaths(ctx, pending, "plans: add "+c.Plan.Name()); err != nil {
-		return "", err
-	}
-	if err := from.Discard(ctx, pending); err != nil {
-		return "", fmt.Errorf("%s is committed on %s, but taking it out of %s failed: %w", c.Plan.Path, branch, c.Root, err)
-	}
-	fmt.Printf("committed %s on %s and took it out of %s\n", strings.Join(pending, ", "), branch, c.Root)
-	return path, nil
 }
 
 // commitPending commits the plan, and the authority it names, where they are
@@ -419,37 +404,6 @@ func removeWorktree(ctx context.Context, e *env, root string) error {
 		return err
 	}
 	return repo.New(main, nil).RemoveWorktree(ctx, root, worktreesDir(main))
-}
-
-// closeWorktree removes ploopy's worktree for a branch once the last plan of
-// the closed one's family in it is closed. A worktree the author made is
-// theirs, and one that still holds such a plan or a run stays.
-func closeWorktree(ctx context.Context, e *env, root, branch, closed string, cfg config.Config, keep bool) {
-	switch {
-	case !e.ours(ctx, root):
-		fmt.Printf("that is %s; once %s is done with: git worktree remove %s\n", root, branch, root)
-		return
-	case keep:
-		fmt.Printf("the worktree stays at %s, as asked\n", root)
-		return
-	}
-	if left := familyIn(root, cfg, branch, closed, false); len(left) > 0 {
-		fmt.Printf("the worktree stays at %s: it still holds %s\n", root, strings.Join(left, ", "))
-		return
-	}
-	if lives, _ := control.List(); len(lives) > 0 {
-		for _, live := range lives {
-			if live.Root == root {
-				fmt.Printf("the worktree stays at %s: %s is running there\n", root, live.Plan)
-				return
-			}
-		}
-	}
-	if err := removeWorktree(ctx, e, root); err != nil {
-		fmt.Printf("the worktree stays at %s: %v\n", root, err)
-		return
-	}
-	fmt.Printf("removed the worktree at %s; `git switch %s` picks the branch up here\n", root, branch)
 }
 
 // familyIn lists the plans of member's family a checkout holds besides

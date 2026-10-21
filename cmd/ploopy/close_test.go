@@ -36,8 +36,9 @@ func write(t *testing.T, dir, path, text string) {
 	}
 }
 
-// worktreeRepo is a main checkout on master and, at ploopy's own path, a
-// worktree of branch pass holding the finished plan PASS and the given others.
+// worktreeRepo is a main checkout on master holding the plan PASS and, at
+// ploopy's own path, a worktree of branch pass holding PASS finished and the
+// given others.
 func worktreeRepo(t *testing.T, others map[string]string) (*env, string) {
 	t.Helper()
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
@@ -51,11 +52,13 @@ func worktreeRepo(t *testing.T, others map[string]string) (*env, string) {
 	write(t, root, "README.md", "start\n")
 	git(t, root, "add", "-A")
 	git(t, root, "commit", "-q", "-m", "first")
+	write(t, root, "docs/plans/PASS.md", finishedPlan)
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-q", "-m", "plans: add PASS")
 	git(t, root, "branch", "pass")
 
 	tree := worktreePath(root, "pass")
 	git(t, root, "worktree", "add", "--quiet", tree, "pass")
-	write(t, tree, "docs/plans/PASS.md", finishedPlan)
 	write(t, tree, "docs/plans/PASS.state.json", finishedState)
 	for path, text := range others {
 		write(t, tree, path, text)
@@ -71,48 +74,52 @@ func exists(path string) bool {
 	return err == nil
 }
 
-func TestClosingTheLastPlanRemovesPloopysWorktree(t *testing.T) {
+func TestClosingAPlanDropsItOnMaster(t *testing.T) {
 	e, tree := worktreeRepo(t, nil)
-	if err := closePlan(context.Background(), e, []string{"PASS"}, false, false); err != nil {
+	pass := output(t, e.root, "rev-parse", "pass")
+	if err := closePlan(context.Background(), e, []string{"PASS"}, false); err != nil {
 		t.Fatal(err)
 	}
-	if exists(tree) || exists(worktreesDir(e.root)) {
-		t.Fatalf("the worktree and its empty parent should be gone: %s", tree)
+	if got := output(t, e.root, "log", "-1", "--format=%s", "master"); got != "plans: close PASS" {
+		t.Fatalf("the plan should be closed on master, last commit %q", got)
+	}
+	if exists(filepath.Join(e.root, "docs/plans/PASS.md")) {
+		t.Fatal("the main checkout should no longer hold the plan")
+	}
+	if output(t, e.root, "rev-parse", "pass") != pass || !exists(tree) {
+		t.Fatal("the plan's branch and worktree are left as they are")
+	}
+	if _, err := e.find(context.Background(), "PASS"); err == nil {
+		t.Fatal("a closed plan should be gone, though its branch still holds it")
 	}
 }
 
-func TestAWorktreeThatStillHoldsAPlanStays(t *testing.T) {
-	e, tree := worktreeRepo(t, map[string]string{"docs/plans/PASS_FIXES.md": finishedPlan})
-	if err := closePlan(context.Background(), e, []string{"PASS"}, false, false); err != nil {
-		t.Fatal(err)
-	}
-	if !exists(tree) {
-		t.Fatal("the worktree still holds PASS_FIXES and must stay")
-	}
-	if exists(filepath.Join(tree, "docs/plans/PASS.md")) {
-		t.Fatal("PASS itself is closed")
+func TestClosingAPlanNeedsMasterInTheMainCheckout(t *testing.T) {
+	e, _ := worktreeRepo(t, nil)
+	git(t, e.root, "switch", "-q", "-c", "elsewhere")
+	if err := closePlan(context.Background(), e, []string{"PASS"}, false); err == nil ||
+		!strings.Contains(err.Error(), "git switch master") {
+		t.Fatalf("closing off master should be refused, got %v", err)
 	}
 }
 
-func TestKeepWorktreeKeepsIt(t *testing.T) {
-	e, tree := worktreeRepo(t, nil)
-	if err := closePlan(context.Background(), e, []string{"PASS"}, false, true); err != nil {
+func TestAReviewIsClosedOnItsBranch(t *testing.T) {
+	e, tree := worktreeRepo(t, map[string]string{
+		"docs/plans/PASS_REVIEW.md":         finishedPlan,
+		"docs/plans/PASS_REVIEW.state.json": finishedState,
+	})
+	master := output(t, e.root, "rev-parse", "master")
+	if err := closePlan(context.Background(), e, []string{"PASS_REVIEW"}, false); err != nil {
 		t.Fatal(err)
 	}
-	if !exists(tree) {
-		t.Fatal("--keep-worktree keeps it")
+	if got := output(t, tree, "log", "-1", "--format=%s"); got != "plans: close PASS_REVIEW" {
+		t.Fatalf("the review should be closed on pass, last commit %q", got)
 	}
-}
-
-func TestAWorktreeTheAuthorMadeStays(t *testing.T) {
-	e, tree := worktreeRepo(t, nil)
-	theirs := filepath.Join(filepath.Dir(e.root), "elsewhere")
-	git(t, e.root, "worktree", "move", tree, theirs)
-	if err := closePlan(context.Background(), e, []string{"PASS"}, false, false); err != nil {
-		t.Fatal(err)
+	if output(t, e.root, "rev-parse", "master") != master {
+		t.Fatal("master is untouched")
 	}
-	if !exists(theirs) {
-		t.Fatal("only ploopy's own worktree is removed")
+	if !exists(filepath.Join(tree, "docs/plans/PASS.md")) {
+		t.Fatal("the plan itself stays open")
 	}
 }
 
@@ -154,16 +161,6 @@ func TestAFixPlanOnItsOwnBranchHoldsItsReview(t *testing.T) {
 	open := familyIn(tree, config.Default(), "playtest-fixes", "docs/plans/PLAYTEST_FIXES.md", true)
 	if strings.Join(open, ",") != "docs/plans/PLAYTEST_FIXES_REVIEW.md" {
 		t.Fatalf("open plans on playtest-fixes: %v", open)
-	}
-}
-
-func TestClosingTheLastPlanOfTheFamilyRemovesTheWorktreeBesideAnotherPlan(t *testing.T) {
-	e, tree := worktreeRepo(t, map[string]string{"docs/plans/PLAYTEST_FIXES.md": finishedPlan})
-	if err := closePlan(context.Background(), e, []string{"PASS"}, false, false); err != nil {
-		t.Fatal(err)
-	}
-	if exists(tree) {
-		t.Fatal("PLAYTEST_FIXES is no plan of the pass worktree and must not keep it")
 	}
 }
 

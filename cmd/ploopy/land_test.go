@@ -139,3 +139,21 @@ func TestLandingLeavesAnotherPlanRunOnTheBranchAlone(t *testing.T) {
 		t.Fatal("the pass branch lands PASS's family only")
 	}
 }
+
+func TestALandingThatFailsItsChecksClosesNothing(t *testing.T) {
+	e, tree := worktreeRepo(t, nil)
+	write(t, tree, ".ploopy.toml", "verify = \"exit 1\"\n")
+	git(t, tree, "add", "-A")
+	git(t, tree, "commit", "-q", "-m", "a failing check")
+	before := output(t, e.root, "rev-parse", "master")
+
+	if err := landing(t, e, "pass"); err == nil {
+		t.Fatal("a failing check should stop the landing")
+	}
+	if output(t, e.root, "rev-parse", "master") != before {
+		t.Fatal("master must not move")
+	}
+	if !exists(tree + "/docs/plans/PASS.md") {
+		t.Fatal("the plan stays open until the branch lands")
+	}
+}

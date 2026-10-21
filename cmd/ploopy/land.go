@@ -39,20 +39,22 @@ func newLand(e *env) *cobra.Command {
 	var f landFlags
 	cmd := &cobra.Command{
 		Use:   "land [BRANCH]",
-		Short: "Land a finished branch: close its plans, rebase, check, fast-forward",
+		Short: "Land a finished branch: rebase, check, close its plans, fast-forward",
 		Long: "Put a branch whose plans are all finished on the default branch.\n\n" +
-			"The branch's plans are closed, each in a commit carrying its report:\n" +
-			"the plan it is named after and its reviews and fix plans, or on a\n" +
-			"branch named after no plan, the plans it did not inherit. Any other\n" +
-			"plan it holds is left alone. The branch is rebased onto the default branch, and the verify\n" +
-			"and test commands run on the result. A conflict, or a check that fails\n" +
-			"on the rebased branch, goes to a session with the land-repair skill;\n" +
-			"git and the checks decide whether it repaired it. Once the checks pass,\n" +
-			"the default branch is fast-forwarded to the branch. It is never pushed.\n\n" +
+			"The branch is rebased onto the default branch, and the verify and test\n" +
+			"commands run on the result. A conflict, or a check that fails on the\n" +
+			"rebased branch, goes to a session with the land-repair skill; git and\n" +
+			"the checks decide whether it repaired it. Once the checks pass, the\n" +
+			"branch's plans are closed, each in a commit carrying its report: the\n" +
+			"plan it is named after and its reviews and fix plans, or on a branch\n" +
+			"named after no plan, the plans it did not inherit. Any other plan it\n" +
+			"holds is left alone. Then the default branch is fast-forwarded to the\n" +
+			"branch, which drops the plans there too. It is never pushed.\n\n" +
 			"After landing, a branch that was pushed before is pushed again, with a\n" +
 			"lease; ploopy's worktree for it is removed and the branch deleted.\n\n" +
-			"When a repair fails, the default branch is left as it was: the branch\n" +
-			"is back where it was after a conflict, and rebased after a failing check.",
+			"When a repair fails, the default branch is left as it was and the\n" +
+			"plans open: the branch is back where it was after a conflict, and\n" +
+			"rebased after a failing check.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error { return landBranch(cmd, e, args, &f) },
 	}
@@ -132,7 +134,8 @@ func landBranch(cmd *cobra.Command, e *env, args []string, f *landFlags) error {
 	if branchRepo.Rebasing(ctx) {
 		return fmt.Errorf("a rebase is already going on in %s; finish or abort it first", root)
 	}
-	if err := closeAll(ctx, root, branch, onto, cfg); err != nil {
+	closing, err := closable(ctx, root, branch, onto, cfg)
+	if err != nil {
 		return err
 	}
 	if dirt, err := branchRepo.DirtLines(ctx); err != nil {
@@ -170,6 +173,7 @@ func landBranch(cmd *cobra.Command, e *env, args []string, f *landFlags) error {
 		Extra:       e.extra,
 		Attempts:    f.attempts,
 		Logs:        logs,
+		Finish:      func(ctx context.Context) error { return closeAll(ctx, closing, cfg) },
 		Report:      report,
 	})
 	spent := ""
@@ -220,12 +224,12 @@ func landTarget(ctx context.Context, e *env, args []string, onto string, trees [
 	return ui.Pick("Land which branch on "+onto+"?", "branch", choices)
 }
 
-// closeAll closes every plan of the branch, each in its own commit. A plan
-// with units still open stops the landing before anything is closed.
-func closeAll(ctx context.Context, root, branch, onto string, cfg config.Config) error {
+// closable is the plans of the branch a landing closes. A plan with units
+// still open stops the landing before anything is done.
+func closable(ctx context.Context, root, branch, onto string, cfg config.Config) ([]catalog.Copy, error) {
 	plans, err := plan.Discover(root, cfg.Plans)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	r := repo.New(root, cfg.AuthorPaths)
 	var copies []catalog.Copy
@@ -233,7 +237,7 @@ func closeAll(ctx context.Context, root, branch, onto string, cfg config.Config)
 	for _, p := range branchPlans(ctx, r, plans, branch, onto) {
 		s, err := state.Load(filepath.Join(root, state.PathFor(p.Path)))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !loop.Complete(p, s) {
 			open = append(open, p.Path)
@@ -242,10 +246,25 @@ func closeAll(ctx context.Context, root, branch, onto string, cfg config.Config)
 		copies = append(copies, catalog.Copy{Plan: p, State: s, Branch: branch, Root: root})
 	}
 	if len(open) > 0 {
-		return fmt.Errorf("%s still has open units in %s; finish it, or `ploopy close --force` it, first",
+		return nil, fmt.Errorf("%s still has open units in %s; finish it, or `ploopy close --force` it, first",
 			branch, strings.Join(open, ", "))
 	}
+	return copies, nil
+}
+
+// closeAll closes the plans, each in its own commit carrying its report. The
+// rebase may have changed them, so each is read again first.
+func closeAll(ctx context.Context, copies []catalog.Copy, cfg config.Config) error {
 	for _, c := range copies {
+		p, err := plan.Load(filepath.Join(c.Root, c.Plan.Path), c.Plan.Path)
+		if err != nil {
+			return err
+		}
+		s, err := state.Load(filepath.Join(c.Root, state.PathFor(c.Plan.Path)))
+		if err != nil {
+			return err
+		}
+		c.Plan, c.State = p, s
 		if _, err := closeCommit(ctx, c, cfg); err != nil {
 			return err
 		}

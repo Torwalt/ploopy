@@ -2,12 +2,15 @@
 // this checkout, the repository's other worktrees, the branches not yet
 // merged into the default one, and the runs going on.
 //
-// A plan is run on its own branch, so its state file there is ahead of any
-// other copy. The copy to show is the one with the newest progress.
+// The default branch says which plans exist: a plan is open while its file is
+// there, committed or still uncommitted in a checkout of that branch. A review
+// or fix plan exists while the plan it descends from does. Progress lives on
+// the branches, so the copy to show is the one that got furthest.
 package catalog
 
 import (
 	"context"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -15,6 +18,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
+	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
 )
 
@@ -78,6 +82,7 @@ func (e Entry) Path() string { return e.Best.Plan.Path }
 func Find(ctx context.Context, root, plansDir string) ([]Entry, error) {
 	r := repo.New(root, nil)
 	here := clean(root)
+	onto, _ := r.DefaultBranch(ctx)
 
 	trees, err := r.Worktrees(ctx)
 	if err != nil {
@@ -102,13 +107,19 @@ func Find(ctx context.Context, root, plansDir string) ([]Entry, error) {
 		}
 	}
 
-	onBranches, err := branchCopies(ctx, r, plansDir, checkedOut)
+	onBranches, err := branchCopies(ctx, r, plansDir, onto, checkedOut)
 	if err != nil {
 		return nil, err
 	}
 	copies = append(copies, onBranches...)
 	markLive(copies)
-	return group(withoutClosed(ctx, r, plansDir, withoutDetached(copies))), nil
+	copies = withoutDetached(copies)
+	if _, err := r.Resolve(ctx, "refs/heads/"+onto); onto != "" && err == nil {
+		if copies, err = registered(ctx, r, plansDir, onto, copies); err != nil {
+			return nil, err
+		}
+	}
+	return group(copies, onto), nil
 }
 
 // withoutDetached leaves out the checkouts on no branch, which builds and
@@ -125,48 +136,49 @@ func withoutDetached(copies []Copy) []Copy {
 	return out
 }
 
-// withoutClosed leaves out the copies of a plan that was since deleted: a
-// branch forked before the plan was closed still holds it, but what it holds
-// is an ancestor of the deletion. A run going on is never left out, and a plan
-// made again after its deletion is a new one.
-func withoutClosed(ctx context.Context, r *repo.Repo, plansDir string, copies []Copy) []Copy {
-	deletions, err := r.Deletions(ctx, plansDir)
-	if err != nil || len(deletions) == 0 {
-		return copies
+// registered keeps the copies of the plans the default branch holds, and of
+// the review and fix plans descending from them. A landed or dropped plan is
+// gone from it, so whatever stale branch still holds a copy is left out. A run
+// going on is never left out, and neither is a checkout on no branch that
+// ploopy was started in.
+func registered(ctx context.Context, r *repo.Repo, plansDir, onto string, copies []Copy) ([]Copy, error) {
+	tip := "refs/heads/" + onto
+	files, err := r.FilesAt(ctx, []string{tip}, plansDir, func(name string) bool { return strings.HasSuffix(name, ".md") })
+	if err != nil {
+		return nil, err
+	}
+	exists := map[string]bool{}
+	for p := range files[tip] {
+		exists[key(p)] = true
+	}
+	for _, c := range copies {
+		if c.Root != "" && c.Branch == onto {
+			exists[key(c.Plan.Path)] = true // written, not yet committed
+		}
 	}
 	var out []Copy
 	for _, c := range copies {
-		if c.Live == nil && c.Branch != "" && closed(ctx, r, c, deletions[c.Plan.Path]) {
-			continue
+		if c.Live != nil || (c.Here && c.Branch == "") || exists[key(review.Family(c.Plan.Path))] {
+			out = append(out, c)
 		}
-		out = append(out, c)
 	}
-	return out
+	return out, nil
 }
 
-func closed(ctx context.Context, r *repo.Repo, c Copy, deletions []string) bool {
-	if len(deletions) == 0 {
-		return false
-	}
-	last := r.LastTouch(ctx, c.Branch, c.Plan.Path, state.PathFor(c.Plan.Path))
-	if last == "" {
-		return false
-	}
-	for _, deletion := range deletions {
-		if r.IsAncestor(ctx, last, deletion) {
-			return true
-		}
-	}
-	return false
-}
+func key(p string) string { return path.Clean(filepath.ToSlash(p)) }
 
 // branchCopies reads the plans of every branch not checked out anywhere and
-// not yet merged into the default branch.
-func branchCopies(ctx context.Context, r *repo.Repo, plansDir string, checkedOut map[string]bool) ([]Copy, error) {
-	into, _ := r.DefaultBranch(ctx)
+// not yet merged into the default branch, and of the default branch itself
+// when no checkout has it.
+func branchCopies(ctx context.Context, r *repo.Repo, plansDir, into string, checkedOut map[string]bool) ([]Copy, error) {
 	refs, err := r.Unmerged(ctx, into)
 	if err != nil {
 		return nil, err
+	}
+	if into != "" && !checkedOut[into] {
+		if commit, err := r.Resolve(ctx, "refs/heads/"+into); err == nil {
+			refs = append(refs, repo.Ref{Branch: into, Commit: commit})
+		}
 	}
 	var commits []string
 	var branches []repo.Ref
@@ -223,8 +235,9 @@ func markLive(copies []Copy) {
 }
 
 // group gathers the copies of each plan and picks the one to show: a run
-// going on, else the newest progress, else this checkout's.
-func group(copies []Copy) []Entry {
+// going on, else the one with the most units done, else the newest progress,
+// else the default branch's, where a plan starts, else this checkout's.
+func group(copies []Copy, onto string) []Entry {
 	byPath := map[string]*Entry{}
 	var order []string
 	for _, c := range copies {
@@ -234,7 +247,7 @@ func group(copies []Copy) []Entry {
 			order = append(order, c.Plan.Path)
 			continue
 		}
-		if better(c, entry.Best) {
+		if better(c, entry.Best, onto) {
 			entry.Others = append(entry.Others, entry.Best)
 			entry.Best = c
 		} else {
@@ -249,12 +262,20 @@ func group(copies []Copy) []Entry {
 	return out
 }
 
-func better(a, b Copy) bool {
+func better(a, b Copy, onto string) bool {
 	if (a.Live != nil) != (b.Live != nil) {
 		return a.Live != nil
 	}
+	ad, _ := a.Done()
+	bd, _ := b.Done()
+	if ad != bd {
+		return ad > bd
+	}
 	if at, bt := a.latest(), b.latest(); !at.Equal(bt) {
 		return at.After(bt)
+	}
+	if (a.Branch == onto) != (b.Branch == onto) {
+		return a.Branch == onto
 	}
 	return a.Here && !b.Here
 }

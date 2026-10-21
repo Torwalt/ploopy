@@ -34,11 +34,14 @@ func mainRepo(t *testing.T) *env {
 	return &env{root: root, cfg: config.Default(), harnesses: allHarnesses()}
 }
 
-// onBranch commits the open plan on branch pass, and leaves master checked out.
+// onBranch commits the open plan on master and its progress on branch pass,
+// and leaves master checked out.
 func onBranch(t *testing.T, e *env) {
 	t.Helper()
-	git(t, e.root, "switch", "-q", "-c", "pass")
 	write(t, e.root, "docs/plans/PASS.md", openPlan)
+	git(t, e.root, "add", "-A")
+	git(t, e.root, "commit", "-q", "-m", "plans: add PASS")
+	git(t, e.root, "switch", "-q", "-c", "pass")
 	write(t, e.root, "docs/plans/PASS.state.json", halfState)
 	git(t, e.root, "add", "-A")
 	git(t, e.root, "commit", "-q", "-m", "plans")
@@ -142,22 +145,53 @@ func TestAPlanOnMasterGetsABranchNamedAfterIt(t *testing.T) {
 	}
 }
 
-func TestAnUncommittedPlanIsCommittedOnItsNewBranch(t *testing.T) {
+func TestAnUncommittedPlanIsCommittedOnMasterBeforeItsBranch(t *testing.T) {
 	e := mainRepo(t)
 	write(t, e.root, "docs/plans/PASS.md", openPlan)
 
 	root := placed(t, e)
-	if got := output(t, root, "log", "-1", "--format=%s"); got != "plans: add PASS" {
-		t.Fatalf("the plan should be committed on its branch, last commit %q", got)
-	}
-	if exists(filepath.Join(e.root, "docs/plans/PASS.md")) {
-		t.Fatal("the plan moved to its branch; master's checkout should not keep a copy")
+	if got := output(t, e.root, "log", "-1", "--format=%s", "master"); got != "plans: add PASS" {
+		t.Fatalf("the plan should be committed on master, last commit %q", got)
 	}
 	if out := output(t, e.root, "status", "--porcelain"); out != "" {
 		t.Fatalf("master's checkout should be clean:\n%s", out)
 	}
-	if got := output(t, e.root, "log", "-1", "--format=%s", "master"); got != "first" {
-		t.Fatalf("master gains no commit, it is at %q", got)
+	if output(t, root, "rev-parse", "HEAD") != output(t, e.root, "rev-parse", "master") {
+		t.Fatal("the branch starts at the commit that added the plan")
+	}
+}
+
+func TestAnEditedPlanIsCommittedOnMasterInItsLatestForm(t *testing.T) {
+	e := mainRepo(t)
+	write(t, e.root, "docs/plans/PASS.md", openPlan)
+	git(t, e.root, "add", "-A")
+	git(t, e.root, "commit", "-q", "-m", "plans")
+	edited := openPlan + "\n### 1.3 Three\n\n**Goal:** x\n\n**Done when:** y\n"
+	write(t, e.root, "docs/plans/PASS.md", edited)
+
+	root := placed(t, e)
+	if got, _ := os.ReadFile(filepath.Join(root, "docs/plans/PASS.md")); string(got) != edited {
+		t.Fatal("the run should get the plan as last edited")
+	}
+	if got := output(t, e.root, "show", "master:docs/plans/PASS.md"); got != strings.TrimSpace(edited) {
+		t.Fatal("master should hold the plan as last edited")
+	}
+}
+
+func TestAPlanDoesNotStartWithTheMainCheckoutOffMaster(t *testing.T) {
+	e := mainRepo(t)
+	write(t, e.root, "docs/plans/PASS.md", openPlan)
+	git(t, e.root, "add", "-A")
+	git(t, e.root, "commit", "-q", "-m", "plans")
+	git(t, e.root, "switch", "-q", "-c", "elsewhere")
+
+	ctx := context.Background()
+	c, err := e.find(ctx, "PASS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.place(ctx, c); err == nil || !strings.Contains(err.Error(), "git switch master") {
+		t.Fatalf("starting off master should be refused, got %v", err)
 	}
 }
 
@@ -392,28 +426,8 @@ func TestAReviewFromMasterIsWrittenInTheBranchsWorktree(t *testing.T) {
 	if got := output(t, tree, "log", "-1", "--format=%s"); got != "plans: review PASS" {
 		t.Fatalf("the review should be committed on pass, last commit %q", got)
 	}
-	if exists(filepath.Join(e.root, "docs/plans")) {
+	if exists(filepath.Join(e.root, "docs/plans/PASS_REVIEW.md")) {
 		t.Fatal("master's checkout should be untouched")
-	}
-}
-
-func TestClosingAPlanOnlyOnABranchWorksFromMaster(t *testing.T) {
-	e := mainRepo(t)
-	git(t, e.root, "switch", "-q", "-c", "pass")
-	write(t, e.root, "docs/plans/PASS.md", finishedPlan)
-	write(t, e.root, "docs/plans/PASS.state.json", finishedState)
-	git(t, e.root, "add", "-A")
-	git(t, e.root, "commit", "-q", "-m", "plans")
-	git(t, e.root, "switch", "-q", "master")
-
-	if err := closePlan(context.Background(), e, []string{"PASS"}, false, false); err != nil {
-		t.Fatal(err)
-	}
-	if got := output(t, e.root, "log", "-1", "--format=%s", "pass"); got != "plans: close PASS" {
-		t.Fatalf("the plan should be closed on pass, last commit %q", got)
-	}
-	if exists(worktreePath(e.root, "pass")) {
-		t.Fatal("the worktree made to close it should go again")
 	}
 }
 

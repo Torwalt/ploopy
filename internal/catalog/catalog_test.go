@@ -107,29 +107,81 @@ func TestProgressInAWorktreeWinsOverThisCheckout(t *testing.T) {
 	}
 }
 
-func TestAPlanOnlyOnABranchIsFound(t *testing.T) {
+func TestProgressOnABranchIsFoundForAPlanOnMaster(t *testing.T) {
+	root := repository(t)
+	git(t, root, "switch", "-q", "-c", "feature")
+	write(t, root, "docs/plans/PASS.state.json", progress("1.1", "1.2"))
+	commitAll(t, root, "progress")
+	git(t, root, "switch", "-q", "master")
+
+	entries := find(t, root)
+	if len(entries) != 1 {
+		t.Fatalf("entries %+v", entries)
+	}
+	if done, _ := entries[0].Best.Done(); done != 2 || entries[0].Best.Branch != "feature" || entries[0].Best.Root != "" {
+		t.Fatalf("best %+v", entries[0].Best)
+	}
+	if where := entries[0].Best.Where(root); where != "branch feature" {
+		t.Fatalf("where %q", where)
+	}
+}
+
+func TestAPlanMasterDoesNotHoldIsLeftOut(t *testing.T) {
 	root := repository(t)
 	git(t, root, "switch", "-q", "-c", "feature")
 	write(t, root, "docs/plans/OTHER.md", strings.Replace(pass, "# Pass", "# Other", 1))
-	write(t, root, "docs/plans/OTHER.state.json", progress("1.1", "1.2"))
+	write(t, root, "docs/plans/OTHER.state.json", progress("1.1"))
 	commitAll(t, root, "other plan")
 	git(t, root, "switch", "-q", "master")
 
-	var other *Entry
-	entries := find(t, root)
-	for i := range entries {
-		if entries[i].Path() == "docs/plans/OTHER.md" {
-			other = &entries[i]
+	for _, entry := range find(t, root) {
+		if entry.Path() == "docs/plans/OTHER.md" {
+			t.Fatalf("a plan only a branch holds was listed: %+v", entry.Best)
 		}
 	}
-	if other == nil {
-		t.Fatal("the plan on the feature branch was not found")
+}
+
+func TestAnUncommittedPlanOnMasterIsListed(t *testing.T) {
+	root := repository(t)
+	write(t, root, "docs/plans/NEW.md", strings.Replace(pass, "# Pass", "# New", 1))
+
+	entries := find(t, root)
+	if len(entries) != 2 || entries[0].Path() != "docs/plans/NEW.md" || !entries[0].Best.Here {
+		t.Fatalf("entries %+v", entries)
 	}
-	if done, _ := other.Best.Done(); done != 2 || other.Best.Branch != "feature" || other.Best.Root != "" {
-		t.Fatalf("best %+v", other.Best)
+}
+
+func TestReviewAndFixPlansFollowTheirPlanOnMaster(t *testing.T) {
+	root := repository(t)
+	git(t, root, "switch", "-q", "-c", "pass")
+	write(t, root, "docs/plans/PASS_REVIEW.md", strings.Replace(pass, "# Pass", "# Review", 1))
+	write(t, root, "docs/plans/PASS_REVIEW_FIXES.md", strings.Replace(pass, "# Pass", "# Fixes", 1))
+	write(t, root, "docs/plans/OTHER_REVIEW.md", strings.Replace(pass, "# Pass", "# Other", 1))
+	commitAll(t, root, "reviews")
+	git(t, root, "switch", "-q", "master")
+
+	var paths []string
+	for _, entry := range find(t, root) {
+		paths = append(paths, entry.Path())
 	}
-	if where := other.Best.Where(root); where != "branch feature" {
-		t.Fatalf("where %q", where)
+	if got := strings.Join(paths, ","); got != "docs/plans/PASS.md,docs/plans/PASS_REVIEW.md,docs/plans/PASS_REVIEW_FIXES.md" {
+		t.Fatalf("listed %s", got)
+	}
+}
+
+func TestTheMostUnitsDoneWinOverNewerProgress(t *testing.T) {
+	root := repository(t)
+	git(t, root, "switch", "-q", "-c", "ahead")
+	write(t, root, "docs/plans/PASS.state.json", progress("1.1", "1.2"))
+	commitAll(t, root, "progress")
+	git(t, root, "switch", "-q", "-c", "behind", "master")
+	write(t, root, "docs/plans/PASS.state.json",
+		`{"units": {"1.1": {"status": "landed", "outcome": "done", "date": "2026-10-20T22:00:00+02:00"}}}`+"\n")
+	commitAll(t, root, "later, less progress")
+	git(t, root, "switch", "-q", "master")
+
+	if best := find(t, root)[0].Best; best.Branch != "ahead" {
+		t.Fatalf("best is on %q", best.Branch)
 	}
 }
 
@@ -165,38 +217,30 @@ func TestWithNoProgressAnywhereThisCheckoutIsShown(t *testing.T) {
 	}
 }
 
-// A branch forked before a plan was closed still holds the plan; it is closed
-// all the same.
-func TestAPlanClosedOnOneBranchStaysClosedOnItsForks(t *testing.T) {
+// A plan landed on master stays closed, whatever stale branch still holds a
+// copy: a backup taken before the landing rebased the branch, or a branch
+// forked from it.
+func TestALandedPlanStaysClosedOnStaleBranches(t *testing.T) {
 	root := repository(t)
-	git(t, root, "switch", "-q", "-c", "feature")
-	write(t, root, "docs/plans/OTHER.md", strings.Replace(pass, "# Pass", "# Other", 1))
-	write(t, root, "docs/plans/OTHER.state.json", progress("1.1", "1.2"))
-	commitAll(t, root, "other plan")
-	git(t, root, "branch", "fork")
-	git(t, root, "rm", "-q", "docs/plans/OTHER.md", "docs/plans/OTHER.state.json")
-	commitAll(t, root, "close the other plan")
+	git(t, root, "switch", "-q", "-c", "pass")
+	write(t, root, "docs/plans/PASS.state.json", progress("1.1", "1.2"))
+	commitAll(t, root, "progress")
+	git(t, root, "branch", "backup")
 	git(t, root, "switch", "-q", "master")
-
-	for _, entry := range find(t, root) {
-		if entry.Path() == "docs/plans/OTHER.md" {
-			t.Fatalf("a closed plan came back from a fork: %+v", entry.Best)
-		}
-	}
-
-	// Made again after it was closed, it is a new plan.
-	git(t, root, "switch", "-q", "feature")
-	write(t, root, "docs/plans/OTHER.md", strings.Replace(pass, "# Pass", "# Other", 1))
-	commitAll(t, root, "the other plan again")
+	write(t, root, "x.txt", "x\n")
+	commitAll(t, root, "master moved on")
+	git(t, root, "switch", "-q", "pass")
+	git(t, root, "rebase", "-q", "master")
+	git(t, root, "rm", "-q", "docs/plans/PASS.md", "docs/plans/PASS.state.json")
+	commitAll(t, root, "close the plan")
 	git(t, root, "switch", "-q", "master")
-	found := false
-	for _, entry := range find(t, root) {
-		if entry.Path() == "docs/plans/OTHER.md" && entry.Best.Branch == "feature" {
-			found = true
-		}
-	}
-	if !found {
-		t.Fatal("a plan made again after it was closed was left out")
+	git(t, root, "merge", "-q", "--ff-only", "pass")
+	git(t, root, "branch", "-q", "-D", "pass")
+	tree := filepath.Join(t.TempDir(), "stale")
+	git(t, root, "worktree", "add", "-q", "-b", "stale", tree, "backup")
+
+	if entries := find(t, root); len(entries) != 0 {
+		t.Fatalf("a landed plan came back from %q", entries[0].Best.Branch)
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/catalog"
 	"github.com/Torwalt/ploopy/internal/config"
 	"github.com/Torwalt/ploopy/internal/repo"
+	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
@@ -18,23 +19,26 @@ func newClose(e *env) *cobra.Command {
 	var force, keep bool
 	cmd := &cobra.Command{
 		Use:   "close [PLAN]",
-		Short: "Delete a finished plan and its state file, with its report in the commit",
-		Long: "Delete a finished plan and its state file in one commit, on the branch\n" +
-			"and in the checkout that hold them, with the plan's report as the\n" +
-			"commit's body. Nothing else that is staged goes into that commit.\n\n" +
-			"When no plan of its family (the plan, its reviews and fix plans) is\n" +
-			"left in ploopy's own worktree for its branch, and no run is going on\n" +
-			"there, the worktree goes too, its .ploopy/ with it. Other plans there\n" +
-			"have no say, and any other checkout's .ploopy/ is left alone.",
+		Short: "Drop a plan without landing it, or close a review or fix plan",
+		Long: "Delete a plan and its state file in one commit carrying the plan's\n" +
+			"report. Nothing else that is staged goes into that commit.\n\n" +
+			"A plan exists while the default branch holds it. Closing one drops it\n" +
+			"there, in the main checkout, which must be on the default branch; its\n" +
+			"branch and worktree are left as they are. `ploopy land` is how a\n" +
+			"finished plan's work reaches the default branch, and it closes the plan\n" +
+			"as it does.\n\n" +
+			"A review or fix plan is closed on its branch, in the checkout that\n" +
+			"holds it.",
 		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error { return closePlan(cmd.Context(), e, args, force, keep) },
+		RunE: func(cmd *cobra.Command, args []string) error { return closePlan(cmd.Context(), e, args, force) },
 	}
 	cmd.Flags().BoolVar(&force, "force", false, "close a plan with units still open")
-	cmd.Flags().BoolVar(&keep, "keep-worktree", false, "keep ploopy's worktree even when no plan of the family is left in it")
+	cmd.Flags().BoolVar(&keep, "keep-worktree", false, "")
+	_ = cmd.Flags().MarkDeprecated("keep-worktree", "close leaves every worktree alone")
 	return cmd
 }
 
-func closePlan(ctx context.Context, e *env, args []string, force, keep bool) error {
+func closePlan(ctx context.Context, e *env, args []string, force bool) error {
 	c, err := e.planArg(ctx, args, "Close which plan?", false)
 	if err != nil {
 		return err
@@ -56,6 +60,9 @@ func closePlan(ctx context.Context, e *env, args []string, force, keep bool) err
 			return nil
 		}
 	}
+	if review.Family(c.Plan.Path) == c.Plan.Path {
+		return dropPlan(ctx, e, c)
+	}
 
 	if c, err = e.checkedOut(ctx, c); err != nil {
 		return err
@@ -68,10 +75,48 @@ func closePlan(ctx context.Context, e *env, args []string, force, keep bool) err
 	if err != nil {
 		return err
 	}
-
 	fmt.Printf("%s\n\nclosed %s in a commit on %s\n", text, c.Plan.Path, c.Branch)
-	if !samePath(c.Root, e.root) {
-		closeWorktree(ctx, e, c.Root, c.Branch, c.Plan.Path, cfg, keep)
+	return nil
+}
+
+// dropPlan deletes a plan on the default branch, where it exists. Its report
+// is read from the copy that got furthest, wherever that is.
+func dropPlan(ctx context.Context, e *env, c catalog.Copy) error {
+	r := e.repo()
+	onto, err := r.DefaultBranch(ctx)
+	if err != nil {
+		return err
+	}
+	trees, err := r.Worktrees(ctx)
+	if err != nil {
+		return err
+	}
+	if len(trees) == 0 {
+		return fmt.Errorf("git lists no checkout of this repository")
+	}
+	main := trees[0]
+	if main.Branch != onto {
+		return fmt.Errorf("%s is not on %s; a plan is closed there, so `git switch %s` first", main.Path, onto, onto)
+	}
+	cfg, err := config.Load(main.Path)
+	if err != nil {
+		return err
+	}
+	at := repo.New(main.Path, cfg.AuthorPaths)
+	if !at.Committed(ctx, c.Plan.Path) {
+		return fmt.Errorf("%s is not committed on %s; delete the file instead", c.Plan.Path, onto)
+	}
+	paths := []string{c.Plan.Path}
+	if statePath := state.PathFor(c.Plan.Path); at.Committed(ctx, statePath) {
+		paths = append(paths, statePath)
+	}
+	text := strings.TrimRight(reportOf(c), "\n")
+	if err := at.RemoveAndCommit(ctx, paths, fmt.Sprintf(cfg.CloseCommit, c.Plan.Name())+"\n\n"+text); err != nil {
+		return err
+	}
+	fmt.Printf("%s\n\nclosed %s in a commit on %s\n", text, c.Plan.Path, onto)
+	if branch := c.Branch; branch != "" && branch != onto {
+		fmt.Printf("%s is left as it is: `ploopy land %s` lands its work, `git branch -D %s` drops it\n", branch, branch, branch)
 	}
 	return nil
 }

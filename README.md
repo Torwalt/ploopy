@@ -15,8 +15,8 @@ What now?
   p  report on a plan: time, checks, cost
   h  history: what a unit took each agent here, and the usage windows
   n  lend a subscription to every run, or list what is lent
-  c  close a finished plan: delete it and its state, report in the commit
-  l  land a finished branch: close its plans, rebase, check, fast-forward
+  c  close a plan without landing it, or a review or fix plan
+  l  land a finished branch: rebase, check, close its plans, fast-forward
   w  show a unit's work order
   y  replay a unit's session
   m  mark a unit by hand
@@ -48,11 +48,17 @@ flag or in the plan's front matter shows locked. Every answer is also a flag:
   `verify`/`test` checks from `.ploopy.toml` decide whether it landed.
 - A stopped run records the session it cut off and resumes there next time.
 
-**Worktrees.** A plan runs in `<repo>.worktrees/<branch>`, its branch named
-after it (`PLAYTEST_FIXES` → `playtest-fixes`), so master stays yours.
-- A worktree belongs to one plan and its review and fix plans; other plans the
-  branch carries have no say over it.
-- It is removed once that family is complete or closed.
+**Lifecycle.** A plan exists while master holds it; its progress lives on its
+branch.
+- Starting a plan commits it on master as last edited, then runs it on a branch
+  named after it (`PLAYTEST_FIXES` → `playtest-fixes`) in
+  `<repo>.worktrees/<branch>`; the main checkout must be on master.
+- Status shows each plan, with its review and fix plans, from the branch that
+  got furthest. A plan gone from master is gone, whatever stale branch or
+  worktree still holds it.
+- `ploopy land` closes it; `ploopy close` drops it from master unlanded.
+- A worktree belongs to one plan and its review and fix plans, and is removed
+  once that family is complete.
 
 **Adjust.** `ploopy adjust` opens the board for a run going on in this
 repository.
@@ -72,8 +78,8 @@ writes `<NAME>_FIXES.md`.
   right after.
 - A repository adds its own checklist at `.agents/review-checklist.md`.
 
-**Land.** `ploopy land [BRANCH]` closes the branch's plans, rebases it onto the
-default branch, runs the checks and fast-forwards.
+**Land.** `ploopy land [BRANCH]` rebases the branch onto the default branch,
+runs the checks, closes the branch's plans and fast-forwards.
 - A conflict or red check goes to a `land-repair` session; `--no-agent` stops
   instead.
 - The worktree and branch are removed; master is yours to push.

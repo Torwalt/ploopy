@@ -59,6 +59,10 @@ type Options struct {
 	Rounds   int // rebases when onto moves during the checks
 	Logs     string
 
+	// Finish commits on the branch what landing it settles, once the checks
+	// pass and before the fast-forward: the plans it closes.
+	Finish func(ctx context.Context) error
+
 	Report Reporter
 	Now    func() time.Time
 }
@@ -102,12 +106,19 @@ func Run(ctx context.Context, o Options) (Result, error) {
 	}
 	l.result.Before = before
 
+	finished := o.Finish == nil
 	for round := 1; ; round++ {
 		if err := l.rebase(ctx); err != nil {
 			return l.result, err
 		}
 		if err := l.checks(ctx); err != nil {
 			return l.result, err
+		}
+		if !finished {
+			if err := o.Finish(ctx); err != nil {
+				return l.result, err
+			}
+			finished = true
 		}
 		err := l.r.FastForward(ctx, o.Branch, o.Onto)
 		if !errors.Is(err, repo.ErrMoved) {
