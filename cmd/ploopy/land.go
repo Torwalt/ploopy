@@ -148,6 +148,7 @@ func landBranch(cmd *cobra.Command, e *env, args []string, f *landFlags) error {
 		fmt.Printf("readying the checkout: `%s`\n", cfg.Setup)
 		setup := exec.CommandContext(ctx, "sh", "-c", cfg.Setup)
 		setup.Dir, setup.Stdout, setup.Stderr = root, os.Stdout, os.Stderr
+		setup.Env = append(os.Environ(), e.setupEnv(ctx)...)
 		if err := setup.Run(); err != nil {
 			return fmt.Errorf("`%s` failed: %w", cfg.Setup, err)
 		}

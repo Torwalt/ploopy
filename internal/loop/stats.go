@@ -172,9 +172,9 @@ func (l *Loop) pause(ctx context.Context, why string, d time.Duration) (woken bo
 }
 
 // timedCheck runs a repository command and books the time it took.
-func (l *Loop) timedCheck(ctx context.Context, name, command, logPath string) error {
+func (l *Loop) timedCheck(ctx context.Context, name, command, logPath string, env ...string) error {
 	started := l.opts.Now()
-	err := l.runCheck(ctx, command, logPath)
+	err := l.runCheck(ctx, command, logPath, env)
 	took := l.opts.Now().Sub(started)
 	l.stats.Checks += took
 	if l.checked == nil {

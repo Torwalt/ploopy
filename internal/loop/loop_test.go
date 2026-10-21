@@ -621,6 +621,26 @@ func TestSetupRunsBeforeThePreflight(t *testing.T) {
 	}
 }
 
+// The setup can copy what git does not carry from the main checkout.
+func TestSetupGetsItsEnvironment(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Do: commits("one.go", "first"), Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	main := t.TempDir()
+	writeFile(t, main, "baked", "baked\n")
+	writeFile(t, f.root, ".gitignore", "baked\n")
+	f.git("add", ".gitignore")
+	f.git("commit", "-q", "-m", "ignore baked")
+	f.opts.SetupCmd = `cp "$PLOOPY_MAIN/baked" baked`
+	f.opts.SetupEnv = []string{"PLOOPY_MAIN=" + main}
+	f.opts.VerifyCmd = "test -f baked"
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+}
+
 func TestAFailedSetupStopsTheRunBeforeAnySession(t *testing.T) {
 	f := setup(t, twoUnits, fake.Step{Do: commits("one.go", "first"), Outcome: done()})
 	f.opts.SetupCmd = "echo no network; exit 1"

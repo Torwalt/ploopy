@@ -168,7 +168,7 @@ func logTail(path string) string {
 	return strings.Join(lines, "\n")
 }
 
-func (l *Loop) runCheck(ctx context.Context, command, logPath string) error {
+func (l *Loop) runCheck(ctx context.Context, command, logPath string, env []string) error {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		return err
 	}
@@ -180,6 +180,9 @@ func (l *Loop) runCheck(ctx context.Context, command, logPath string) error {
 
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Dir = l.root
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	cmd.Stdout = log
 	cmd.Stderr = log
 	return cmd.Run()

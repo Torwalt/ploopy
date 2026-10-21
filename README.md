@@ -57,6 +57,9 @@ branch.
   got furthest. A plan gone from master is gone, whatever stale branch or
   worktree still holds it.
 - `ploopy land` closes it; `ploopy close` drops it from master unlanded.
+- `setup` in `.ploopy.toml` readies a new worktree before its first check, from
+  inside it, with `$PLOOPY_MAIN` naming the main checkout to copy ignored files
+  from; it may change only ignored files.
 - A worktree belongs to one plan and its review and fix plans, and is removed
   once that family is complete.
 

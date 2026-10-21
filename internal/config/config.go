@@ -20,7 +20,7 @@ type Config struct {
 	Context     []string `toml:"context"`          // read first by every session
 	Verify      string   `toml:"verify"`           // run after every unit
 	Test        string   `toml:"test"`             // run after units that want tests
-	Setup       string   `toml:"setup"`            // readies a fresh worktree before its first check
+	Setup       string   `toml:"setup"`            // readies a fresh worktree before its first check; $PLOOPY_MAIN is the main checkout
 	AuthorPaths []string `toml:"author_paths"`     // the author's files, never the session's dirt
 	Skill       string   `toml:"skill"`            // overrides the bundled plan-unit skill
 	Checklist   string   `toml:"review_checklist"` // what review sessions check beside their skill

@@ -264,6 +264,7 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 	}
 	if t.fresh {
 		opts.SetupCmd = cfg.Setup
+		opts.SetupEnv = e.setupEnv(ctx)
 	}
 	branch, _ := repo.New(root, nil).Branch(ctx)
 	opts.Branch = branch

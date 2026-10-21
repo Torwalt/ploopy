@@ -42,6 +42,16 @@ func (e *env) mainRoot(ctx context.Context) (string, error) {
 	return trees[0].Path, nil
 }
 
+// setupEnv tells a worktree's setup command where the main checkout is, so it
+// can copy over what git does not carry: build outputs, local settings.
+func (e *env) setupEnv(ctx context.Context) []string {
+	main, err := e.mainRoot(ctx)
+	if err != nil {
+		return nil
+	}
+	return []string{"PLOOPY_MAIN=" + main}
+}
+
 // ours reports whether root is a worktree ploopy made, and not the checkout
 // ploopy was started in, whose shell stands in it.
 func (e *env) ours(ctx context.Context, root string) bool {

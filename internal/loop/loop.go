@@ -70,7 +70,8 @@ type Options struct {
 	// Harnesses is every harness a unit's own `Agent:` may name.
 	Harnesses harness.Set
 
-	SetupCmd    string // readies a fresh worktree, once, before the preflight
+	SetupCmd    string   // readies a fresh worktree, once, before the preflight
+	SetupEnv    []string // added to the setup command's environment
 	VerifyCmd   string
 	TestCmd     string
 	AuthorPaths []string
@@ -668,7 +669,7 @@ func (l *Loop) setup(ctx context.Context) error {
 	}
 	l.report.Say("setup: `%s`", l.opts.SetupCmd)
 	logPath := filepath.Join(l.logs, "setup")
-	if err := l.timedCheck(ctx, "setup", l.opts.SetupCmd, logPath); err != nil {
+	if err := l.timedCheck(ctx, "setup", l.opts.SetupCmd, logPath, l.opts.SetupEnv...); err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
