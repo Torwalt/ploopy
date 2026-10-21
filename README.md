@@ -65,8 +65,8 @@ branch.
 - `setup` in `.ploopy.toml` readies a new worktree before its first check, from
   inside it, with `$PLOOPY_MAIN` naming the main checkout to copy ignored files
   from; it may change only ignored files.
-- A worktree belongs to one plan and its review and fix plans, and is removed
-  once that family is complete.
+- A worktree belongs to one plan and its review and fix plans, and stays until
+  `ploopy land` lands its branch.
 
 **Adjust.** `ploopy adjust` opens the board for a run going on in this
 repository.

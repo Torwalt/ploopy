@@ -383,13 +383,10 @@ func clearStale(path string) error {
 	return os.Rename(path, aside)
 }
 
-// leaveWorktree removes ploopy's worktree once the plan is complete: the
-// report is stamped and nothing in it is read again. An open plan keeps it,
-// so the next run resumes there with its progress and stats log, and so does
-// an open plan of its family beside it, such as the fix plan a review just
-// wrote.
-func leaveWorktree(ctx context.Context, e *env, root, branch, planPath string, cfg config.Config, complete bool,
-	runner *loop.Loop, report *ui.Reporter) {
+// leaveWorktree says where the run leaves the branch. The worktree always
+// stays: landing the branch is what removes it.
+func leaveWorktree(ctx context.Context, root, branch, planPath string, cfg config.Config, complete bool,
+	report *ui.Reporter) {
 	open := familyIn(root, cfg, branch, planPath, true)
 	switch {
 	case ctx.Err() != nil:
@@ -399,21 +396,8 @@ func leaveWorktree(ctx context.Context, e *env, root, branch, planPath string, c
 	case len(open) > 0:
 		report.Say("the worktree stays at %s: %s is still open there", root, strings.Join(open, ", "))
 	default:
-		if err := removeWorktree(ctx, e, root); err != nil {
-			report.Fail("the worktree stays at %s: %v", root, err)
-			runner.Note("worktree", "kept: "+err.Error())
-			return
-		}
-		report.Say("removed the worktree at %s; `git switch %s` picks the branch up here", root, branch)
+		report.Say("the worktree stays at %s; `ploopy land %s` lands the branch and removes it", root, branch)
 	}
-}
-
-func removeWorktree(ctx context.Context, e *env, root string) error {
-	main, err := e.mainRoot(ctx)
-	if err != nil {
-		return err
-	}
-	return repo.New(main, nil).RemoveWorktree(ctx, root, worktreesDir(main))
 }
 
 // familyIn lists the plans of member's family a checkout holds besides

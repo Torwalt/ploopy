@@ -175,8 +175,8 @@ func TestAReviewWithThenFixesRunsTheFixPlanAfterTheTriage(t *testing.T) {
 	if got := h.Specs[2].Model; got != "fix-model" {
 		t.Fatalf("the fix plan ran as %q, want its front matter's model", got)
 	}
-	if exists(tree) {
-		t.Fatal("the worktree should be left once, after the fix plan")
+	if !exists(tree) {
+		t.Fatal("a finished run keeps its worktree; landing removes it")
 	}
 
 	fixes := branchState(t, e, "pass", "docs/plans/PASS_FIXES.state.json")
@@ -297,8 +297,8 @@ func TestAnAdjustmentToThenDuringAReviewIsHonoured(t *testing.T) {
 	if h.Started() != 4 {
 		t.Fatalf("the run started %d sessions, want the fixes the adjustment asked for", h.Started())
 	}
-	if exists(tree) {
-		t.Fatal("the worktree should be left after the fix plan")
+	if !exists(tree) {
+		t.Fatal("a finished run keeps its worktree; landing removes it")
 	}
 	fixes := branchState(t, e, "pass", "docs/plans/PASS_FIXES.state.json")
 	if fixes.Status("1.2") != state.Landed {
@@ -467,8 +467,8 @@ func TestAPushHappensOnceAfterTheFixPlan(t *testing.T) {
 	if h.Started() != 4 {
 		t.Fatalf("the run started %d sessions, want the fixes too", h.Started())
 	}
-	if exists(tree) {
-		t.Fatal("the worktree should be left once, after the fix plan")
+	if !exists(tree) {
+		t.Fatal("a finished run keeps its worktree; landing removes it")
 	}
 	log, err := os.ReadFile(pushes)
 	if err != nil {
@@ -482,24 +482,5 @@ func TestAPushHappensOnceAfterTheFixPlan(t *testing.T) {
 		if !strings.Contains(pushed, want) {
 			t.Fatalf("the push happened before %q:\n%s", want, pushed)
 		}
-	}
-}
-
-func TestAnotherPlansOpenUnitsDoNotKeepAFinishedRunsWorktree(t *testing.T) {
-	e, tree := chainRepo(t)
-	// The branch inherited an open plan from master: it is master's, not the
-	// worktree's.
-	write(t, tree, "docs/plans/PLAYTEST_FIXES.md", finishedPlan)
-	git(t, tree, "add", "-A")
-	git(t, tree, "commit", "-q", "-m", "plan playtest fixes")
-	h := fake.New(findingsStep(), triageStep(t),
-		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
-	e.harnesses = harness.Set{h}
-
-	if err := runReview(t, e, reviewArgs("--then", "fixes")...); err != nil {
-		t.Fatal(err)
-	}
-	if exists(tree) {
-		t.Fatal("PASS and its review and fixes are done; PLAYTEST_FIXES must not keep the worktree")
 	}
 }

@@ -401,10 +401,8 @@ func finishRun(ctx context.Context, e *env, f *runFlags, r *planRun) {
 	if r.wanted.Pushes() {
 		pushBranch(ctx, r.root, r.runner, r.report)
 	}
-	// Only a worktree ploopy made is removed: one the author made is theirs,
-	// and a run started inside a worktree has its shell there.
 	if r.branch != "" && e.ours(ctx, r.root) {
-		leaveWorktree(ctx, e, r.root, r.branch, r.p.Path, r.cfg, r.complete, r.runner, r.report)
+		leaveWorktree(ctx, r.root, r.branch, r.p.Path, r.cfg, r.complete, r.report)
 	}
 	endAction(ctx, r.runner, r.report, ui.Finish(r.wanted.Finish), f.grace)
 }
