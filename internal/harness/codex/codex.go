@@ -12,13 +12,13 @@ import (
 	"github.com/Torwalt/ploopy/internal/harness"
 )
 
-type Harness struct{}
+type Harness struct{ harness.Preferences }
 
 func New() *Harness                { return &Harness{} }
 func (*Harness) Name() string      { return "codex" }
 func (*Harness) Efforts() []string { return []string{"low", "medium", "high", "xhigh", "max"} }
-func (*Harness) Models() []string {
-	return []string{"gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna", "gpt-6-sol", "gpt-5.6-sol"}
+func (h *Harness) Models() []string {
+	return h.ModelsOr("gpt-6.1-sol")
 }
 func (*Harness) PeakWindows() []harness.Window { return nil }
 

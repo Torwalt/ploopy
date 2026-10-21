@@ -231,13 +231,13 @@ func fill(e *env, s *runSettings, g given, last *runSettings) {
 	same := last != nil && last.Harness == s.Harness
 	if !g.model {
 		s.Model = h.Models()[0]
-		if same && last.Model != "" {
+		if same && contains(h.Models(), last.Model) {
 			s.Model = last.Model
 		}
 	}
 	if !g.effort {
 		s.Effort = preferredEffort(h)
-		if same && contains(h.Efforts(), last.Effort) {
+		if same && contains(harness.EffortChoices(h), last.Effort) {
 			s.Effort = last.Effort
 		}
 	}
@@ -276,10 +276,11 @@ func fill(e *env, s *runSettings, g given, last *runSettings) {
 }
 
 func preferredEffort(h harness.Harness) string {
-	if contains(h.Efforts(), "high") {
+	choices := harness.EffortChoices(h)
+	if contains(choices, "high") {
 		return "high"
 	}
-	return h.Efforts()[0]
+	return choices[0]
 }
 
 func validSecondary(harnesses harness.Set, agent *control.Agent, primary string) bool {

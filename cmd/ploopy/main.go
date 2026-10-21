@@ -154,8 +154,8 @@ func newRoot(e *env) *cobra.Command {
 			if e.cfg, err = config.Load(e.root); err != nil {
 				return err
 			}
-			e.harnesses = allHarnesses()
-			return nil
+			e.harnesses = allHarnesses(e.cfg)
+			return validateChoices(e.harnesses)
 		},
 	}
 	root.AddCommand(
@@ -180,7 +180,45 @@ func newRoot(e *env) *cobra.Command {
 }
 
 // allHarnesses is every harness ploopy can drive, in offer order.
-func allHarnesses() harness.Set { return harness.Set{claude.New(), opencode.New(), codex.New()} }
+func allHarnesses(configs ...config.Config) harness.Set {
+	c, o, x := claude.New(), opencode.New(), codex.New()
+	if len(configs) > 0 {
+		for name, preferences := range map[string]*harness.Preferences{
+			"claude": &c.Preferences, "opencode": &o.Preferences, "codex": &x.Preferences,
+		} {
+			own := configs[0].Agents[name]
+			preferences.ModelOptions, preferences.EffortOptions = own.Models, own.Efforts
+			if own.Fallbacks != nil {
+				preferences.Fallbacks = own.Fallbacks
+			}
+		}
+	}
+	return harness.Set{c, o, x}
+}
+
+func validateChoices(harnesses harness.Set) error {
+	for _, h := range harnesses {
+		for _, effort := range harness.EffortChoices(h) {
+			if !contains(h.Efforts(), effort) {
+				return fmt.Errorf("agents.%s.efforts: %q is unsupported; use %s", h.Name(), effort, strings.Join(h.Efforts(), ", "))
+			}
+		}
+	}
+	return nil
+}
+
+// Lending and adjustment also work outside a checkout.
+func (e *env) optionalConfig(ctx context.Context) error {
+	e.cfg = config.Default()
+	if root, err := repo.Root(ctx, "."); err == nil {
+		e.root = root
+		if e.cfg, err = config.Load(root); err != nil {
+			return err
+		}
+	}
+	e.harnesses = allHarnesses(e.cfg)
+	return validateChoices(e.harnesses)
+}
 
 // resolve finds a plan by path, by name, or by stem under the plans directory.
 func (e *env) resolve(name string) (*plan.Plan, error) {

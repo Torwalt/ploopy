@@ -90,9 +90,11 @@ func (o *Options) defaults() {
 }
 
 type lander struct {
-	o      Options
-	r      *repo.Repo
-	result Result
+	o         Options
+	r         *repo.Repo
+	result    Result
+	routes    map[string]time.Time
+	lastModel string
 }
 
 // Run lands the branch checked out at Root on Onto. On failure the branch is
@@ -185,6 +187,11 @@ func (l *lander) resolve(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if l.toFallback(outcome) {
+			failure = "A usage limit cut the previous session off. Continue from the repository."
+			attempt--
+			continue
+		}
 		if outcome.Marker == harness.Blocked {
 			return fmt.Errorf("the session is blocked: %s", outcome.Reason)
 		}
@@ -241,6 +248,11 @@ func (l *lander) checks(ctx context.Context) error {
 		outcome, err := l.session(ctx, "checks", attempt, l.checksTask(ctx, failure), previous)
 		if err != nil {
 			return err
+		}
+		if l.toFallback(outcome) {
+			previous = "A usage limit cut the previous session off. Continue from the repository."
+			attempt--
+			continue
 		}
 		if outcome.Marker == harness.Blocked {
 			return fmt.Errorf("the session is blocked: %s", outcome.Reason)
@@ -336,7 +348,7 @@ func logTail(path string) string {
 // session runs one repair and streams it to the reporter.
 func (l *lander) session(ctx context.Context, kind string, attempt int, task, failure string) (harness.Outcome, error) {
 	o := l.o
-	stem := fmt.Sprintf("%s-%s-%d", kind, o.Now().Format("20060102-150405"), attempt)
+	stem := fmt.Sprintf("%s-%s-%d-%d", kind, o.Now().Format("20060102-150405"), attempt, l.result.Sessions)
 	logPath := filepath.Join(o.Logs, stem+".log")
 	if err := os.MkdirAll(o.Logs, 0o755); err != nil {
 		return harness.Outcome{}, err
@@ -344,7 +356,7 @@ func (l *lander) session(ctx context.Context, kind string, attempt int, task, fa
 	o.Report.Say("session %d of %d with %s · %s", attempt, o.Attempts, o.Agent.Harness.Name(), logPath)
 	spec := harness.Spec{
 		Prompt:       l.prompt(task, failure),
-		Model:        o.Agent.Model,
+		Model:        l.model(),
 		Effort:       o.Agent.Effort,
 		Title:        fmt.Sprintf("ploopy land %s %s", o.Branch, kind),
 		SessionID:    uuid.NewString(),
@@ -355,6 +367,7 @@ func (l *lander) session(ctx context.Context, kind string, attempt int, task, fa
 		MaxBudgetUSD: o.Agent.Budget,
 		LogPath:      logPath,
 	}
+	l.lastModel = spec.Model
 	session, err := o.Agent.Harness.Start(ctx, spec)
 	if err != nil {
 		return harness.Outcome{}, err
@@ -376,6 +389,30 @@ func (l *lander) session(ctx context.Context, kind string, attempt int, task, fa
 		return outcome, ctx.Err()
 	}
 	return outcome, nil
+}
+
+func (l *lander) model() string {
+	model := l.o.Agent.Model
+	if l.routes[model].After(l.o.Now()) {
+		return harness.FallbackModel(l.o.Agent.Harness, model)
+	}
+	return model
+}
+
+func (l *lander) toFallback(outcome harness.Outcome) bool {
+	if outcome.RateLimit == nil || harness.FallbackModel(l.o.Agent.Harness, l.lastModel) == "" {
+		return false
+	}
+	until := outcome.RateLimit.ResetAt
+	if !until.After(l.o.Now()) {
+		until = l.o.Now().Add(30 * time.Minute)
+	}
+	if l.routes == nil {
+		l.routes = map[string]time.Time{}
+	}
+	l.routes[l.o.Agent.Model] = until
+	l.o.Report.Say("%s hit its usage limit; continuing with %s", l.o.Agent.Model, l.model())
+	return true
 }
 
 var (

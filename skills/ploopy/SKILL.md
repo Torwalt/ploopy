@@ -75,6 +75,32 @@ run's window: the author closes them.
 `ploopy adjust` changes a run going on, and `ploopy adjust --stop` stops it
 after the current unit. Never kill a run's process or window.
 
+## Models and subscriptions
+
+The default picker offers Claude Sonnet and Opus, Codex `gpt-6.1-sol`, and
+OpenCode Go `opencode-go/deepseek-v4.1-flash`, all at high effort. Repository
+settings can replace a harness's lists with `[agents.claude]`, `[agents.codex]`
+or `[agents.opencode]`, each with `models = [...]` and `efforts = [...]`.
+Use the installed harness's model IDs; `opencode models` lists its IDs.
+Explicit plan and flag settings can still name other supported choices.
+
+DeepSeek Flash uses Go first. A reported usage limit hands the unit's existing
+work to a fresh session on `deepseek/deepseek-flash`, without spending an
+attempt or changing harness. Each session records its actual route. The next
+session tries Go again after the reported reset, or after 30 minutes if the
+CLI supplies no reset. Review and landing repair sessions use the same policy.
+Go runs through peak hours; the API follows the run's peak setting. Auth and
+other failures do not switch to the API.
+
+`[agents.opencode.fallbacks]` maps a primary model ID to its fallback ID. An
+explicit table replaces the defaults; `fallbacks = {}` under
+`[agents.opencode]` disables automatic API fallback. Fallbacks cannot chain.
+Provider configuration and authentication belong to the harness.
+
+Claude and Codex still run only as selected or lent, keep their existing
+reserves, and have no API fallback by default. Existing leases retain their
+explicit model and effort.
+
 ## Worktrees
 
 ploopy makes the worktree a plan runs in. Do not make one for a plan yourself,

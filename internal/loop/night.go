@@ -442,6 +442,9 @@ func (l *Loop) metered(agent Agent, outcome harness.Outcome) {
 	if limit == nil {
 		return
 	}
+	if harness.FallbackModel(agent.Harness, agent.Model) != "" {
+		return
+	}
 	now := l.opts.Now()
 	switch {
 	case limit.ResetAt.After(now):

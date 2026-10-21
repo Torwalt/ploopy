@@ -326,7 +326,12 @@ func (sb *settingsBoard) bedrockColumn() ui.Column {
 		fields = append(fields, ui.BoardField{Key: 'o', Label: "peak", Value: &s.Peak,
 			Choices: func() []ui.Choice { return peakChoices }, Locked: sb.given.why("peak")})
 	}
-	return ui.Column{Title: "Bedrock", Fields: fields}
+	column := ui.Column{Title: "Bedrock", Fields: fields}
+	if fallback := harness.FallbackModel(h, s.Model); fallback != "" {
+		fields[3].Label = "after"
+		column.Lines = []string{"on limit → " + fallback}
+	}
+	return column
 }
 
 func (sb *settingsBoard) subscriptionColumn(d *leaseDraft) ui.Column {
@@ -785,7 +790,7 @@ func modelChoices(h harness.Harness, current string) []string {
 }
 
 func effortChoices(h harness.Harness, current string) []string {
-	efforts := h.Efforts()
+	efforts := harness.EffortChoices(h)
 	if current != "" && !contains(efforts, current) {
 		efforts = append([]string{current}, efforts...)
 	}

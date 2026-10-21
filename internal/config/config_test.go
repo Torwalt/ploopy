@@ -57,6 +57,59 @@ func TestBrokenTomlIsRefused(t *testing.T) {
 	}
 }
 
+func TestAgentChoicesAndRoutesLoad(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, File, `[agents.codex]
+models = ["gpt-6.1-sol", "gpt-6-luna"]
+efforts = ["high", "xhigh"]
+[agents.opencode.fallbacks]
+"opencode-go/deepseek-v4.1-flash" = "deepseek/deepseek-flash"
+`)
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Agents["codex"].Models) != 2 || cfg.Agents["codex"].Efforts[1] != "xhigh" ||
+		cfg.Agents["opencode"].Fallbacks["opencode-go/deepseek-v4.1-flash"] != "deepseek/deepseek-flash" {
+		t.Fatalf("agents %+v", cfg.Agents)
+	}
+}
+
+func TestInvalidAgentPreferencesAreRefused(t *testing.T) {
+	for _, raw := range []string{
+		"[agents.typo]\nmodels = ['x']",
+		"[agents.codex]\nmodels = []",
+		"[agents.codex]\nefforts = []",
+		"[agents.codex]\nmodels = ['']",
+		"[agents.codex]\nmodels = ['x', 'x']",
+		"[agents.codex]\nmodels = [' x']",
+		"[agents.opencode.fallbacks]\na = 'a'",
+		"[agents.opencode.fallbacks]\na = 'b'\nb = 'a'",
+		"[agents.opencode.fallbacks]\na = ''",
+		"[agents.opencode]\nmodel = ['typo']",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			root := t.TempDir()
+			write(t, root, File, raw)
+			if _, err := Load(root); err == nil {
+				t.Fatal("invalid preferences loaded")
+			}
+		})
+	}
+}
+
+func TestAnEmptyFallbackTableDisablesTheDefault(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, File, "[agents.opencode]\nfallbacks = {}\n")
+	cfg, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agents["opencode"].Fallbacks == nil {
+		t.Fatal("empty table lost its override")
+	}
+}
+
 func TestARepositorySkillWinsOverTheBundledOne(t *testing.T) {
 	root := t.TempDir()
 	cfg := Default()

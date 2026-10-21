@@ -146,6 +146,42 @@ func TestASessionResolvesAConflictAndTheRebaseGoesOn(t *testing.T) {
 	}
 }
 
+type routedHarness struct {
+	*fake.Harness
+	harness.Preferences
+}
+
+func TestARepairContinuesThroughTheAPIAfterASubscriptionLimit(t *testing.T) {
+	f := setup(t, "master\n", "branch\n")
+	fakeAgent := fake.New(
+		fake.Step{Outcome: harness.Outcome{RateLimit: &harness.RateLimit{Reason: "usage limit"}}},
+		fake.Step{Do: func(dir string) error {
+			if err := os.WriteFile(filepath.Join(dir, "shared.txt"), []byte("both\n"), 0o644); err != nil {
+				return err
+			}
+			return exec.Command("git", "-C", dir, "add", "shared.txt").Run()
+		}, Outcome: done()},
+	)
+	agent := &routedHarness{Harness: fakeAgent, Preferences: harness.Preferences{
+		Fallbacks: map[string]string{"subscription": "api"},
+	}}
+	o := f.options(t, agent)
+	o.Agent.Model, o.Attempts = "subscription", 1
+	result, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Sessions != 2 || fakeAgent.Specs[0].Model != "subscription" || fakeAgent.Specs[1].Model != "api" {
+		t.Fatalf("sessions %d, specs %+v", result.Sessions, fakeAgent.Specs)
+	}
+	if fakeAgent.Specs[0].LogPath == fakeAgent.Specs[1].LogPath {
+		t.Fatal("the API session overwrote the limited session's log")
+	}
+	if got := git(t, f.main, "show", "master:shared.txt"); got != "both" {
+		t.Fatalf("master holds %q", got)
+	}
+}
+
 func TestAConflictLeftWithMarkersRestoresTheBranch(t *testing.T) {
 	f := setup(t, "master\n", "branch\n")
 	masterBefore := f.master(t)

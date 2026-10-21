@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,65 @@ import (
 
 	"github.com/Torwalt/ploopy/internal/harness"
 )
+
+func TestGoQuotaMessagesAndResetTimes(t *testing.T) {
+	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	for _, tt := range []struct {
+		message string
+		wait    time.Duration
+	}{
+		{"Go usage limit exceeded", 0},
+		{"Weekly usage limit reached. Resets in 1hr 13min.", 75 * time.Minute},
+		{"Monthly usage limit reached. Resets in 2 days 3 hours.", 51*time.Hour + 2*time.Minute},
+		{"You have reached the usage limit. Resets in 12min 30sec.", 14*time.Minute + 30*time.Second},
+	} {
+		t.Run(tt.message, func(t *testing.T) {
+			limit := rateLimit(tt.message, now)
+			if limit == nil {
+				t.Fatal("quota was not recognised")
+			}
+			if tt.wait == 0 {
+				if !limit.ResetAt.IsZero() {
+					t.Fatalf("invented reset %v", limit.ResetAt)
+				}
+			} else if got := limit.ResetAt.Sub(now); got != tt.wait {
+				t.Fatalf("reset in %v, want %v", got, tt.wait)
+			}
+		})
+	}
+	for _, message := range []string{"Invalid API key", "Insufficient balance", "429: server overloaded"} {
+		if limit := rateLimit(message, now); limit != nil {
+			t.Fatalf("%q became a quota: %+v", message, limit)
+		}
+	}
+}
+
+func TestGoErrorEventRetainsItsRetryAfter(t *testing.T) {
+	fakeOpencode(t, `{"type":"error","sessionID":"ses_1","error":{"name":"APIError","data":{"message":"Go usage limit exceeded","responseHeaders":{"retry-after":"3600"}}}}`)
+	before := time.Now().Add(62 * time.Minute)
+	outcome := start(t, harness.Spec{Prompt: "x"})
+	if outcome.RateLimit == nil || outcome.RateLimit.ResetAt.Before(before) || outcome.RateLimit.ResetAt.After(time.Now().Add(62*time.Minute)) {
+		t.Fatalf("limit %+v", outcome.RateLimit)
+	}
+
+	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+	for _, raw := range []string{
+		`{"data":{"responseHeaders":{"Retry-After":"Wed, 21 Oct 2026 13:00:00 GMT"}}}`,
+		`{"data":{"retryAfterMs":3600000}}`,
+	} {
+		limit := errorLimit(json.RawMessage(raw), "Go usage limit exceeded", now)
+		if got := limit.ResetAt.Sub(now); got != 62*time.Minute {
+			t.Fatalf("reset in %v", got)
+		}
+	}
+}
+
+func TestOnlyTheAPIHasPeakWindows(t *testing.T) {
+	h := New()
+	if len(harness.PeakWindowsFor(h, h.Models()[0])) != 0 || len(harness.PeakWindowsFor(h, "deepseek/deepseek-flash")) == 0 {
+		t.Fatal("Go must run during peak hours; the API follows the peak setting")
+	}
+}
 
 func fakeOpencode(t *testing.T, output string) string {
 	t.Helper()

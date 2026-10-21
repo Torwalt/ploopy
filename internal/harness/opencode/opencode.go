@@ -11,6 +11,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,10 +26,14 @@ import (
 const MaxArgumentBytes = 120_000
 
 // Harness is opencode.
-type Harness struct{}
+type Harness struct{ harness.Preferences }
 
 // New builds the adapter.
-func New() *Harness { return &Harness{} }
+func New() *Harness {
+	return &Harness{Preferences: harness.Preferences{Fallbacks: map[string]string{
+		"opencode-go/deepseek-v4.1-flash": "deepseek/deepseek-flash",
+	}}}
+}
 
 // Name is how a plan's front matter asks for this harness.
 func (*Harness) Name() string { return "opencode" }
@@ -37,13 +44,8 @@ func (*Harness) Efforts() []string { return []string{"high", "max"} }
 // Models offered, the default first. `opencode-go/` bills the OpenCode Go
 // subscription and `deepseek/` the DeepSeek API directly. An empty model
 // leaves the choice to `opencode.json`.
-func (*Harness) Models() []string {
-	return []string{
-		"opencode-go/deepseek-v4.1-flash",
-		"deepseek/deepseek-flash",
-		"opencode-go/deepseek-v4-pro",
-		"deepseek/deepseek-v4-pro",
-	}
+func (h *Harness) Models() []string {
+	return h.ModelsOr("opencode-go/deepseek-v4.1-flash")
 }
 
 // PeakWindows is when DeepSeek bills double: 01:00-04:00 and 06:00-10:00 UTC,
@@ -58,6 +60,13 @@ func (*Harness) PeakWindows() []harness.Window {
 		{Days: weekdays, Start: 1 * 60, End: 4 * 60},
 		{Days: weekdays, Start: 6 * 60, End: 10 * 60},
 	}
+}
+
+func (h *Harness) PeakWindowsFor(model string) []harness.Window {
+	if strings.HasPrefix(model, "opencode-go/") {
+		return nil
+	}
+	return h.PeakWindows()
 }
 
 // Start runs one session, with the prompt as a single argument.
@@ -103,6 +112,7 @@ type session struct {
 
 	drift harness.Drift
 	steps int
+	limit *harness.RateLimit
 }
 
 // event is one line of `--format json`. Fields ploopy does not name are
@@ -198,6 +208,7 @@ func (s *session) handle(e event) {
 		}
 	case "error":
 		if message := errorText(e.Error); message != "" {
+			s.limit = errorLimit(e.Error, message, time.Now())
 			s.said = append(s.said, message)
 			s.events <- harness.Event{Kind: harness.EventNotice, Text: message}
 		}
@@ -237,7 +248,10 @@ func (s *session) Wait() (harness.Outcome, error) {
 	outcome.Marker, outcome.Reason = harness.ParseMarker(said)
 	outcome.Exit, outcome.TimedOut = exit, timedOut
 	if outcome.Marker == harness.None {
-		outcome.RateLimit = harness.RateLimitFromText(said, time.Now())
+		outcome.RateLimit = s.limit
+		if outcome.RateLimit == nil {
+			outcome.RateLimit = rateLimit(said, time.Now())
+		}
 	}
 	if exit == 0 && !timedOut {
 		if outcome.SessionID == "" {
@@ -249,6 +263,77 @@ func (s *session) Wait() (harness.Outcome, error) {
 	}
 	outcome.Degraded = s.drift.Notes()
 	return outcome, nil
+}
+
+func errorLimit(raw json.RawMessage, message string, now time.Time) *harness.RateLimit {
+	limit := rateLimit(message, now)
+	if limit == nil || !limit.ResetAt.IsZero() {
+		return limit
+	}
+	var shaped struct {
+		Data struct {
+			ResponseHeaders map[string]string `json:"responseHeaders"`
+			RetryAfterMS    int64             `json:"retryAfterMs"`
+		} `json:"data"`
+	}
+	if json.Unmarshal(raw, &shaped) != nil {
+		return limit
+	}
+	if shaped.Data.RetryAfterMS > 0 {
+		limit.ResetAt = now.Add(time.Duration(shaped.Data.RetryAfterMS)*time.Millisecond + 2*time.Minute)
+		return limit
+	}
+	for key, value := range shaped.Data.ResponseHeaders {
+		if !strings.EqualFold(key, "retry-after") {
+			continue
+		}
+		if seconds, err := strconv.ParseFloat(value, 64); err == nil && seconds > 0 {
+			limit.ResetAt = now.Add(time.Duration(seconds*float64(time.Second)) + 2*time.Minute)
+		} else if at, err := http.ParseTime(value); err == nil && at.After(now) {
+			limit.ResetAt = at.Add(2 * time.Minute)
+		}
+	}
+	return limit
+}
+
+var (
+	quotaRe    = regexp.MustCompile(`(?i)\b(?:usage|rate|quota) limit (?:reached|exceeded)\b`)
+	resetInRe  = regexp.MustCompile(`(?i)\bresets? in\s+((?:\d+\s*(?:days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\s*)+)`)
+	durationRe = regexp.MustCompile(`(?i)(\d+)\s*(days?|d|hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)`)
+)
+
+func rateLimit(text string, now time.Time) *harness.RateLimit {
+	limit := harness.RateLimitFromText(text, now)
+	if limit == nil {
+		for _, line := range strings.Split(text, "\n") {
+			if quotaRe.MatchString(line) {
+				limit = &harness.RateLimit{Reason: strings.TrimSpace(line)}
+			}
+		}
+	}
+	if limit == nil || !limit.ResetAt.IsZero() {
+		return limit
+	}
+	if reset := resetInRe.FindStringSubmatch(limit.Reason); reset != nil {
+		var duration time.Duration
+		for _, part := range durationRe.FindAllStringSubmatch(reset[1], -1) {
+			value, _ := strconv.Atoi(part[1])
+			unit := time.Second
+			switch strings.ToLower(part[2][:1]) {
+			case "d":
+				unit = 24 * time.Hour
+			case "h":
+				unit = time.Hour
+			case "m":
+				unit = time.Minute
+			}
+			duration += time.Duration(value) * unit
+		}
+		if duration > 0 {
+			limit.ResetAt = now.Add(duration + 2*time.Minute)
+		}
+	}
+	return limit
 }
 
 // eventType names a line that did not decode by the type it claims, if any.

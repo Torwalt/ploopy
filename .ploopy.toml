@@ -3,3 +3,18 @@ context = ["AGENTS.md"]
 verify = "go build -o /dev/null ./... && go vet ./... && test -z \"$(gofmt -l .)\""
 test = "go test ./..."
 setup = "nix develop --command true"
+
+[agents.claude]
+models = ["sonnet", "opus"]
+efforts = ["high"]
+
+[agents.codex]
+models = ["gpt-6.1-sol"]
+efforts = ["high"]
+
+[agents.opencode]
+models = ["opencode-go/deepseek-v4.1-flash"]
+efforts = ["high"]
+
+[agents.opencode.fallbacks]
+"opencode-go/deepseek-v4.1-flash" = "deepseek/deepseek-flash"

@@ -19,7 +19,7 @@ import (
 )
 
 // Harness is Claude Code.
-type Harness struct{}
+type Harness struct{ harness.Preferences }
 
 // New builds the adapter.
 func New() *Harness { return &Harness{} }
@@ -32,7 +32,7 @@ func (*Harness) Efforts() []string { return []string{"medium", "high", "xhigh"} 
 
 // Models offered, the default first. Any model name still works as an
 // override; this is what the selection form shows.
-func (*Harness) Models() []string { return []string{"sonnet", "opus"} }
+func (h *Harness) Models() []string { return h.ModelsOr("sonnet", "opus") }
 
 // PeakWindows is empty: Anthropic does not bill by hour.
 func (*Harness) PeakWindows() []harness.Window { return nil }

@@ -47,9 +47,8 @@ func newLend(e *env) *cobra.Command {
 			"A harness without usage windows has no subscription to lend. It works\n" +
 			"from any directory.",
 		Args: cobra.MaximumNArgs(1),
-		PersistentPreRunE: func(*cobra.Command, []string) error {
-			e.harnesses = allHarnesses()
-			return nil
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			return e.optionalConfig(cmd.Context())
 		},
 		RunE: func(cmd *cobra.Command, args []string) error { return lend(cmd, e, &f, args) },
 	}
@@ -160,9 +159,8 @@ func newReclaim(e *env) *cobra.Command {
 			"all back. The next session goes to the bedrock, or to another lent\n" +
 			"subscription with room. It works from any directory.",
 		Args: cobra.ExactArgs(1),
-		PersistentPreRunE: func(*cobra.Command, []string) error {
-			e.harnesses = allHarnesses()
-			return nil
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			return e.optionalConfig(cmd.Context())
 		},
 		RunE: func(cmd *cobra.Command, args []string) error { return reclaim(cmd, e, args[0]) },
 	}

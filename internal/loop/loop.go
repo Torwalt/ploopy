@@ -192,6 +192,7 @@ type Loop struct {
 
 	onSecondary bool
 	primaryFree time.Time // when the usage limit that moved the run to the secondary resets
+	routeLimits map[routeKey]time.Time
 
 	// own is the agent the current unit names for itself. It runs that unit
 	// whatever the run's agent is, and never hands it to the secondary.
@@ -510,16 +511,16 @@ func (l *Loop) agent() Agent {
 // else the primary. why says what decided it, when a lease did.
 func (l *Loop) pick() (agent Agent, lent, fresh bool, why string) {
 	if l.own != nil {
-		return *l.own, false, false, ""
+		return l.routed(*l.own), false, false, ""
 	}
 	lease, fresh, why := l.lendPick()
 	if lease != nil {
-		return *lease, true, fresh, why
+		return l.routed(*lease), true, fresh, why
 	}
 	if secondary := l.secondary(); l.onSecondary && secondary != nil {
-		return *secondary, false, false, why
+		return l.routed(*secondary), false, false, why
 	}
-	return l.primary(), false, false, why
+	return l.routed(l.primary()), false, false, why
 }
 
 // sayPick tells the author why an agent other than the planned one runs a
@@ -566,9 +567,13 @@ func (l *Loop) unitAgent(u plan.Unit) (*Agent, error) {
 	if h == nil {
 		return nil, fmt.Errorf("unit %s asks for agent %s, which ploopy cannot drive here", u.ID, name)
 	}
+	model := strings.TrimSpace(u.Fields["Model"])
+	if model == "" {
+		model = h.Models()[0]
+	}
 	return &Agent{
 		Harness: h,
-		Model:   strings.TrimSpace(u.Fields["Model"]),
+		Model:   model,
 		Effort:  strings.TrimSpace(u.Fields["Effort"]),
 	}, nil
 }
@@ -598,6 +603,9 @@ func (l *Loop) toSecondary(agent Agent, limit *harness.RateLimit) bool {
 	l.primaryFree = limit.ResetAt
 	if !l.primaryFree.After(now) {
 		l.primaryFree = now.Add(l.opts.LimitWait)
+	}
+	if reset := l.routeWake(agent); !reset.IsZero() && reset.Before(l.primaryFree) {
+		l.primaryFree = reset
 	}
 	l.onSecondary = true
 	l.record("switch", fmt.Sprintf("%s hit a usage limit; %s until %s",
@@ -721,7 +729,7 @@ func (l *Loop) peakGate(ctx context.Context) error {
 		// Who takes the unit depends on the windows as they stand now.
 		l.readMeters(ctx)
 		agent := l.agent()
-		windows := agent.Harness.PeakWindows()
+		windows := harness.PeakWindowsFor(agent.Harness, agent.Model)
 		if len(windows) == 0 {
 			return nil
 		}
@@ -749,6 +757,9 @@ func (l *Loop) peakGate(ctx context.Context) error {
 		}
 		if lend := l.lendWake(); !lend.IsZero() && lend.Before(wake) {
 			wake = lend
+		}
+		if route := l.routeWake(agent); !route.IsZero() && route.Before(wake) {
+			wake = route
 		}
 		l.record("peak", "waiting for off-peak until "+wake.Format(time.RFC3339))
 		l.report.Say("%s bills double until %s; waiting until %s",
@@ -907,6 +918,12 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 					if err := l.progress.save(); err != nil {
 						return err
 					}
+				}
+				if l.toFallback(agent, outcome.RateLimit) {
+					if err := l.peakGate(ctx); err != nil {
+						return err
+					}
+					continue
 				}
 				// A lent subscription's limit only takes it out of turn.
 				if lent {
@@ -1121,6 +1138,9 @@ func (l *Loop) waitOutLimit(ctx context.Context, agent Agent, limit *harness.Rat
 	}
 	if l.onSecondary && l.primaryFree.After(now) && l.primaryFree.Before(now.Add(wait)) {
 		wait = l.primaryFree.Sub(now)
+	}
+	if reset := l.routeWake(agent); !reset.IsZero() && reset.Before(now.Add(wait)) {
+		wait = reset.Sub(now)
 	}
 	if lend := l.lendWake(); !lend.IsZero() && lend.Before(now.Add(wait)) {
 		wait = lend.Sub(now)

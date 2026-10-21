@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -16,18 +17,25 @@ const File = ".ploopy.toml"
 
 // Config is what a repository tells the loop about itself.
 type Config struct {
-	Plans       string   `toml:"plans"`            // where task documents live
-	Context     []string `toml:"context"`          // read first by every session
-	Verify      string   `toml:"verify"`           // run after every unit
-	Test        string   `toml:"test"`             // run after units that want tests
-	Setup       string   `toml:"setup"`            // readies a fresh worktree before its first check; $PLOOPY_MAIN is the main checkout
-	AuthorPaths []string `toml:"author_paths"`     // the author's files, never the session's dirt
-	Skill       string   `toml:"skill"`            // overrides the bundled plan-unit skill
-	Checklist   string   `toml:"review_checklist"` // what review sessions check beside their skill
-	StateCommit string   `toml:"state_commit"`     // message template for the progress commit
-	CloseCommit string   `toml:"close_commit"`     // message template for the commit that closes a plan
-	Push        bool     `toml:"push"`             // push the branch when a run ends
-	Launch      string   `toml:"launch"`           // where a run goes: here, or tmux for a window of its own
+	Plans       string           `toml:"plans"`            // where task documents live
+	Context     []string         `toml:"context"`          // read first by every session
+	Verify      string           `toml:"verify"`           // run after every unit
+	Test        string           `toml:"test"`             // run after units that want tests
+	Setup       string           `toml:"setup"`            // readies a fresh worktree before its first check; $PLOOPY_MAIN is the main checkout
+	AuthorPaths []string         `toml:"author_paths"`     // the author's files, never the session's dirt
+	Skill       string           `toml:"skill"`            // overrides the bundled plan-unit skill
+	Checklist   string           `toml:"review_checklist"` // what review sessions check beside their skill
+	StateCommit string           `toml:"state_commit"`     // message template for the progress commit
+	CloseCommit string           `toml:"close_commit"`     // message template for the commit that closes a plan
+	Push        bool             `toml:"push"`             // push the branch when a run ends
+	Launch      string           `toml:"launch"`           // where a run goes: here, or tmux for a window of its own
+	Agents      map[string]Agent `toml:"agents"`           // picker choices and usage-limit routes
+}
+
+type Agent struct {
+	Models    []string          `toml:"models"`
+	Efforts   []string          `toml:"efforts"`
+	Fallbacks map[string]string `toml:"fallbacks"`
 }
 
 // Default is what a repository without a settings file gets.
@@ -67,6 +75,32 @@ func Load(root string) (Config, error) {
 	}
 	if cfg.Launch != "" && cfg.Launch != LaunchHere && cfg.Launch != LaunchTmux {
 		return cfg, fmt.Errorf("%s: launch must be %s or %s, not %s", path, LaunchHere, LaunchTmux, cfg.Launch)
+	}
+	for name, agent := range cfg.Agents {
+		if name != "claude" && name != "codex" && name != "opencode" {
+			return cfg, fmt.Errorf("%s: unknown agent %q", path, name)
+		}
+		for key, choices := range map[string][]string{"models": agent.Models, "efforts": agent.Efforts} {
+			if choices != nil && len(choices) == 0 {
+				return cfg, fmt.Errorf("%s: agents.%s.%s must not be empty", path, name, key)
+			}
+			seen := map[string]bool{}
+			for _, choice := range choices {
+				if strings.TrimSpace(choice) != choice || choice == "" || seen[choice] {
+					return cfg, fmt.Errorf("%s: invalid or repeated agents.%s.%s choice %q", path, name, key, choice)
+				}
+				seen[choice] = true
+			}
+		}
+		for source, target := range agent.Fallbacks {
+			if source == "" || target == "" || strings.TrimSpace(source) != source || strings.TrimSpace(target) != target {
+				return cfg, fmt.Errorf("%s: agents.%s.fallbacks needs nonempty models", path, name)
+			}
+			// A single fallback keeps an exhausted API from starting a routing loop.
+			if _, chained := agent.Fallbacks[target]; chained {
+				return cfg, fmt.Errorf("%s: agents.%s.fallbacks must not chain or cycle", path, name)
+			}
+		}
 	}
 	if cfg.Plans == "" {
 		cfg.Plans = Default().Plans

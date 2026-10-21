@@ -13,6 +13,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/catalog"
 	"github.com/Torwalt/ploopy/internal/config"
 	"github.com/Torwalt/ploopy/internal/control"
+	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
@@ -305,6 +306,9 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, pick.agent.Harness.Name(),
 		modelSuffix(pick.agent.Model), pick.agent.Effort, secondarySuffix(pick.secondary),
 		peakSuffix(pick), pushSuffix(pick.push), finishSuffix(pick.finish))
+	if fallback := harness.FallbackModel(pick.agent.Harness, pick.agent.Model); fallback != "" {
+		report.Say("on a usage limit, %s continues with %s before waiting or switching harness", pick.agent.Model, fallback)
+	}
 	announceSubscriptions(report, e, p, pick)
 	if steer.run != nil {
 		report.Say("change what happens next from another terminal with `ploopy adjust`")
@@ -510,12 +514,18 @@ func secondarySuffix(secondary *loop.Agent) string {
 }
 
 func peakSuffix(chosen chosenRun) string {
-	peaked := len(chosen.agent.Harness.PeakWindows()) > 0 ||
-		(chosen.secondary != nil && len(chosen.secondary.Harness.PeakWindows()) > 0)
-	if !chosen.waitOffPeak || !peaked {
+	if !chosen.waitOffPeak {
 		return ""
 	}
-	return ", off-peak only"
+	a := chosen.agent
+	if len(harness.PeakWindowsFor(a.Harness, a.Model)) > 0 ||
+		(chosen.secondary != nil && len(harness.PeakWindowsFor(chosen.secondary.Harness, chosen.secondary.Model)) > 0) {
+		return ", off-peak only"
+	}
+	if fallback := harness.FallbackModel(a.Harness, a.Model); fallback != "" && len(harness.PeakWindowsFor(a.Harness, fallback)) > 0 {
+		return ", fallback off-peak only"
+	}
+	return ""
 }
 
 func pushSuffix(push bool) string {

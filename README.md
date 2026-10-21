@@ -109,8 +109,45 @@ all worktrees.
 **Agents.** Claude Code, opencode and Codex run through their installed CLI and
 login; pick one in the Bedrock column or with `agent:`, `model:`, `effort:` in
 front matter.
+- The picker offers Sonnet and Opus, Sol, and DeepSeek V4.1 Flash, all at high
+  effort. `.ploopy.toml` can replace those lists; explicit plan and flag
+  settings still accept other supported choices.
+- Flash starts on OpenCode Go. When Go reports a usage limit, a fresh session
+  continues the unit through the DeepSeek API without spending an attempt.
+  Partial work stays in place, and each session records the route it used.
+  Go is tried again after the reported reset, or after 30 minutes when the
+  CLI gives no reset. This also applies to review and landing repair sessions.
+- Go runs through peak hours; the API fallback follows the run's peak setting.
+  Claude and Codex keep their subscription reserves and have no API fallback
+  by default. Authentication and other errors do not trigger a paid fallback.
 - Units are judged from git, so an adapter whose output format drifted costs no
   unit; it is reported in red at the end of the run.
+
+For example, these are the default choices, written explicitly in `.ploopy.toml`:
+
+```toml
+[agents.claude]
+models = ["sonnet", "opus"]
+efforts = ["high"]
+
+[agents.codex]
+models = ["gpt-6.1-sol"]
+efforts = ["high"]
+
+[agents.opencode]
+models = ["opencode-go/deepseek-v4.1-flash"]
+efforts = ["high"]
+
+[agents.opencode.fallbacks]
+"opencode-go/deepseek-v4.1-flash" = "deepseek/deepseek-flash"
+```
+
+The first model is the default. Add model IDs from the installed harness to
+enable more choices; `opencode models` lists its provider/model IDs. Providers
+and credentials stay in the harness. An explicit `fallbacks` table replaces
+the default routes; `fallbacks = {}` under `[agents.opencode]` disables the
+automatic API fallback. Routes have one fallback, with no chains or cycles.
+Existing leases keep the model and effort they were lent with.
 
 ## Try it
 

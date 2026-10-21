@@ -104,7 +104,7 @@ func askAgent(e *env, title, budgetTitle string, t *review.Triage, given map[str
 	}
 	if !given["effort"] {
 		fields = append(fields, ui.Field{Title: "Effort", Value: &t.Effort, Binding: &t.Agent, Choices: func() []ui.Choice {
-			return labelled(e.harnesses.Get(t.Agent).Efforts())
+			return labelled(effortChoices(e.harnesses.Get(t.Agent), t.Effort))
 		}})
 	}
 	if !given["budget"] {

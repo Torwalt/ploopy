@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Torwalt/ploopy/internal/config"
 	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/loop"
@@ -47,9 +48,8 @@ func newAdjust(e *env) *cobra.Command {
 			"With nothing passed, ploopy asks. It works from any directory.",
 		Args: cobra.NoArgs,
 		// A run is adjusted from anywhere, not only from inside its repository.
-		PersistentPreRunE: func(*cobra.Command, []string) error {
-			e.harnesses = allHarnesses()
-			return nil
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			return e.optionalConfig(cmd.Context())
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error { return adjust(cmd, e, &f) },
 	}
@@ -231,6 +231,14 @@ func changeFromFlags(cmd *cobra.Command, e *env, f *adjustFlags) (control.Settin
 }
 
 func adjustInteractively(ctx context.Context, e *env, live control.Live) error {
+	cfg, err := config.Load(live.Root)
+	if err != nil {
+		return err
+	}
+	e.cfg, e.harnesses = cfg, allHarnesses(cfg)
+	if err := validateChoices(e.harnesses); err != nil {
+		return err
+	}
 	board := newAdjustBoard(ctx, e, live)
 	return board.applyBoard(live, time.Now(), func() error {
 		_, err := board.board.Run()
@@ -252,7 +260,7 @@ func secondaryChoices(harnesses harness.Set, except string) []ui.Choice {
 			continue
 		}
 		for _, model := range h.Models() {
-			for _, effort := range h.Efforts() {
+			for _, effort := range harness.EffortChoices(h) {
 				agent := control.Agent{Harness: h.Name(), Model: model, Effort: effort}
 				choices = append(choices, ui.Choice{Label: "switch to " + agent.Label(), Value: encodeAgent(&agent)})
 			}
@@ -289,8 +297,8 @@ func resolveAgent(harnesses harness.Set, flag, name, model, effort, preferred st
 		model = h.Models()[0]
 	}
 	if effort == "" {
-		effort = h.Efforts()[0]
-		if contains(h.Efforts(), preferred) {
+		effort = preferredEffort(h)
+		if contains(harness.EffortChoices(h), preferred) {
 			effort = preferred
 		}
 	}
