@@ -64,10 +64,10 @@ func TestGoErrorEventRetainsItsRetryAfter(t *testing.T) {
 	}
 }
 
-func TestOnlyTheAPIHasPeakWindows(t *testing.T) {
+func TestGoAndTheAPIShareThePeakWindows(t *testing.T) {
 	h := New()
-	if len(harness.PeakWindowsFor(h, h.Models()[0])) != 0 || len(harness.PeakWindowsFor(h, "deepseek/deepseek-flash")) == 0 {
-		t.Fatal("Go must run during peak hours; the API follows the peak setting")
+	if len(harness.PeakWindowsFor(h, h.Models()[0])) == 0 || len(harness.PeakWindowsFor(h, "deepseek/deepseek-flash")) == 0 {
+		t.Fatal("Go counts peak hours double like the API; both follow the peak setting")
 	}
 }
 

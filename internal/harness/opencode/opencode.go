@@ -48,8 +48,9 @@ func (h *Harness) Models() []string {
 	return h.ModelsOr("opencode-go/deepseek-v4.1-flash")
 }
 
-// PeakWindows is when DeepSeek bills double: 01:00-04:00 and 06:00-10:00 UTC,
-// Monday to Friday. Everything else, weekends included, is half price.
+// PeakWindows is when DeepSeek bills double, through Go and the API alike:
+// 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday. Everything else,
+// weekends included, is half price.
 // Chinese public holidays are also off-peak and are deliberately ignored; the
 // only cost is pausing on a day that was already cheap.
 func (*Harness) PeakWindows() []harness.Window {
@@ -60,13 +61,6 @@ func (*Harness) PeakWindows() []harness.Window {
 		{Days: weekdays, Start: 1 * 60, End: 4 * 60},
 		{Days: weekdays, Start: 6 * 60, End: 10 * 60},
 	}
-}
-
-func (h *Harness) PeakWindowsFor(model string) []harness.Window {
-	if strings.HasPrefix(model, "opencode-go/") {
-		return nil
-	}
-	return h.PeakWindows()
 }
 
 // Start runs one session, with the prompt as a single argument.

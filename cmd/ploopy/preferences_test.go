@@ -84,7 +84,7 @@ func TestTheBoardShowsTheAutomaticRouteBeforeTheSecondaryPolicy(t *testing.T) {
 		t.Fatal(err)
 	}
 	chosen.waitOffPeak = true
-	if got := peakSuffix(chosen); got != ", fallback off-peak only" {
+	if got := peakSuffix(chosen); got != ", off-peak only" {
 		t.Fatalf("peak description %q", got)
 	}
 }

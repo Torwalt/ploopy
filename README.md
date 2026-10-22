@@ -117,7 +117,8 @@ front matter.
   Partial work stays in place, and each session records the route it used.
   Go is tried again after the reported reset, or after 30 minutes when the
   CLI gives no reset. This also applies to review and landing repair sessions.
-- Go runs through peak hours; the API fallback follows the run's peak setting.
+- Go counts peak hours double like the API, so both follow the run's peak
+  setting.
   Claude and Codex keep their subscription reserves and have no API fallback
   by default. Authentication and other errors do not trigger a paid fallback.
 - Units are judged from git, so an adapter whose output format drifted costs no

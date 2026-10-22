@@ -89,7 +89,8 @@ work to a fresh session on `deepseek/deepseek-flash`, without spending an
 attempt or changing harness. Each session records its actual route. The next
 session tries Go again after the reported reset, or after 30 minutes if the
 CLI supplies no reset. Review and landing repair sessions use the same policy.
-Go runs through peak hours; the API follows the run's peak setting. Auth and
+Go counts peak hours double, so Go and the API both follow the run's peak
+setting. Auth and
 other failures do not switch to the API.
 
 `[agents.opencode.fallbacks]` maps a primary model ID to its fallback ID. An
