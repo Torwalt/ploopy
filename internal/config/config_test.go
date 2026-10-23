@@ -173,6 +173,9 @@ triage_budget = 2.5
 
 [automation]
 follow_up = true
+rescue = "claude"
+rescue_model = "opus"
+rescue_effort = "high"
 `)
 	cfg, err := Load(root)
 	if err != nil {
@@ -202,6 +205,10 @@ follow_up = true
 	}
 	if cfg.Automation.FollowUp == nil || !*cfg.Automation.FollowUp {
 		t.Fatalf("automation follow up %v", cfg.Automation.FollowUp)
+	}
+	if cfg.Automation.Rescue != "claude" || cfg.Automation.RescueModel != "opus" ||
+		cfg.Automation.RescueEffort != "high" {
+		t.Fatalf("automation rescue %+v", cfg.Automation)
 	}
 	if err := cfg.Validate(fileHarnesses()); err != nil {
 		t.Fatal(err)
@@ -236,6 +243,8 @@ func TestTheNewTablesAreValidated(t *testing.T) {
 		{"an unknown triage agent", "[review]\ntriage_agent = 'nope'\n", "[review] triage_agent"},
 		{"an effort the triage agent does not offer", "[review]\ntriage_agent = 'claude'\ntriage_effort = 'max'\n", "[review] triage_effort"},
 		{"a negative triage budget", "[review]\ntriage_budget = -1\n", "[review] triage_budget"},
+		{"an unknown rescue agent", "[automation]\nrescue = 'nope'\n", "[automation] rescue"},
+		{"an effort the rescue agent does not offer", "[automation]\nrescue = 'claude'\nrescue_effort = 'max'\n", "[automation] rescue_effort"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()

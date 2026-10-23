@@ -248,3 +248,32 @@ func TestAFixPlanWithFollowUpDoesNotStartAReview(t *testing.T) {
 		t.Fatalf("fix unit 1.2 is %s, want landed", got)
 	}
 }
+
+func TestARescueFromTheFileRunsAtTheStopPoint(t *testing.T) {
+	e, _ := openPlanRepo(t, finishedPlan)
+	e.cfg.Automation = config.Automation{Rescue: "fake", RescueEffort: "high"}
+	h := fake.New(
+		fake.Step{Outcome: harness.Outcome{Marker: harness.Done}},
+		fake.Step{Do: func(dir string) error {
+			return sandboxWrite(filepath.Join(dir, ".ploopy/pass/handover/1.1.rescue-1.md"),
+				"## Diagnosis\n\nThe provider returned an empty completion.\n\n"+
+					"## Next attempt\n\nThe work is still to be done.\n\nWait: 1ms\n")
+		}, Outcome: harness.Outcome{Marker: harness.Retry, Reason: "provider stalled"}},
+		fixStep("one.go", "Do the plan"),
+	)
+	e.harnesses = harness.Set{h}
+
+	if err := runRun(t, e, runArgs("--retries", "0")...); err != nil {
+		t.Fatal(err)
+	}
+	if h.Started() != 3 {
+		t.Fatalf("the run started %d sessions, want the unit, its rescue and the retry", h.Started())
+	}
+	entry := branchState(t, e, "pass", "docs/plans/PASS.state.json").Entry("1.1")
+	if entry == nil || entry.Status != state.Landed {
+		t.Fatalf("unit 1.1 is %+v", entry)
+	}
+	if len(entry.Rescues) != 1 || entry.Rescues[0].Agent != "fake fake-model high" {
+		t.Fatalf("the rescue on the entry is %+v", entry.Rescues)
+	}
+}

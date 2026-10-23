@@ -116,6 +116,7 @@ type Options struct {
 type Steer struct {
 	WaitOffPeak bool
 	Secondary   *Agent
+	Rescue      *Agent
 	Lending     *Lending
 	Stop        bool // stop once the current unit is done
 }
@@ -594,10 +595,19 @@ func (l *Loop) primary() Agent {
 
 func (l *Loop) secondary() *Agent { return l.steer().Secondary }
 
+func (l *Loop) rescue() *Agent {
+	agent := l.steer().Rescue
+	if agent == nil || agent.Harness == nil {
+		return nil
+	}
+	return agent
+}
+
 // steer is what the author wants now.
 func (l *Loop) steer() Steer {
 	if l.opts.Steering == nil {
-		return Steer{WaitOffPeak: l.opts.WaitOffPeak, Secondary: l.opts.Secondary, Lending: l.opts.Lending}
+		return Steer{WaitOffPeak: l.opts.WaitOffPeak, Secondary: l.opts.Secondary,
+			Rescue: l.opts.Rescue, Lending: l.opts.Lending}
 	}
 	return l.opts.Steering.Steer()
 }

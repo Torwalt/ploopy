@@ -26,6 +26,7 @@ type runSettings struct {
 	Model         string         `json:"model,omitempty"`
 	Effort        string         `json:"effort,omitempty"`
 	Secondary     *control.Agent `json:"secondary,omitempty"`
+	Rescue        *control.Agent `json:"rescue,omitempty"`
 	Peak          string         `json:"peak,omitempty"` // wait or run
 	Subscriptions string         `json:"subscriptions,omitempty"`
 	SpendAll      bool           `json:"spendAll,omitempty"`
@@ -39,6 +40,7 @@ type runSettings struct {
 type given struct {
 	harness, model, effort, secondary, peak, subscriptions, spendAll, push, finish bool
 	followUp                                                                       bool
+	rescue, rescueModel, rescueEffort                                              bool
 	sources                                                                        map[string]string
 	prefills                                                                       map[string]string
 }
@@ -78,6 +80,7 @@ func (g given) prefilled(key string) string {
 type chosenRun struct {
 	agent         loop.Agent
 	secondary     *loop.Agent
+	rescue        *loop.Agent
 	waitOffPeak   bool
 	subscriptions string
 	spendAll      bool
@@ -175,6 +178,41 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 				return s, g, err
 			}
 			s.Secondary = toControlAgent(agent)
+		}
+	}
+	if cmd.Flags().Changed("rescue") {
+		g.rescue = true
+		g.from("rescue", "from a flag")
+		if f.rescue != "none" {
+			agent, err := resolveAgent(e.harnesses, "--rescue", f.rescue, f.rescueMod, f.rescueEff, s.Effort)
+			if err != nil {
+				return s, g, err
+			}
+			s.Rescue = toControlAgent(agent)
+			if cmd.Flags().Changed("rescue-model") {
+				g.rescueModel = true
+				g.from("rescueModel", "from a flag")
+			}
+			if cmd.Flags().Changed("rescue-effort") {
+				g.rescueEffort = true
+				g.from("rescueEffort", "from a flag")
+			}
+		}
+	} else if e.cfg.Automation.Rescue != "" {
+		g.fromFile("rescue")
+		if e.cfg.Automation.Rescue != "none" {
+			agent, err := resolveAgent(e.harnesses, "[automation] rescue", e.cfg.Automation.Rescue,
+				e.cfg.Automation.RescueModel, e.cfg.Automation.RescueEffort, s.Effort)
+			if err != nil {
+				return s, g, err
+			}
+			s.Rescue = toControlAgent(agent)
+			if e.cfg.Automation.RescueModel != "" {
+				g.fromFile("rescueModel")
+			}
+			if e.cfg.Automation.RescueEffort != "" {
+				g.fromFile("rescueEffort")
+			}
 		}
 	}
 	if f.peak != "" {
@@ -312,6 +350,9 @@ func fill(e *env, s *runSettings, g given, last *runSettings) {
 	if !g.secondary && g.prefilled("secondary") == "" && last != nil && validSecondary(e.harnesses, last.Secondary, s.Harness) {
 		s.Secondary = last.Secondary
 	}
+	if !g.rescue && g.prefilled("rescue") == "" && last != nil && validRescue(e.harnesses, last.Rescue) {
+		s.Rescue = last.Rescue
+	}
 	if !g.peak && g.prefilled("peak") == "" {
 		s.Peak = "wait"
 		if last != nil && last.Peak != "" {
@@ -356,6 +397,14 @@ func preferredEffort(h harness.Harness) string {
 
 func validSecondary(harnesses harness.Set, agent *control.Agent, primary string) bool {
 	if agent == nil || agent.Harness == primary {
+		return false
+	}
+	h := harnesses.Get(agent.Harness)
+	return h != nil && contains(h.Efforts(), agent.Effort)
+}
+
+func validRescue(harnesses harness.Set, agent *control.Agent) bool {
+	if agent == nil {
 		return false
 	}
 	h := harnesses.Get(agent.Harness)
@@ -443,6 +492,7 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 	return chosenRun{
 		agent:         loop.Agent{Harness: h, Model: s.Model, Effort: s.Effort},
 		secondary:     toLoopAgent(e.harnesses, s.Secondary),
+		rescue:        toLoopAgent(e.harnesses, s.Rescue),
 		waitOffPeak:   s.Peak == "wait",
 		subscriptions: subscriptions,
 		spendAll:      s.SpendAll,
@@ -466,6 +516,9 @@ func overChosen(e *env, c chosenRun, w control.Settings) chosenRun {
 	}
 	if w.Secondary != nil {
 		c.secondary = toLoopAgent(e.harnesses, w.SecondaryAgent())
+	}
+	if w.Rescue != nil {
+		c.rescue = toLoopAgent(e.harnesses, w.RescueAgent())
 	}
 	if w.Subscriptions != "" {
 		c.subscriptions = w.Subscriptions

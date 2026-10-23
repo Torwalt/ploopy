@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/Torwalt/ploopy/internal/config"
+	"github.com/Torwalt/ploopy/internal/control"
+	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/review"
 )
@@ -212,5 +214,89 @@ func TestTheAutomationTableSetsFollowUpWithoutLockingIt(t *testing.T) {
 	}
 	if g.why("followUp") != "from a flag" {
 		t.Fatalf("the flag source is %q", g.why("followUp"))
+	}
+}
+
+func TestTheRescueComesFromTheFileAFlagOrTheLastRun(t *testing.T) {
+	e := boardEnv(t)
+	e.harnesses = allHarnesses()
+	p := plan.Parse(finishedPlan, "docs/plans/PASS.md")
+
+	e.cfg.Automation = config.Automation{Rescue: "claude", RescueModel: "opus", RescueEffort: "high"}
+	cmd, f := settingsCommand(t)
+	s, g, err := givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fill(e, &s, g, nil)
+	chosen, err := resolveSettings(e, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chosen.rescue == nil || chosen.rescue.Label() != "claude opus high" {
+		t.Fatalf("the file's rescue reached the run as %+v", chosen.rescue)
+	}
+	if g.why("rescue") != "" || g.prefilled("rescue") != "from .ploopy.toml" {
+		t.Fatalf("the file's rescue is locked with %q and prefilled from %q", g.why("rescue"), g.prefilled("rescue"))
+	}
+
+	cmd, f = settingsCommand(t, "--rescue", "opencode", "--rescue-model", "deepseek/deepseek-flash", "--rescue-effort", "max")
+	s, g, err = givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fill(e, &s, g, nil)
+	chosen, err = resolveSettings(e, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chosen.rescue == nil || chosen.rescue.Label() != "opencode deepseek/deepseek-flash max" {
+		t.Fatalf("the flag's rescue reached the run as %+v", chosen.rescue)
+	}
+	if g.why("rescue") != "from a flag" {
+		t.Fatalf("the rescue flag source is %q", g.why("rescue"))
+	}
+
+	e.cfg.Automation = config.Automation{}
+	cmd, f = settingsCommand(t)
+	s, g, err = givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fill(e, &s, g, &runSettings{
+		Harness: "claude",
+		Rescue:  &control.Agent{Harness: "codex", Model: "gpt-6.1-sol", Effort: "xhigh"},
+	})
+	chosen, err = resolveSettings(e, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chosen.rescue == nil || chosen.rescue.Label() != "codex gpt-6.1-sol xhigh" {
+		t.Fatalf("the last run's rescue reached the run as %+v", chosen.rescue)
+	}
+}
+
+func TestAChainedPlanKeepsTheRescue(t *testing.T) {
+	e := boardEnv(t)
+	e.harnesses = allHarnesses()
+	rescue := &loop.Agent{Harness: e.harnesses.Get("claude"), Model: "opus", Effort: "high"}
+	chosen := chosenRun{rescue: rescue}
+
+	changed := overChosen(e, chosen, control.Settings{Rescue: &control.Agent{Harness: "codex", Model: "gpt-6.1-sol", Effort: "high"}})
+	if changed.rescue == nil || changed.rescue.Harness.Name() != "codex" {
+		t.Fatalf("the adjusted rescue is %+v", changed.rescue)
+	}
+	kept := overChosen(e, changed, control.Settings{})
+	if kept.rescue == nil || kept.rescue != changed.rescue {
+		t.Fatalf("an unset change cleared the rescue: %+v", kept.rescue)
+	}
+
+	p := plan.Parse("---\nagent: opencode\n---\n", "docs/plans/PASS_REVIEW.md")
+	next, err := applyPlanSettings(e, p, kept)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.rescue == nil || next.rescue != kept.rescue {
+		t.Fatalf("the next plan lost the rescue: %+v", next.rescue)
 	}
 }

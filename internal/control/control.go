@@ -41,6 +41,7 @@ type Settings struct {
 	Push          *bool  `json:"push,omitempty"`
 	Stop          *bool  `json:"stop,omitempty"`          // stop once the current unit is done
 	Secondary     *Agent `json:"secondary,omitempty"`     // an empty harness means none
+	Rescue        *Agent `json:"rescue,omitempty"`        // an empty harness means none
 	Subscriptions string `json:"subscriptions,omitempty"` // "", all, none, or harness names
 	SpendAll      *bool  `json:"spendAll,omitempty"`
 	FollowUp      *bool  `json:"followUp,omitempty"`
@@ -63,6 +64,9 @@ func (s Settings) Over(base Settings) Settings {
 	}
 	if s.Secondary != nil {
 		out.Secondary = s.Secondary
+	}
+	if s.Rescue != nil {
+		out.Rescue = s.Rescue
 	}
 	if s.Subscriptions != "" {
 		out.Subscriptions = s.Subscriptions
@@ -91,6 +95,14 @@ func (s Settings) SecondaryAgent() *Agent {
 		return nil
 	}
 	return s.Secondary
+}
+
+// RescueAgent is the agent that diagnoses a unit the run would stop on, or nil.
+func (s Settings) RescueAgent() *Agent {
+	if s.Rescue == nil || s.Rescue.Harness == "" {
+		return nil
+	}
+	return s.Rescue
 }
 
 // Describe renders the settings for a person. review says whether the plan is
@@ -127,6 +139,9 @@ func (s Settings) Describe(review ...bool) string {
 	}
 	if agent := s.SecondaryAgent(); agent != nil {
 		parts = append(parts, agent.Label()+" on a usage limit")
+	}
+	if agent := s.RescueAgent(); agent != nil {
+		parts = append(parts, "rescue "+agent.Label())
 	}
 	if s.Stops() {
 		parts = append(parts, "stop after the current unit")

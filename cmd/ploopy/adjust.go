@@ -28,6 +28,9 @@ type adjustFlags struct {
 	secondary     string
 	secondaryMod  string
 	secondaryEff  string
+	rescue        string
+	rescueMod     string
+	rescueEff     string
 	subscriptions string
 	spendAll      bool
 	followUp      bool
@@ -44,9 +47,10 @@ func newAdjust(e *env) *cobra.Command {
 		Short: "Change what a running run does next",
 		Long: "Change what a running run does next: its end action, whether it\n" +
 			"pushes, whether it stops after the current unit, the agent that takes\n" +
-			"over on a usage limit, what a unit due in peak hours does, which lent\n" +
-			"subscriptions it may use, whether it keeps a reserve, and whether a\n" +
-			"plan or review goes on to its follow-up.\n\n" +
+			"over on a usage limit, the agent that diagnoses a unit the run would\n" +
+			"stop on, what a unit due in peak hours does, which lent subscriptions\n" +
+			"it may use, whether it keeps a reserve, and whether a plan or review\n" +
+			"goes on to its follow-up.\n\n" +
 			"With nothing passed, ploopy asks. It works from any directory.",
 		Args: cobra.NoArgs,
 		// A run is adjusted from anywhere, not only from inside its repository.
@@ -64,6 +68,9 @@ func newAdjust(e *env) *cobra.Command {
 	flags.StringVar(&f.secondary, "secondary", "", "harness that takes over on a usage limit, or none")
 	flags.StringVar(&f.secondaryMod, "secondary-model", "", "model for the secondary harness")
 	flags.StringVar(&f.secondaryEff, "secondary-effort", "", "effort for the secondary harness")
+	flags.StringVar(&f.rescue, "rescue", "", "harness that diagnoses a unit the run would stop on, or none")
+	flags.StringVar(&f.rescueMod, "rescue-model", "", "model for the rescue harness")
+	flags.StringVar(&f.rescueEff, "rescue-effort", "", "effort for the rescue harness")
 	flags.StringVar(&f.subscriptions, "subscriptions", "",
 		"lent subscriptions to use: all, none, or names such as claude,codex")
 	flags.BoolVar(&f.spendAll, "spend-all", false, "spend the subscriptions' weeks, keeping no reserve")
@@ -219,6 +226,17 @@ func changeFromFlags(cmd *cobra.Command, e *env, f *adjustFlags) (control.Settin
 				return change, err
 			}
 			change.Secondary = toControlAgent(agent)
+		}
+	}
+	if flags.Changed("rescue") {
+		if f.rescue == "none" {
+			change.Rescue = &control.Agent{}
+		} else {
+			agent, err := resolveAgent(e.harnesses, "--rescue", f.rescue, f.rescueMod, f.rescueEff, "")
+			if err != nil {
+				return change, err
+			}
+			change.Rescue = toControlAgent(agent)
 		}
 	}
 	if flags.Changed("subscriptions") {

@@ -142,6 +142,7 @@ func tmux(ctx context.Context, args ...string) (string, error) {
 var chosenFlags = map[string]bool{
 	"plan": true, "all": true, "agent": true, "model": true, "effort": true,
 	"secondary": true, "secondary-model": true, "secondary-effort": true,
+	"rescue": true, "rescue-model": true, "rescue-effort": true,
 	"peak": true, "subscriptions": true, "spend-all": true, "push": true,
 	"finish": true, "follow-up": true, "detach": true, "here": true, launchedFlag: true,
 }
@@ -162,6 +163,14 @@ func launchArgs(cmd *cobra.Command, f *runFlags, p *plan.Plan, pick chosenRun) [
 		}
 	} else {
 		args = append(args, "--secondary", "none")
+	}
+	if r := pick.rescue; r != nil {
+		args = append(args, "--rescue", r.Harness.Name(), "--rescue-effort", r.Effort)
+		if r.Model != "" {
+			args = append(args, "--rescue-model", r.Model)
+		}
+	} else {
+		args = append(args, "--rescue", "none")
 	}
 	args = append(args, "--peak", peakName(pick.waitOffPeak),
 		"--subscriptions", pick.subscriptions,

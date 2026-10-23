@@ -50,6 +50,9 @@ type runFlags struct {
 	secondary     string
 	secondaryMod  string
 	secondaryEff  string
+	rescue        string
+	rescueMod     string
+	rescueEff     string
 	peak          string
 	subscriptions string
 	spendAll      bool
@@ -124,6 +127,10 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 		"harness that takes over when the agent hits a usage limit, or none")
 	flags.StringVar(&f.secondaryMod, "secondary-model", "", "model for the secondary harness")
 	flags.StringVar(&f.secondaryEff, "secondary-effort", "", "effort for the secondary harness")
+	flags.StringVar(&f.rescue, "rescue", "",
+		"harness that diagnoses a unit the run would stop on, or none")
+	flags.StringVar(&f.rescueMod, "rescue-model", "", "model for the rescue harness")
+	flags.StringVar(&f.rescueEff, "rescue-effort", "", "effort for the rescue harness")
 	flags.StringVar(&f.peak, "peak", "", "a unit due in the harness's peak hours: wait or run")
 	flags.StringVar(&f.subscriptions, "subscriptions", "",
 		"lent subscriptions to use: all, none, or names such as claude,codex")
@@ -338,6 +345,7 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 		HarnessArgs:  e.extra,
 		MaxBudgetUSD: f.budget,
 		Secondary:    pick.secondary,
+		Rescue:       pick.rescue,
 		WaitOffPeak:  pick.waitOffPeak,
 		History:      historyPath(ctx, e.root),
 	}
@@ -367,6 +375,7 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 		Settings: control.Settings{
 			Finish: string(pick.finish), Peak: peakName(pick.waitOffPeak), Push: &pick.push,
 			Secondary:     toControlAgent(pick.secondary),
+			Rescue:        toControlAgent(pick.rescue),
 			Subscriptions: pick.subscriptions, SpendAll: &pick.spendAll, FollowUp: &pick.followUp,
 		},
 	}, p.Reviews() != "", e.harnesses, leases, report)

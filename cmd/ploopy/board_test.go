@@ -500,3 +500,70 @@ func TestEnterRefusesAGivenEffortTheChosenAgentDoesNotOffer(t *testing.T) {
 		t.Fatalf("Enter with a given xhigh on opencode: %v", err)
 	}
 }
+
+func TestTheBoardOffersTheRescueInTheAutomationPart(t *testing.T) {
+	e := boardEnv(t)
+	e.harnesses = allHarnesses()
+	p := plan.Parse("", "docs/plans/PASS.md")
+	cmd, f := settingsCommand(t, "--agent", "opencode", "--model", "deepseek/deepseek-flash", "--effort", "high")
+	s, g, err := givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fill(e, &s, g, nil)
+	board := newSettingsBoard(context.Background(), e, p, g, &s, "pass", 3)
+
+	at, automation := columnByTitle(t, board.board, "Automation")
+	if got := *fieldByKey(t, automation, 'r').Value; got != "" {
+		t.Fatalf("the rescue starts as %q, want none", got)
+	}
+	key(board.board, rune('1'+at))
+	key(board.board, 'r')
+	_, automation = columnByTitle(t, board.board, "Automation")
+	if got := *fieldByKey(t, automation, 'r').Value; got != "claude" {
+		t.Fatalf("the rescue cycles to %q, want claude", got)
+	}
+	if got := *fieldByKey(t, automation, 'm').Value; got != "sonnet" {
+		t.Fatalf("the rescue model is %q, want the harness default", got)
+	}
+	if got := *fieldByKey(t, automation, 'e').Value; got != "high" {
+		t.Fatalf("the rescue effort is %q, want high", got)
+	}
+	board.read()
+	if s.Rescue == nil || s.Rescue.Harness != "claude" || s.Rescue.Model != "sonnet" || s.Rescue.Effort != "high" {
+		t.Fatalf("the board's rescue is %+v", s.Rescue)
+	}
+}
+
+func TestRescueIsAnAdjustFlag(t *testing.T) {
+	e := boardEnv(t)
+	for _, tc := range []struct {
+		name    string
+		args    []string
+		harness string
+		model   string
+		effort  string
+	}{
+		{"--rescue none", []string{"--rescue", "none"}, "", "", ""},
+		{"--rescue claude", []string{"--rescue", "claude", "--rescue-model", "opus", "--rescue-effort", "high"}, "claude", "opus", "high"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &adjustFlags{}
+			cmd := &cobra.Command{Use: "adjust"}
+			cmd.Flags().StringVar(&f.rescue, "rescue", "", "")
+			cmd.Flags().StringVar(&f.rescueMod, "rescue-model", "", "")
+			cmd.Flags().StringVar(&f.rescueEff, "rescue-effort", "", "")
+			if err := cmd.ParseFlags(tc.args); err != nil {
+				t.Fatal(err)
+			}
+			change, err := changeFromFlags(cmd, e, f)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if change.Rescue == nil || change.Rescue.Harness != tc.harness ||
+				change.Rescue.Model != tc.model || change.Rescue.Effort != tc.effort {
+				t.Fatalf("%s changed the rescue to %+v", tc.name, change.Rescue)
+			}
+		})
+	}
+}

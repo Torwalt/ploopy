@@ -20,6 +20,7 @@ func chosenForLaunch(e *env) chosenRun {
 	return chosenRun{
 		agent:         loop.Agent{Harness: claude, Model: "opus", Effort: "high"},
 		secondary:     &loop.Agent{Harness: e.harnesses.Get("codex"), Effort: "medium"},
+		rescue:        &loop.Agent{Harness: e.harnesses.Get("opencode"), Model: "deepseek/deepseek-flash", Effort: "max"},
 		subscriptions: "claude codex",
 		push:          true,
 		finish:        ui.FinishSuspend,
@@ -51,6 +52,9 @@ func TestALaunchedRunStartsWithTheSettingsChosenForIt(t *testing.T) {
 	f.effort, _ = child.Flags().GetString("effort")
 	f.secondary, _ = child.Flags().GetString("secondary")
 	f.secondaryEff, _ = child.Flags().GetString("secondary-effort")
+	f.rescue, _ = child.Flags().GetString("rescue")
+	f.rescueMod, _ = child.Flags().GetString("rescue-model")
+	f.rescueEff, _ = child.Flags().GetString("rescue-effort")
 	f.subscriptions, _ = child.Flags().GetString("subscriptions")
 	f.push, _ = child.Flags().GetBool("push")
 	f.finish, _ = child.Flags().GetString("finish")
@@ -64,6 +68,10 @@ func TestALaunchedRunStartsWithTheSettingsChosenForIt(t *testing.T) {
 	}
 	if s.Secondary == nil || s.Secondary.Harness != "codex" || s.Secondary.Effort != "medium" {
 		t.Errorf("the launched run falls back to %+v, want codex at medium", s.Secondary)
+	}
+	if s.Rescue == nil || s.Rescue.Harness != "opencode" || s.Rescue.Model != "deepseek/deepseek-flash" ||
+		s.Rescue.Effort != "max" {
+		t.Errorf("the launched run rescues with %+v, want opencode deepseek/deepseek-flash max", s.Rescue)
 	}
 	if s.Subscriptions != "claude codex" || !s.Push || s.Finish != "suspend" || !s.FollowUp {
 		t.Errorf("the launched run has %+v", s)

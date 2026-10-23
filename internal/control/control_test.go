@@ -179,3 +179,19 @@ func TestFollowUpIsLaidOverAndDescribed(t *testing.T) {
 		t.Fatalf("follow-up off on a review is described as %q", desc)
 	}
 }
+
+func TestRescueIsLaidOverAndDescribed(t *testing.T) {
+	base := Settings{Rescue: &Agent{Harness: "claude", Model: "opus", Effort: "high"}}
+	if got := (Settings{Rescue: &Agent{Harness: "codex"}}).Over(base); got.RescueAgent() == nil || got.RescueAgent().Harness != "codex" {
+		t.Fatalf("rescue laid over as %+v", got.Rescue)
+	}
+	if got := (Settings{}).Over(base); got.RescueAgent() == nil || got.RescueAgent().Harness != "claude" {
+		t.Fatalf("an unset change cleared the rescue: %+v", got.Rescue)
+	}
+	if got := (Settings{Rescue: &Agent{}}).Over(base); got.RescueAgent() != nil {
+		t.Fatal("an empty harness should remove the rescue")
+	}
+	if desc := base.Describe(); !strings.Contains(desc, "rescue claude opus high") {
+		t.Fatalf("the rescue is described as %q", desc)
+	}
+}

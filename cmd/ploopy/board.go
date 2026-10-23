@@ -40,13 +40,17 @@ type settingsBoard struct {
 	canPush  bool
 	leaseErr error
 
-	secondary string
-	spend     string
-	push      string
-	stop      string
-	followUp  string
-	lastAgent string
-	board     *ui.Board
+	secondary    string
+	rescue       string
+	rescueModel  string
+	rescueEffort string
+	spend        string
+	push         string
+	stop         string
+	followUp     string
+	lastAgent    string
+	lastRescue   string
+	board        *ui.Board
 }
 
 // triageDraft is the Triage column of a review's board. It stays editable
@@ -117,6 +121,8 @@ func newSettingsBoard(ctx context.Context, e *env, p *plan.Plan, g given, s *run
 		secondary: encodeAgent(s.Secondary), spend: spendLabel(s.SpendAll), push: yesNo(s.Push),
 		followUp: yesNo(s.FollowUp), lastAgent: s.Harness, canPush: repo.New(e.root, nil).CanPush(ctx, branch) == nil,
 	}
+	sb.rescue, sb.rescueModel, sb.rescueEffort = agentFields(s.Rescue)
+	sb.lastRescue = sb.rescue
 	sb.records = loadHistory(ctx, sb.root)
 	sb.drafts, sb.leaseErr = loadLeaseDrafts(ctx, e, sb.records, time.Now())
 	sb.normalize()
@@ -133,6 +139,7 @@ func newAdjustBoard(ctx context.Context, e *env, live control.Live) *settingsBoa
 	wanted := live.Wanted
 	s := runSettings{
 		Secondary:     wanted.Secondary,
+		Rescue:        wanted.Rescue,
 		Peak:          wanted.Peak,
 		Subscriptions: wanted.Subscriptions,
 		SpendAll:      wanted.SpendAll != nil && *wanted.SpendAll,
@@ -180,6 +187,8 @@ func newAdjustBoard(ctx context.Context, e *env, live control.Live) *settingsBoa
 		push: yesNo(s.Push), stop: yesNo(wanted.Stops()), followUp: yesNo(s.FollowUp), lastAgent: s.Harness,
 		canPush: repo.New(live.Root, nil).CanPush(ctx, live.Branch) == nil,
 	}
+	sb.rescue, sb.rescueModel, sb.rescueEffort = agentFields(wanted.RescueAgent())
+	sb.lastRescue = sb.rescue
 	sb.records = loadHistory(ctx, sb.root)
 	sb.drafts, sb.leaseErr = loadLeaseDrafts(ctx, e, sb.records, time.Now())
 	sb.normalize()
@@ -220,6 +229,7 @@ func (sb *settingsBoard) normalize() {
 	sb.normalizeTriage()
 	sb.s.SpendAll = sb.spend == "all"
 	sb.s.Secondary = decodeAgent(sb.secondary)
+	sb.normalizeRescue()
 	h := sb.env.harnesses.Get(sb.s.Harness)
 	if h == nil {
 		return
@@ -269,6 +279,30 @@ func (sb *settingsBoard) normalizeTriage() {
 		d.budget = "0"
 	}
 	d.last = d.agent
+}
+
+func (sb *settingsBoard) normalizeRescue() {
+	h := sb.env.harnesses.Get(sb.rescue)
+	if sb.rescue == "" || h == nil {
+		sb.rescue, sb.rescueModel, sb.rescueEffort = "", "", ""
+		sb.lastRescue = ""
+		return
+	}
+	if sb.lastRescue != sb.rescue {
+		if !sb.given.rescueModel {
+			sb.rescueModel = h.Models()[0]
+		}
+		if !sb.given.rescueEffort {
+			sb.rescueEffort = preferredEffort(h)
+		}
+	}
+	if sb.rescueModel == "" {
+		sb.rescueModel = h.Models()[0]
+	}
+	if sb.rescueEffort == "" || (!sb.given.rescueEffort && !contains(h.Efforts(), sb.rescueEffort)) {
+		sb.rescueEffort = preferredEffort(h)
+	}
+	sb.lastRescue = sb.rescue
 }
 
 func (sb *settingsBoard) columns() []ui.Column {
@@ -376,7 +410,37 @@ func (sb *settingsBoard) automationColumn() ui.Column {
 		{Key: 'n', Label: "follow up", Value: &sb.followUp,
 			Choices: func() []ui.Choice { return yesNoChoices(sb.followUp == "yes") },
 			Locked:  sb.given.why("followUp"), Source: sb.given.prefilled("followUp")},
+		{Key: 'r', Label: "rescue", Value: &sb.rescue,
+			Choices: func() []ui.Choice { return rescueHarnessChoices(sb.env.harnesses) },
+			Locked:  sb.given.why("rescue"), Source: sb.given.prefilled("rescue")},
+		{Key: 'm', Label: "model", Value: &sb.rescueModel,
+			Choices: func() []ui.Choice {
+				if h := sb.env.harnesses.Get(sb.rescue); h != nil {
+					return labelled(modelChoices(h, sb.rescueModel))
+				}
+				return nil
+			},
+			Locked: sb.given.why("rescueModel"), Source: sb.given.prefilled("rescueModel")},
+		{Key: 'e', Label: "effort", Value: &sb.rescueEffort,
+			Choices: func() []ui.Choice {
+				if h := sb.env.harnesses.Get(sb.rescue); h != nil {
+					return labelled(effortChoices(h, sb.rescueEffort))
+				}
+				return nil
+			},
+			Locked: sb.given.why("rescueEffort"), Source: sb.given.prefilled("rescueEffort")},
 	}}
+}
+
+func rescueHarnessChoices(harnesses harness.Set) []ui.Choice {
+	return append([]ui.Choice{{Label: "none", Value: ""}}, labelled(harnesses.Names())...)
+}
+
+func agentFields(agent *control.Agent) (string, string, string) {
+	if agent == nil {
+		return "", "", ""
+	}
+	return agent.Harness, agent.Model, agent.Effort
 }
 
 func (sb *settingsBoard) runColumn() ui.Column {
@@ -512,6 +576,11 @@ func (sb *settingsBoard) triageValue() (review.Triage, error) {
 // read takes the board's values into the run settings.
 func (sb *settingsBoard) read() {
 	sb.s.Secondary = decodeAgent(sb.secondary)
+	if sb.rescue == "" {
+		sb.s.Rescue = nil
+	} else {
+		sb.s.Rescue = &control.Agent{Harness: sb.rescue, Model: sb.rescueModel, Effort: sb.rescueEffort}
+	}
 	sb.s.SpendAll = sb.spend == "all"
 	sb.s.Push = sb.push == "yes"
 	sb.s.FollowUp = sb.followUp == "yes"
@@ -524,6 +593,10 @@ func (sb *settingsBoard) adjustChange() control.Settings {
 	if secondary == nil {
 		secondary = &control.Agent{}
 	}
+	rescue := sb.s.Rescue
+	if rescue == nil {
+		rescue = &control.Agent{}
+	}
 	stop := sb.stop == "yes"
 	followUp := sb.followUp == "yes"
 	return control.Settings{
@@ -532,6 +605,7 @@ func (sb *settingsBoard) adjustChange() control.Settings {
 		Push:          &sb.s.Push,
 		Stop:          &stop,
 		Secondary:     secondary,
+		Rescue:        rescue,
 		Subscriptions: sb.s.Subscriptions,
 		SpendAll:      &sb.s.SpendAll,
 		FollowUp:      &followUp,

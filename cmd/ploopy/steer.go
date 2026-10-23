@@ -81,6 +81,7 @@ func (s *steering) Steer() loop.Steer {
 	return loop.Steer{
 		WaitOffPeak: wanted.Peak == "wait",
 		Secondary:   toLoopAgent(s.harnesses, wanted.SecondaryAgent()),
+		Rescue:      toLoopAgent(s.harnesses, wanted.RescueAgent()),
 		Lending:     lending,
 		Stop:        wanted.Stops(),
 	}

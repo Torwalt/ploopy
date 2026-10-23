@@ -46,6 +46,7 @@ type rescueCase struct {
 	priorBlock  string
 	blockReason string
 	number      int
+	agent       Agent // the agent that ran it, which a change may have moved since
 }
 
 type rescueAction int
@@ -68,7 +69,7 @@ type rescueResult struct {
 }
 
 func (l *Loop) canRescue(rescues int) bool {
-	return l.opts.Rescue != nil && l.opts.Rescue.Harness != nil && rescues < l.opts.Rescues
+	return l.rescue() != nil && rescues < l.opts.Rescues
 }
 
 func (l *Loop) rescueReportPath(u plan.Unit, n int) string {
@@ -100,7 +101,8 @@ func (l *Loop) noteAttempt(attempts *[]rescueAttempt, agent Agent, given, stem, 
 // runRescue holds one rescue session to its report and marker, and says what
 // the run does next.
 func (l *Loop) runRescue(ctx context.Context, p *plan.Plan, u plan.Unit, c rescueCase) (rescueResult, error) {
-	agent := *l.opts.Rescue
+	agent := *l.rescue()
+	c.agent = agent
 	reportPath := l.rescueReportPath(u, c.number)
 	shown, _ := filepath.Rel(l.root, reportPath)
 
@@ -233,7 +235,7 @@ func (l *Loop) recordRescue(u plan.Unit, c rescueCase, verdict, reason, report s
 	l.progress.Rescues = append(l.progress.Rescues, state.Rescue{
 		Trigger: c.trigger,
 		Verdict: verdict,
-		Agent:   l.opts.Rescue.Label(),
+		Agent:   c.agent.Label(),
 		Reason:  reason,
 		Report:  report,
 		Date:    l.opts.Now().Format(time.RFC3339),

@@ -61,10 +61,13 @@ type Review struct {
 	TriageBudget *float64 `toml:"triage_budget"`
 }
 
-// Automation is what a run does without the author: follow-up for now, and
-// the rescue later.
+// Automation is what a run does without the author: follow-up, and the agent
+// that steps in where the run would stop on a unit.
 type Automation struct {
-	FollowUp *bool `toml:"follow_up"`
+	FollowUp     *bool  `toml:"follow_up"`
+	Rescue       string `toml:"rescue"`
+	RescueModel  string `toml:"rescue_model"`
+	RescueEffort string `toml:"rescue_effort"`
 }
 
 type Agent struct {
@@ -162,7 +165,10 @@ func (c Config) Validate(harnesses harness.Set) error {
 	if err := validateRun(c.Run, harnesses); err != nil {
 		return err
 	}
-	return validateReview(c.Review, harnesses)
+	if err := validateReview(c.Review, harnesses); err != nil {
+		return err
+	}
+	return validateAutomation(c.Automation, harnesses)
 }
 
 func validateRun(r Run, harnesses harness.Set) error {
@@ -220,6 +226,22 @@ func validateReview(r Review, harnesses harness.Set) error {
 	}
 	if r.TriageBudget != nil && *r.TriageBudget < 0 {
 		return fmt.Errorf("[review] triage_budget must not be negative")
+	}
+	return nil
+}
+
+func validateAutomation(a Automation, harnesses harness.Set) error {
+	if a.Rescue == "" || a.Rescue == "none" {
+		return nil
+	}
+	h := harnesses.Get(a.Rescue)
+	if h == nil {
+		return fmt.Errorf("[automation] rescue must be one of %s or none, not %s",
+			strings.Join(harnesses.Names(), ", "), a.Rescue)
+	}
+	if a.RescueEffort != "" && !contains(h.Efforts(), a.RescueEffort) {
+		return fmt.Errorf("[automation] rescue_effort for %s must be one of %s, not %s",
+			h.Name(), strings.Join(h.Efforts(), ", "), a.RescueEffort)
 	}
 	return nil
 }

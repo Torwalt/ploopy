@@ -374,3 +374,23 @@ func TestARescueIsMarkedInStatsAndHistoryAndLeftOutOfEstimates(t *testing.T) {
 		t.Fatalf("the estimate counted rescue sessions: %+v", e)
 	}
 }
+
+func TestSteeringTurnsTheRescueOffAtTheNextStopPoint(t *testing.T) {
+	f := setup(t, twoUnits)
+	f.opts.Retries = 0
+	other := rescuer(t, f)
+	s := newSteering(Steer{Rescue: &Agent{Harness: other, Model: "rescue-model", Effort: "high"}})
+	f.opts.Steering = s
+	f.h.Steps = append(f.h.Steps, fake.Step{Do: func(string) error {
+		s.set(func(now *Steer) { now.Rescue = nil })
+		return nil
+	}, Outcome: done()})
+
+	result := f.run()
+	if result.Status != "failed" || !strings.Contains(result.Message, "failed after 1 attempt") {
+		t.Fatalf("run %+v", result)
+	}
+	if other.Started() != 0 {
+		t.Fatalf("%d rescues ran after the rescue was turned off", other.Started())
+	}
+}
