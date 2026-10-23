@@ -120,6 +120,30 @@
         "reasoning": 6936,
         "cache_read": 1245056
       }
+    },
+    "2.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T14:52:43+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "c7d846245f0430e11efab837b86d0059350a9f90",
+      "commits": [
+        "922bc47f4ff4871601e7a2e10ee7247bcc45d1b6 Say whether the chain runs the fix plan next"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 2.2\n\n## What landed\n\n`922bc47` — the run no longer tells the author to start a fix plan it is about\nto start, and a chained fix plan no longer advertises a follow-up.\n\n- `runOnce` registers `FollowUp: nil` in the live settings for a plan where\n  `review.IsFix(p.Path)`, so `ploopy status`/`ploopy adjust` during a chained\n  fix plan cannot say \"then review and fix\". The start line still uses\n  `followUpSuffix`, which already said nothing for a fix plan.\n- `reviewOutcome` takes a `runsNext` bool. `runOnce` decides it with the same\n  `chainedFixPlan` the chain uses, so a finished review under `--follow-up`\n  says \"the fix plan is X: running it next\" and a review that ends keeps\n  \"run it with `ploopy run --plan X`\".\n\nTests in `cmd/ploopy/review_chain_test.go`: one reads `control.List` while the\nfirst fix-plan session runs and rejects \"review and fix\" in `Wanted.Describe`;\none captures the run's stdout with and without follow-up and checks which\nsentence reviewOutcome printed. Both were confirmed to fail at `c7d8462` (the\nfix-plan status there says \"no end action · then review and fix\") and pass here.\n\n## Landmark drift\n\nNone. `announce`, `reviewOutcome` and `chainedFixPlan` are where the order\nplaced them.\n\n## Deviations from the work order\n\n- The `runsNext` decision reuses `chainedFixPlan` with a temporary `planRun`\n  built from what `runOnce` already knows, rather than duplicating\n  `followsUp`'s conditions. That keeps the message and the actual chain\n  decision from drifting apart.\n- `limited` is now computed once, before the announce, and reused by the start\n  line and the returned `planRun`.\n\n## What the next session must know\n\n- `reviewOutcome(root, p, runsNext)` is called only from `runOnce`. A future\n  caller that prints the manual line must pass `false`.\n- `runOnce` now sets `FollowUp` nil for fix plans in the announced settings\n  only; `pick.followUp` itself is unchanged, and `followUpSuffix` still reads\n  it. `chainedPlan` still guards fix plans with `review.IsFix` even though\n  `followsUp` is now false for them.\n- An author can still `ploopy adjust --follow-up` during a fix plan: the\n  setting will be laid over the nil base and `Describe` would then show\n  \"then review and fix\". No chain results, because `chainedPlan` refuses a fix\n  plan anyway. This is outside 2.2's stated contract but worth knowing if a\n  later unit tightens the adjust board.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e9730e888ffeU8bVi6q49Ns7Jq",
+      "cost_usd": 0.037522962,
+      "harness": "opencode",
+      "elapsed_s": 200,
+      "session_s": 183,
+      "test_s": 17,
+      "tokens": {
+        "input": 140331,
+        "output": 7229,
+        "reasoning": 9799,
+        "cache_read": 2085504
+      }
     }
   }
 }
