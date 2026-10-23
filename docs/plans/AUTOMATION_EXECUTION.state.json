@@ -146,6 +146,29 @@
         "reasoning": 19158,
         "cache_read": 10707200
       }
+    },
+    "4.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T12:56:22+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "2eee6f87ead564a230dd400b8ebfdfd0a9920ef5",
+      "commits": [
+        "2415b4269182b28e0a41ea762103ea124572a5c3 Document the automation settings and rescue"
+      ],
+      "attempts": 1,
+      "handover": "# Handover 4.1 — Skills and README\n\n**What landed**\n\n- `2415b42` Documents the automation pass. The `ploopy` skill gains\n  *Automation* (follow-up, rescue triggers, `RETRY`/`DECIDED`/`BLOCKED`, what\n  a decided rescue means for the author, and its records) and *Repository\n  settings* with a full `[run]`, `[review]`, `[automation]` example.\n- The skill's start section now says a detached run needs `--plan` alone once\n  `[run]` names an agent and effort.\n- README gains an *Automation* feature block, the `[automation]` settings\n  table, the same detached-run fact, and `unit-rescue` in the shipped-skills\n  list.\n- `AGENTS.md` now names the read-only rescue in `internal/loop` and\n  `unit-rescue` under `skills/`.\n\n**Landmark drift**\n\n- None. All start-from paths exist as written.\n\n**Deviations from the work order**\n\n- Removed the older follow-up bullets from the skill's *Reviewing, closing,\n  landing* and the README's *Review* section, replacing them with short\n  references, so the new *Automation* sections are the single copy.\n- Also updated the `ploopy` skill's description to mention settings and\n  automation, since it is the trigger text an agent sees first.\n\n**What the next session must know**\n\n- `rg -n -- '--then' README.md skills` yields exactly two hits, both naming it\n  the deprecated alias of `--follow-up` (README *Automation*, skill\n  *Automation*).\n- `[automation]` is documented with `follow_up`, `rescue`, `rescue_model`,\n  `rescue_effort`; both examples include it beside `[run]` and `[review]`.\n- Verification run: `go build -o /dev/null ./...`, `go vet ./...`,\n  `gofmt -l .` (empty) and `go test ./...` — all green. No Go code changed\n  (unit is `Test: no`).\n\n**Open problems**\n\n- None.",
+      "session_id": "ses_e979a7d73ffekTb2jUUxdj1vRZ",
+      "cost_usd": 0.027805793999999998,
+      "harness": "opencode",
+      "elapsed_s": 139,
+      "session_s": 138,
+      "tokens": {
+        "input": 126199,
+        "output": 5639,
+        "reasoning": 4344,
+        "cache_read": 962048
+      }
     }
   }
 }
