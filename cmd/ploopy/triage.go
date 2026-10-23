@@ -21,16 +21,50 @@ var defaultTriage = review.Triage{Agent: "claude", Model: "opus", Effort: "high"
 var budgetChoices = []string{"0", "1", "2", "5", "10", "20"}
 
 // chooseTriage settles who weighs the findings. Flags win; then the review's
-// own triage when it is written already, else the last review's choice, else
-// the default. The board shows the result and lets the author change it.
+// own triage when it is written already, else the file's, the last review's
+// choice, else the default. The board shows the result and lets the author
+// change it.
 func chooseTriage(ctx context.Context, cmd *cobra.Command, e *env, f *reviewFlags, current *review.Triage) (review.Triage, error) {
+	t, _, err := chooseTriageWithSources(ctx, cmd, e, f, current)
+	return t, err
+}
+
+// chooseTriageWithSources also says which values came from .ploopy.toml, so
+// the board can show them as prefilled rather than locked.
+func chooseTriageWithSources(ctx context.Context, cmd *cobra.Command, e *env, f *reviewFlags, current *review.Triage) (review.Triage, map[string]string, error) {
 	t := defaultTriage
+	sources := map[string]string{}
 	switch {
 	case current != nil:
 		t = *current
 	default:
 		if last := loadLastTriage(ctx, e.root); last != nil && e.harnesses.Get(last.Agent) != nil {
 			t = *last
+		}
+		if file := e.cfg.Review; file.TriageAgent != "" || file.TriageModel != "" ||
+			file.TriageEffort != "" || file.TriageBudget != nil {
+			if file.TriageAgent != "" {
+				if file.TriageAgent != t.Agent {
+					h := e.harnesses.Get(file.TriageAgent)
+					t = review.Triage{Agent: file.TriageAgent, Budget: t.Budget}
+					if h != nil {
+						t.Model, t.Effort = h.Models()[0], preferredEffort(h)
+					}
+				}
+				sources["agent"] = "from .ploopy.toml"
+			}
+			if file.TriageModel != "" {
+				t.Model = file.TriageModel
+				sources["model"] = "from .ploopy.toml"
+			}
+			if file.TriageEffort != "" {
+				t.Effort = file.TriageEffort
+				sources["effort"] = "from .ploopy.toml"
+			}
+			if file.TriageBudget != nil {
+				t.Budget = *file.TriageBudget
+				sources["budget"] = "from .ploopy.toml"
+			}
 		}
 	}
 
@@ -39,6 +73,12 @@ func chooseTriage(ctx context.Context, cmd *cobra.Command, e *env, f *reviewFlag
 		t = review.Triage{Agent: f.triageAgent, Budget: t.Budget}
 		if h := e.harnesses.Get(f.triageAgent); h != nil {
 			t.Model, t.Effort = h.Models()[0], preferredEffort(h)
+		}
+		if !given["model"] {
+			delete(sources, "model")
+		}
+		if !given["effort"] {
+			delete(sources, "effort")
 		}
 	}
 	if given["model"] {
@@ -50,11 +90,16 @@ func chooseTriage(ctx context.Context, cmd *cobra.Command, e *env, f *reviewFlag
 	if given["budget"] {
 		t.Budget = f.triageBudget
 	}
+	for key, answered := range given {
+		if answered {
+			delete(sources, key)
+		}
+	}
 	if err := validateTriage(e, t); err != nil {
-		return t, err
+		return t, sources, err
 	}
 	saveLastTriage(ctx, e.root, t)
-	return t, nil
+	return t, sources, nil
 }
 
 // triageGivens is which triage settings the flags answered.

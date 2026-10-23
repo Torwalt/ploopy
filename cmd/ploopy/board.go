@@ -52,13 +52,14 @@ type settingsBoard struct {
 // triageDraft is the Triage column of a review's board. It stays editable
 // until the triage has run, then the whole column is locked.
 type triageDraft struct {
-	agent  string
-	model  string
-	effort string
-	budget string
-	given  map[string]bool
-	locked string
-	last   string
+	agent   string
+	model   string
+	effort  string
+	budget  string
+	given   map[string]bool
+	sources map[string]string
+	locked  string
+	last    string
 }
 
 // triageRanLock and triageLiveLock are why a review's triage cannot change.
@@ -75,6 +76,13 @@ func (d *triageDraft) lock(key string) string {
 		return "from a flag"
 	}
 	return ""
+}
+
+func (d *triageDraft) source(key string) string {
+	if d.sources == nil {
+		return ""
+	}
+	return d.sources[key]
 }
 
 // leaseDraft is one subscription's lease and what it runs as on the board.
@@ -181,12 +189,12 @@ func newAdjustBoard(ctx context.Context, e *env, live control.Live) *settingsBoa
 
 // newReviewBoard is the run's board with the review's Triage column before
 // the Run column.
-func newReviewBoard(ctx context.Context, e *env, p *plan.Plan, g given, s *runSettings, branch string, open int, t review.Triage, givens map[string]bool, locked string) *settingsBoard {
+func newReviewBoard(ctx context.Context, e *env, p *plan.Plan, g given, s *runSettings, branch string, open int, t review.Triage, givens map[string]bool, sources map[string]string, locked string) *settingsBoard {
 	sb := newSettingsBoard(ctx, e, p, g, s, branch, open)
 	sb.triage = &triageDraft{
 		agent: t.Agent, model: t.Model, effort: t.Effort,
 		budget: strconv.FormatFloat(t.Budget, 'f', -1, 64),
-		given:  givens, locked: locked, last: t.Agent,
+		given:  givens, sources: sources, locked: locked, last: t.Agent,
 	}
 	sb.normalize()
 	sb.rebuild()
@@ -284,16 +292,16 @@ func (sb *settingsBoard) triageColumn() ui.Column {
 	return ui.Column{Title: "Triage", Fields: []ui.BoardField{
 		{Key: 'a', Label: "agent", Value: &d.agent, Choices: func() []ui.Choice {
 			return labelled(sb.env.harnesses.Names())
-		}, Locked: d.lock("agent")},
+		}, Locked: d.lock("agent"), Source: d.source("agent")},
 		{Key: 'm', Label: "model", Value: &d.model, Choices: func() []ui.Choice {
 			return labelled(triageModelChoices(sb.env, d.agent, d.model))
-		}, Locked: d.lock("model")},
+		}, Locked: d.lock("model"), Source: d.source("model")},
 		{Key: 'e', Label: "effort", Value: &d.effort, Choices: func() []ui.Choice {
 			return labelled(effortChoices(sb.env.harnesses.Get(d.agent), d.effort))
-		}, Locked: d.lock("effort")},
+		}, Locked: d.lock("effort"), Source: d.source("effort")},
 		{Key: 'b', Label: "cap", Value: &d.budget, Choices: func() []ui.Choice {
 			return budgetOptions(d.budget)
-		}, Locked: d.lock("budget")},
+		}, Locked: d.lock("budget"), Source: d.source("budget")},
 	}}
 }
 
@@ -311,20 +319,20 @@ func (sb *settingsBoard) bedrockColumn() ui.Column {
 	fields := []ui.BoardField{
 		{Key: 'a', Label: "agent", Value: &s.Harness, Choices: func() []ui.Choice {
 			return labelled(sb.env.harnesses.Names())
-		}, Locked: sb.given.why("harness")},
+		}, Locked: sb.given.why("harness"), Source: sb.given.prefilled("harness")},
 		{Key: 'm', Label: "model", Value: &s.Model, Choices: func() []ui.Choice {
 			return labelled(modelChoices(h, s.Model))
-		}, Locked: sb.given.why("model")},
+		}, Locked: sb.given.why("model"), Source: sb.given.prefilled("model")},
 		{Key: 'e', Label: "effort", Value: &s.Effort, Choices: func() []ui.Choice {
 			return labelled(effortChoices(h, s.Effort))
-		}, Locked: sb.given.why("effort")},
+		}, Locked: sb.given.why("effort"), Source: sb.given.prefilled("effort")},
 		{Key: 'l', Label: "limit", Value: &sb.secondary, Choices: func() []ui.Choice {
 			return secondaryChoices(sb.env.harnesses, s.Harness)
-		}, Locked: sb.given.why("secondary")},
+		}, Locked: sb.given.why("secondary"), Source: sb.given.prefilled("secondary")},
 	}
 	if peaked := peakedHarness(sb.env.harnesses); peaked != nil {
 		fields = append(fields, ui.BoardField{Key: 'o', Label: "peak", Value: &s.Peak,
-			Choices: func() []ui.Choice { return peakChoices }, Locked: sb.given.why("peak")})
+			Choices: func() []ui.Choice { return peakChoices }, Locked: sb.given.why("peak"), Source: sb.given.prefilled("peak")})
 	}
 	column := ui.Column{Title: "Bedrock", Fields: fields}
 	if fallback := harness.FallbackModel(h, s.Model); fallback != "" {
@@ -367,17 +375,17 @@ func (sb *settingsBoard) runColumn() ui.Column {
 	fields := []ui.BoardField{
 		{Key: 's', Label: "subs", Value: &s.Subscriptions, Choices: func() []ui.Choice {
 			return subscriptionChoices(sb.env.harnesses, s.Harness)
-		}, Locked: sb.given.why("subscriptions")},
+		}, Locked: sb.given.why("subscriptions"), Source: sb.given.prefilled("subscriptions")},
 		{Key: 'w', Label: "week", Value: &sb.spend, Choices: func() []ui.Choice {
 			return spendChoices
-		}, Locked: sb.given.why("spendAll")},
+		}, Locked: sb.given.why("spendAll"), Source: sb.given.prefilled("spendAll")},
 	}
 	if sb.canPush {
 		fields = append(fields, ui.BoardField{Key: 'p', Label: "push", Value: &sb.push,
-			Choices: func() []ui.Choice { return yesNoChoices(true) }, Locked: sb.given.why("push")})
+			Choices: func() []ui.Choice { return yesNoChoices(true) }, Locked: sb.given.why("push"), Source: sb.given.prefilled("push")})
 	}
 	fields = append(fields, ui.BoardField{Key: 'f', Label: "end", Value: &s.Finish,
-		Choices: func() []ui.Choice { return ui.Finishes }, Locked: sb.given.why("finish")})
+		Choices: func() []ui.Choice { return ui.Finishes }, Locked: sb.given.why("finish"), Source: sb.given.prefilled("finish")})
 	if sb.triage != nil || (sb.adjust && sb.plan.Reviews() != "") {
 		fields = append(fields, ui.BoardField{Key: 'n', Label: "then", Value: &sb.then,
 			Choices: func() []ui.Choice { return thenChoices }, Locked: sb.given.why("then")})

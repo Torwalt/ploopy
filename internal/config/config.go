@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/Torwalt/ploopy/internal/harness"
 )
 
 // File is the settings file's name.
@@ -28,8 +30,34 @@ type Config struct {
 	StateCommit string           `toml:"state_commit"`     // message template for the progress commit
 	CloseCommit string           `toml:"close_commit"`     // message template for the commit that closes a plan
 	Push        bool             `toml:"push"`             // push the branch when a run ends
+	PushSet     bool             `toml:"-"`                // push was written in the file, at either level
 	Launch      string           `toml:"launch"`           // where a run goes: here, or tmux for a window of its own
 	Agents      map[string]Agent `toml:"agents"`           // picker choices and usage-limit routes
+	Run         Run              `toml:"run"`              // how a run starts
+	Review      Review           `toml:"review"`           // who weighs a review's findings
+}
+
+// Run mirrors the flags that start a run.
+type Run struct {
+	Agent           string `toml:"agent"`
+	Model           string `toml:"model"`
+	Effort          string `toml:"effort"`
+	Secondary       string `toml:"secondary"`
+	SecondaryModel  string `toml:"secondary_model"`
+	SecondaryEffort string `toml:"secondary_effort"`
+	Peak            string `toml:"peak"`
+	Subscriptions   string `toml:"subscriptions"`
+	SpendAll        *bool  `toml:"spend_all"`
+	Push            *bool  `toml:"push"`
+	Finish          string `toml:"finish"`
+}
+
+// Review mirrors the flags that choose a review's triage.
+type Review struct {
+	TriageAgent  string   `toml:"triage_agent"`
+	TriageModel  string   `toml:"triage_model"`
+	TriageEffort string   `toml:"triage_effort"`
+	TriageBudget *float64 `toml:"triage_budget"`
 }
 
 type Agent struct {
@@ -64,6 +92,13 @@ func Load(root string) (Config, error) {
 	meta, err := toml.Decode(string(raw), &cfg)
 	if err != nil {
 		return cfg, fmt.Errorf("%s is not valid TOML: %w", path, err)
+	}
+	if meta.IsDefined("push") {
+		cfg.PushSet = true
+	}
+	if cfg.Run.Push != nil {
+		cfg.Push = *cfg.Run.Push
+		cfg.PushSet = true
 	}
 	if undecoded := meta.Undecoded(); len(undecoded) > 0 {
 		var unknown []string
@@ -112,6 +147,114 @@ func Load(root string) (Config, error) {
 		cfg.StateCommit = Default().StateCommit
 	}
 	return cfg, nil
+}
+
+// Validate checks the new tables against the harnesses this build can drive.
+// It runs after Load so that a repository's own agents preferences are known.
+func (c Config) Validate(harnesses harness.Set) error {
+	if err := validateRun(c.Run, harnesses); err != nil {
+		return err
+	}
+	return validateReview(c.Review, harnesses)
+}
+
+func validateRun(r Run, harnesses harness.Set) error {
+	if r.Agent != "" {
+		h := harnesses.Get(r.Agent)
+		if h == nil {
+			return fmt.Errorf("[run] agent must be one of %s, not %s",
+				strings.Join(harnesses.Names(), ", "), r.Agent)
+		}
+		if r.Effort != "" && !contains(h.Efforts(), r.Effort) {
+			return fmt.Errorf("[run] effort for %s must be one of %s, not %s",
+				h.Name(), strings.Join(h.Efforts(), ", "), r.Effort)
+		}
+	}
+	switch r.Peak {
+	case "", "wait", "run":
+	default:
+		return fmt.Errorf("[run] peak must be wait or run, not %s", r.Peak)
+	}
+	switch r.Finish {
+	case "", "none", "suspend", "poweroff":
+	default:
+		return fmt.Errorf("[run] finish must be none, suspend or poweroff, not %s", r.Finish)
+	}
+	if r.Subscriptions != "" {
+		if _, err := NormalizeSubscriptions(harnesses, r.Subscriptions); err != nil {
+			return fmt.Errorf("[run] subscriptions: %w", err)
+		}
+	}
+	if r.Secondary != "" && r.Secondary != "none" {
+		h := harnesses.Get(r.Secondary)
+		if h == nil {
+			return fmt.Errorf("[run] secondary must be one of %s or none, not %s",
+				strings.Join(harnesses.Names(), ", "), r.Secondary)
+		}
+		if r.SecondaryEffort != "" && !contains(h.Efforts(), r.SecondaryEffort) {
+			return fmt.Errorf("[run] secondary_effort for %s must be one of %s, not %s",
+				h.Name(), strings.Join(h.Efforts(), ", "), r.SecondaryEffort)
+		}
+	}
+	return nil
+}
+
+func validateReview(r Review, harnesses harness.Set) error {
+	if r.TriageAgent != "" {
+		h := harnesses.Get(r.TriageAgent)
+		if h == nil {
+			return fmt.Errorf("[review] triage_agent must be one of %s, not %s",
+				strings.Join(harnesses.Names(), ", "), r.TriageAgent)
+		}
+		if r.TriageEffort != "" && !contains(h.Efforts(), r.TriageEffort) {
+			return fmt.Errorf("[review] triage_effort for %s must be one of %s, not %s",
+				h.Name(), strings.Join(h.Efforts(), ", "), r.TriageEffort)
+		}
+	}
+	if r.TriageBudget != nil && *r.TriageBudget < 0 {
+		return fmt.Errorf("[review] triage_budget must not be negative")
+	}
+	return nil
+}
+
+func contains(values []string, value string) bool {
+	for _, candidate := range values {
+		if candidate == value {
+			return true
+		}
+	}
+	return false
+}
+
+// NormalizeSubscriptions normalizes a subscription set. Empty means all;
+// names may be separated by commas or spaces. A named harness must have a
+// subscription.
+func NormalizeSubscriptions(harnesses harness.Set, value string) (string, error) {
+	value = strings.TrimSpace(strings.ReplaceAll(value, ",", " "))
+	switch value {
+	case "", "all":
+		return "all", nil
+	case "none":
+		return "none", nil
+	}
+	seen := map[string]bool{}
+	var names []string
+	for _, name := range strings.Fields(value) {
+		if seen[name] {
+			continue
+		}
+		h := harnesses.Get(name)
+		if h == nil {
+			return "", fmt.Errorf("%s is not a harness; use all, none, or %s",
+				name, strings.Join(harnesses.Names(), ", "))
+		}
+		if _, metered := h.(harness.Metered); !metered {
+			return "", fmt.Errorf("%s has no subscription to lend", name)
+		}
+		seen[name] = true
+		names = append(names, name)
+	}
+	return strings.Join(names, " "), nil
 }
 
 // Where a run goes: the terminal it was started in, or a tmux window of its

@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Torwalt/ploopy/internal/config"
 	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/loop"
@@ -39,6 +40,7 @@ type given struct {
 	harness, model, effort, secondary, peak, subscriptions, spendAll, push, finish bool
 	then                                                                           bool
 	sources                                                                        map[string]string
+	prefills                                                                       map[string]string
 }
 
 // why is where a given setting came from, for the board's locked field.
@@ -54,6 +56,22 @@ func (g *given) from(key, source string) {
 		g.sources = map[string]string{}
 	}
 	g.sources[key] = source
+}
+
+// fromFile prefills a setting from .ploopy.toml without locking it.
+func (g *given) fromFile(key string) {
+	if g.prefills == nil {
+		g.prefills = map[string]string{}
+	}
+	g.prefills[key] = "from .ploopy.toml"
+}
+
+// prefilled is where a file value came from, for the board's editable field.
+func (g given) prefilled(key string) string {
+	if g.prefills == nil {
+		return ""
+	}
+	return g.prefills[key]
 }
 
 // chosenRun is the settings, resolved.
@@ -108,6 +126,10 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 			g.from("harness", "from the plan")
 		}
 	}
+	if s.Harness == "" && e.cfg.Run.Agent != "" {
+		s.Harness = e.cfg.Run.Agent
+		g.fromFile("harness")
+	}
 	if s.Harness != "" && e.harnesses.Get(s.Harness) == nil {
 		return s, g, fmt.Errorf("--agent must be one of %s, not %s",
 			strings.Join(e.harnesses.Names(), ", "), s.Harness)
@@ -119,12 +141,18 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 	} else if fromPlan && p.Settings["model"] != "" {
 		s.Model = p.Settings["model"]
 		g.from("model", "from the plan")
+	} else if e.cfg.Run.Model != "" {
+		s.Model = e.cfg.Run.Model
+		g.fromFile("model")
 	}
 	if s.Effort != "" {
 		g.from("effort", "from a flag")
 	} else if fromPlan && p.Settings["effort"] != "" {
 		s.Effort = p.Settings["effort"]
 		g.from("effort", "from the plan")
+	} else if e.cfg.Run.Effort != "" {
+		s.Effort = e.cfg.Run.Effort
+		g.fromFile("effort")
 	}
 	g.harness, g.model, g.effort = s.Harness != "", s.Model != "", s.Effort != ""
 
@@ -138,6 +166,16 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 			}
 			s.Secondary = toControlAgent(agent)
 		}
+	} else if e.cfg.Run.Secondary != "" {
+		g.fromFile("secondary")
+		if e.cfg.Run.Secondary != "none" {
+			agent, err := resolveAgent(e.harnesses, "[run] secondary", e.cfg.Run.Secondary,
+				e.cfg.Run.SecondaryModel, e.cfg.Run.SecondaryEffort, s.Effort)
+			if err != nil {
+				return s, g, err
+			}
+			s.Secondary = toControlAgent(agent)
+		}
 	}
 	if f.peak != "" {
 		if f.peak != "wait" && f.peak != "run" {
@@ -145,6 +183,12 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		}
 		s.Peak, g.peak = f.peak, true
 		g.from("peak", "from a flag")
+	} else if e.cfg.Run.Peak != "" {
+		if e.cfg.Run.Peak != "wait" && e.cfg.Run.Peak != "run" {
+			return s, g, fmt.Errorf("[run] peak must be wait or run, not %s", e.cfg.Run.Peak)
+		}
+		s.Peak = e.cfg.Run.Peak
+		g.fromFile("peak")
 	}
 	if cmd.Flags().Changed("subscriptions") {
 		set, err := subscriptionSet(e.harnesses, f.subscriptions)
@@ -160,16 +204,28 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		}
 		s.Subscriptions, g.subscriptions = set, true
 		g.from("subscriptions", "from the plan")
+	} else if e.cfg.Run.Subscriptions != "" {
+		set, err := subscriptionSet(e.harnesses, e.cfg.Run.Subscriptions)
+		if err != nil {
+			return s, g, fmt.Errorf("[run] subscriptions: %w", err)
+		}
+		s.Subscriptions = set
+		g.fromFile("subscriptions")
 	}
 	s.SpendAll = f.spendAll
 	if cmd.Flags().Changed("spend-all") {
 		g.spendAll = true
 		g.from("spendAll", "from a flag")
+	} else if e.cfg.Run.SpendAll != nil {
+		s.SpendAll = *e.cfg.Run.SpendAll
+		g.fromFile("spendAll")
 	}
 	s.Push = e.cfg.Push
 	if cmd.Flags().Changed("push") {
 		s.Push, g.push = f.push, true
 		g.from("push", "from a flag")
+	} else if e.cfg.PushSet {
+		g.fromFile("push")
 	}
 	if f.finish != "" {
 		if !ui.Finish(f.finish).Valid() {
@@ -177,6 +233,12 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		}
 		s.Finish, g.finish = f.finish, true
 		g.from("finish", "from a flag")
+	} else if e.cfg.Run.Finish != "" {
+		if !ui.Finish(e.cfg.Run.Finish).Valid() {
+			return s, g, fmt.Errorf("[run] finish must be none, suspend or poweroff, not %s", e.cfg.Run.Finish)
+		}
+		s.Finish = e.cfg.Run.Finish
+		g.fromFile("finish")
 	}
 	if f.then != "" {
 		if !validThen(f.then) {
@@ -184,6 +246,12 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		}
 		s.Then, g.then = f.then, true
 		g.from("then", "from a flag")
+	}
+	if g.prefilled("effort") != "" {
+		if h := e.harnesses.Get(s.Harness); h != nil && !contains(h.Efforts(), s.Effort) {
+			return s, g, fmt.Errorf("[run] effort for %s must be one of %s, not %s",
+				h.Name(), strings.Join(h.Efforts(), ", "), s.Effort)
+		}
 	}
 	return s, g, nil
 }
@@ -221,7 +289,7 @@ func unattended(e *env, s runSettings) (chosenRun, error) {
 // fill prefills what the author did not give: from the last run where it still
 // applies, else from the defaults.
 func fill(e *env, s *runSettings, g given, last *runSettings) {
-	if !g.harness {
+	if !g.harness && g.prefilled("harness") == "" {
 		s.Harness = e.harnesses[0].Name()
 		if last != nil && e.harnesses.Get(last.Harness) != nil {
 			s.Harness = last.Harness
@@ -229,28 +297,28 @@ func fill(e *env, s *runSettings, g given, last *runSettings) {
 	}
 	h := e.harnesses.Get(s.Harness)
 	same := last != nil && last.Harness == s.Harness
-	if !g.model {
+	if !g.model && g.prefilled("model") == "" {
 		s.Model = h.Models()[0]
 		if same && contains(h.Models(), last.Model) {
 			s.Model = last.Model
 		}
 	}
-	if !g.effort {
+	if !g.effort && g.prefilled("effort") == "" {
 		s.Effort = preferredEffort(h)
 		if same && contains(harness.EffortChoices(h), last.Effort) {
 			s.Effort = last.Effort
 		}
 	}
-	if !g.secondary && last != nil && validSecondary(e.harnesses, last.Secondary, s.Harness) {
+	if !g.secondary && g.prefilled("secondary") == "" && last != nil && validSecondary(e.harnesses, last.Secondary, s.Harness) {
 		s.Secondary = last.Secondary
 	}
-	if !g.peak {
+	if !g.peak && g.prefilled("peak") == "" {
 		s.Peak = "wait"
 		if last != nil && last.Peak != "" {
 			s.Peak = last.Peak
 		}
 	}
-	if !g.subscriptions {
+	if !g.subscriptions && g.prefilled("subscriptions") == "" {
 		s.Subscriptions = "all"
 		if last != nil {
 			if set, err := subscriptionSet(e.harnesses, last.Subscriptions); err == nil {
@@ -258,13 +326,13 @@ func fill(e *env, s *runSettings, g given, last *runSettings) {
 			}
 		}
 	}
-	if !g.spendAll && last != nil {
+	if !g.spendAll && g.prefilled("spendAll") == "" && last != nil {
 		s.SpendAll = last.SpendAll
 	}
-	if !g.push && last != nil {
+	if !g.push && g.prefilled("push") == "" && last != nil {
 		s.Push = last.Push
 	}
-	if !g.finish {
+	if !g.finish && g.prefilled("finish") == "" {
 		s.Finish = string(ui.FinishNone)
 		if last != nil && ui.Finish(last.Finish).Valid() {
 			s.Finish = last.Finish
@@ -306,31 +374,7 @@ func spendLabel(spendAll bool) string {
 // subscriptionSet normalizes a subscription set. Empty means all; names may be
 // separated by commas or spaces. A named harness must have a subscription.
 func subscriptionSet(harnesses harness.Set, value string) (string, error) {
-	value = strings.TrimSpace(strings.ReplaceAll(value, ",", " "))
-	switch value {
-	case "", "all":
-		return "all", nil
-	case "none":
-		return "none", nil
-	}
-	seen := map[string]bool{}
-	var names []string
-	for _, name := range strings.Fields(value) {
-		if seen[name] {
-			continue
-		}
-		h := harnesses.Get(name)
-		if h == nil {
-			return "", fmt.Errorf("%s is not a harness; use all, none, or %s",
-				name, strings.Join(harnesses.Names(), ", "))
-		}
-		if _, metered := h.(harness.Metered); !metered {
-			return "", fmt.Errorf("%s has no subscription to lend", name)
-		}
-		seen[name] = true
-		names = append(names, name)
-	}
-	return strings.Join(names, " "), nil
+	return config.NormalizeSubscriptions(harnesses, value)
 }
 
 // subscriptionChoices offers every set the page can choose: all lent, one

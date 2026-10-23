@@ -105,7 +105,7 @@ func TestAWrittenReviewsTriageChangesUntilItRuns(t *testing.T) {
 
 	cmd, f := triageCommand(t)
 	cmd.SetContext(context.Background())
-	chosen, _, ran, err := reviewTriage(context.Background(), cmd, e, f, p, pending)
+	chosen, _, _, ran, err := reviewTriage(context.Background(), cmd, e, f, p, pending)
 	if err != nil {
 		t.Fatal(err)
 	}

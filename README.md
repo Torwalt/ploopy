@@ -150,6 +150,40 @@ the default routes; `fallbacks = {}` under `[agents.opencode]` disables the
 automatic API fallback. Routes have one fallback, with no chains or cycles.
 Existing leases keep the model and effort they were lent with.
 
+## Settings
+
+`.ploopy.toml` at the repository root configures a repository once. Every key
+is optional and unknown keys are refused. A value from the file prefills the
+board and can still be changed there; only flags and a plan's front matter lock
+a field. A flag wins over the plan, the file, the last run and the default, in
+that order; the board says where a prefilled value came from.
+
+```toml
+[run]
+agent = "opencode"
+model = "opencode-go/deepseek-v4.1-flash"
+effort = "high"
+secondary = "claude"                     # or "none"
+secondary_model = "sonnet"
+secondary_effort = "high"
+peak = "wait"                            # wait | run
+subscriptions = "all"                    # all | none | names
+spend_all = false
+push = true
+finish = "none"                          # none | suspend | poweroff
+
+[review]
+triage_agent = "claude"
+triage_model = "opus"
+triage_effort = "high"
+triage_budget = 0.0
+```
+
+`[run] agent` and `effort` are enough for an unattended run:
+`ploopy run --plan X --detach` starts from them. `[run] push` is the documented
+push key; the old top-level `push` still works, and `[run] push` wins when both
+are given. `[review]` is the triage's agent, model, effort and spending cap.
+
 ## Try it
 
 ```sh

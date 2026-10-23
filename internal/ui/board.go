@@ -29,6 +29,7 @@ type BoardField struct {
 	Value   *string
 	Choices func() []Choice
 	Locked  string // why the field cannot change; empty when editable
+	Source  string // where an editable prefilled value came from
 }
 
 // Board is the keyboard board. Enter returns the values in column and field
@@ -490,6 +491,9 @@ func (b *Board) columnLines(index int, st boardStyles) []string {
 	lines := []string{title}
 	for i, field := range column.Fields {
 		text := fmt.Sprintf(" %c %s  %s", field.Key, field.Label, fieldLabel(field))
+		if field.Source != "" && field.Locked == "" {
+			text += " · " + field.Source
+		}
 		switch {
 		case focused && i == b.cursor[index]:
 			text = st.focusedField.Render(text)

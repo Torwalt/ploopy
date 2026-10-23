@@ -93,6 +93,7 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 	var current *review.Triage
 	var triage review.Triage
 	var givens map[string]bool
+	var sources map[string]string
 	var triageRan bool
 	if isFile(filepath.Join(root, reviewPath)) {
 		existing, err := plan.Load(filepath.Join(root, reviewPath), reviewPath)
@@ -109,7 +110,7 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 		}
 		fmt.Printf("%s is already written; running it on\n", reviewPath)
 		p = existing
-		triage, givens, triageRan, err = reviewTriage(ctx, cmd, e, f, p, s)
+		triage, givens, sources, triageRan, err = reviewTriage(ctx, cmd, e, f, p, s)
 		if err != nil {
 			return err
 		}
@@ -129,7 +130,7 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 			}
 		}
 	} else {
-		triage, givens, triageRan, err = reviewTriage(ctx, cmd, e, f, nil, nil)
+		triage, givens, sources, triageRan, err = reviewTriage(ctx, cmd, e, f, nil, nil)
 		if err != nil {
 			return err
 		}
@@ -176,7 +177,7 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 	}
 	fill(e, &settings, g, loadLast(ctx, e.root))
 	locked := triageLock(ctx, e, p, s)
-	board := newReviewBoard(ctx, e, c.Plan, g, &settings, t.branch, openUnits(c.Plan, c.State), triage, givens, locked)
+	board := newReviewBoard(ctx, e, c.Plan, g, &settings, t.branch, openUnits(c.Plan, c.State), triage, givens, sources, locked)
 	chosen, err := board.start(func() error {
 		_, err := board.board.Run()
 		return err
@@ -199,19 +200,19 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 // reviewTriage resolves the triage a review's board shows. A triage that has
 // run is shown as it is and locked; otherwise flags, the review's own triage,
 // the last one and the default decide, and the board may change it.
-func reviewTriage(ctx context.Context, cmd *cobra.Command, e *env, f *reviewFlags, p *plan.Plan, s *state.State) (review.Triage, map[string]bool, bool, error) {
+func reviewTriage(ctx context.Context, cmd *cobra.Command, e *env, f *reviewFlags, p *plan.Plan, s *state.State) (review.Triage, map[string]bool, map[string]string, bool, error) {
 	var current *review.Triage
 	if p != nil {
 		if u, cur := review.TriageOf(p); u != nil {
 			current = &cur
 			status := s.Status(u.ID)
 			if status == state.Landed || status == state.Skipped {
-				return cur, nil, true, nil
+				return cur, nil, nil, true, nil
 			}
 		}
 	}
-	t, err := chooseTriage(ctx, cmd, e, f, current)
-	return t, triageGivens(cmd), false, err
+	t, sources, err := chooseTriageWithSources(ctx, cmd, e, f, current)
+	return t, triageGivens(cmd), sources, false, err
 }
 
 // writeReview writes the review plan beside the reviewed one and commits it,

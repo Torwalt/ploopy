@@ -16,6 +16,10 @@ import (
 )
 
 func reviewBoard(t *testing.T, e *env, p *plan.Plan, tri review.Triage, givens map[string]bool, locked string) *settingsBoard {
+	return reviewBoardFrom(t, e, p, tri, givens, nil, locked)
+}
+
+func reviewBoardFrom(t *testing.T, e *env, p *plan.Plan, tri review.Triage, givens map[string]bool, sources map[string]string, locked string) *settingsBoard {
 	t.Helper()
 	cmd, f := settingsCommand(t)
 	s, g, err := givenSettings(cmd, e, p, f)
@@ -23,7 +27,7 @@ func reviewBoard(t *testing.T, e *env, p *plan.Plan, tri review.Triage, givens m
 		t.Fatal(err)
 	}
 	fill(e, &s, g, nil)
-	return newReviewBoard(context.Background(), e, p, g, &s, "pass", 3, tri, givens, locked)
+	return newReviewBoard(context.Background(), e, p, g, &s, "pass", 3, tri, givens, sources, locked)
 }
 
 func columnByTitle(t *testing.T, b *ui.Board, title string) (int, ui.Column) {
@@ -57,7 +61,7 @@ func TestANewReviewsBoardTakesItsTriageFromTheLastReview(t *testing.T) {
 	}
 
 	cmd, f = triageCommand(t)
-	tri, givens, ran, err := reviewTriage(context.Background(), cmd, e, f, nil, nil)
+	tri, givens, sources, ran, err := reviewTriage(context.Background(), cmd, e, f, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +70,7 @@ func TestANewReviewsBoardTakesItsTriageFromTheLastReview(t *testing.T) {
 	}
 
 	p := plan.Parse("---\nreviews: docs/plans/PASS.md\n---\n", "docs/plans/PASS_REVIEW.md")
-	board := reviewBoard(t, e, p, tri, givens, "")
+	board := reviewBoardFrom(t, e, p, tri, givens, sources, "")
 	at, column := columnByTitle(t, board.board, "Triage")
 	if run, _ := columnByTitle(t, board.board, "Run"); at > run {
 		t.Fatalf("the Triage column is after Run")
@@ -102,7 +106,7 @@ func TestAWrittenReviewsPendingTriageIsPrefilledAndChangesCommit(t *testing.T) {
 
 	p := plan.Parse(text, path)
 	cmd, f := triageCommand(t)
-	tri, givens, ran, err := reviewTriage(context.Background(), cmd, e, f, p, &state.State{Units: map[string]*state.Entry{}})
+	tri, givens, sources, ran, err := reviewTriage(context.Background(), cmd, e, f, p, &state.State{Units: map[string]*state.Entry{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +114,7 @@ func TestAWrittenReviewsPendingTriageIsPrefilledAndChangesCommit(t *testing.T) {
 		t.Fatalf("the pending triage is %+v, ran %v; want %+v", tri, ran, own)
 	}
 
-	board := reviewBoard(t, e, p, tri, givens, "")
+	board := reviewBoardFrom(t, e, p, tri, givens, sources, "")
 	at, column := columnByTitle(t, board.board, "Triage")
 	for _, field := range column.Fields {
 		if field.Locked != "" {
@@ -167,7 +171,7 @@ func TestAReviewWhoseTriageRanHasALockedTriageColumn(t *testing.T) {
 	ran := &state.State{Units: map[string]*state.Entry{u.ID: {Status: state.Landed}}}
 
 	cmd, f := triageCommand(t)
-	tri, givens, hasRun, err := reviewTriage(context.Background(), cmd, e, f, p, ran)
+	tri, givens, sources, hasRun, err := reviewTriage(context.Background(), cmd, e, f, p, ran)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +179,7 @@ func TestAReviewWhoseTriageRanHasALockedTriageColumn(t *testing.T) {
 		t.Fatalf("a review whose triage ran reads %+v, ran %v; want %+v", tri, hasRun, own)
 	}
 
-	board := reviewBoard(t, e, p, tri, givens, triageRanLock)
+	board := reviewBoardFrom(t, e, p, tri, givens, sources, triageRanLock)
 	_, column := columnByTitle(t, board.board, "Triage")
 	for _, field := range column.Fields {
 		if field.Locked != triageRanLock {

@@ -155,7 +155,7 @@ func newRoot(e *env) *cobra.Command {
 				return err
 			}
 			e.harnesses = allHarnesses(e.cfg)
-			return validateChoices(e.harnesses)
+			return checkConfig(e.root, e.cfg, e.harnesses)
 		},
 	}
 	root.AddCommand(
@@ -217,7 +217,19 @@ func (e *env) optionalConfig(ctx context.Context) error {
 		}
 	}
 	e.harnesses = allHarnesses(e.cfg)
-	return validateChoices(e.harnesses)
+	return checkConfig(e.root, e.cfg, e.harnesses)
+}
+
+// checkConfig reads the file's tables against the harnesses this build can
+// drive, then checks the picker choices they configure.
+func checkConfig(root string, cfg config.Config, harnesses harness.Set) error {
+	if err := cfg.Validate(harnesses); err != nil {
+		if root == "" {
+			return err
+		}
+		return fmt.Errorf("%s: %w", filepath.Join(root, config.File), err)
+	}
+	return validateChoices(harnesses)
 }
 
 // resolve finds a plan by path, by name, or by stem under the plans directory.

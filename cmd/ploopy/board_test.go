@@ -425,7 +425,7 @@ func TestChangingTheTriageAgentKeepsAGivenModel(t *testing.T) {
 	tri := review.Triage{Agent: "claude", Model: "sonnet", Effort: "high"}
 	board := newReviewBoard(context.Background(), e, p, given{}, &runSettings{
 		Harness: "claude", Model: "sonnet", Effort: "high",
-	}, "pass", 3, tri, map[string]bool{"model": true}, "")
+	}, "pass", 3, tri, map[string]bool{"model": true}, nil, "")
 
 	at, _ := columnByTitle(t, board.board, "Triage")
 	key(board.board, rune('1'+at))
