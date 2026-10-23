@@ -229,6 +229,17 @@ func chainedReview(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags,
 			r.report.Say("%s is already complete; not reviewing %s again", path, r.p.Path)
 			return nil, nil
 		}
+		rf := &reviewFlags{run: *f}
+		rf.triageFlags = f.triageFlags
+		triage, _, _, triageRan, err := reviewTriage(ctx, cmd, e, rf, existing, s)
+		if err != nil {
+			return nil, err
+		}
+		if u, current := review.TriageOf(existing); u != nil && !triageRan {
+			if _, err := changeTriage(ctx, e, r.root, existing, s, current, triage); err != nil {
+				return nil, err
+			}
+		}
 		r.report.Say("%s is already written; running it on", path)
 		return runChainedPlan(ctx, cmd, e, f, r, path)
 	}

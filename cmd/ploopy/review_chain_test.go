@@ -14,6 +14,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/harness/fake"
+	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
 )
@@ -615,5 +616,81 @@ func TestAPushHappensOnceAfterTheFixPlan(t *testing.T) {
 		if !strings.Contains(pushed, want) {
 			t.Fatalf("the push happened before %q:\n%s", want, pushed)
 		}
+	}
+}
+
+func TestTheChainAppliesTriageFlagsToALeftoverReview(t *testing.T) {
+	e, tree := chainRepo(t)
+	s, err := state.Load(filepath.Join(tree, "docs/plans/PASS.state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := review.Triage{Agent: "fake", Model: "old-model", Effort: "high"}
+	text, err := review.Generate(plan.Parse(finishedPlan, "docs/plans/PASS.md"), s, review.Options{Triage: own})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewPath := review.Path("docs/plans/PASS.md")
+	write(t, tree, reviewPath, text)
+	git(t, tree, "add", "-A")
+	git(t, tree, "commit", "-q", "-m", "plans: review PASS")
+
+	h := fake.New(findingsStep(), triageStep(t),
+		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
+	e.harnesses = harness.Set{h}
+
+	if err := runRun(t, e, runArgs("--follow-up", "--triage-agent", "fake",
+		"--triage-model", "fake-model", "--triage-effort", "high")...); err != nil {
+		t.Fatal(err)
+	}
+	if h.Started() < 2 {
+		t.Fatalf("the run started %d sessions, want the leftover review and its triage", h.Started())
+	}
+	if got := h.Specs[1].Model; got != "fake-model" {
+		t.Fatalf("the triage ran as %q, want the flag's model", got)
+	}
+	final, err := plan.Load(filepath.Join(tree, reviewPath), reviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := review.Triage{Agent: "fake", Model: "fake-model", Effort: "high"}
+	if _, got := review.TriageOf(final); got != want {
+		t.Fatalf("the review's triage is %+v, want the flag's %+v", got, want)
+	}
+}
+
+func TestTheChainLeavesATriageThatHasRunAlone(t *testing.T) {
+	e, tree := chainRepo(t)
+	s, err := state.Load(filepath.Join(tree, "docs/plans/PASS.state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := review.Triage{Agent: "fake", Model: "old-model", Effort: "high"}
+	text, err := review.Generate(plan.Parse(finishedPlan, "docs/plans/PASS.md"), s, review.Options{Triage: own})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviewPath := review.Path("docs/plans/PASS.md")
+	write(t, tree, reviewPath, text)
+	p := plan.Parse(text, reviewPath)
+	u, _ := review.TriageOf(p)
+	write(t, tree, "docs/plans/PASS_REVIEW.state.json", fmt.Sprintf(
+		`{"units":{"%s":{"status":"landed","outcome":"done","date":"2026-10-23T10:00:00Z"}}}`, u.ID))
+	git(t, tree, "add", "-A")
+	git(t, tree, "commit", "-q", "-m", "plans: review PASS")
+
+	h := fake.New(findingsStep())
+	e.harnesses = harness.Set{h}
+
+	if err := runRun(t, e, runArgs("--follow-up", "--triage-agent", "fake",
+		"--triage-model", "fake-model", "--triage-effort", "high")...); err != nil {
+		t.Fatal(err)
+	}
+	final, err := plan.Load(filepath.Join(tree, reviewPath), reviewPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, got := review.TriageOf(final); got != own {
+		t.Fatalf("the review's triage changed to %+v, want the one that ran %+v", got, own)
 	}
 }
