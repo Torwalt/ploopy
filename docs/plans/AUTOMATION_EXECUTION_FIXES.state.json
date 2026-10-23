@@ -194,6 +194,30 @@
         "reasoning": 3332,
         "cache_read": 1092864
       }
+    },
+    "3.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T15:01:18+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "fa0a4932277acd6bc7c85a2a778f482ec1c6df4f",
+      "commits": [
+        "1f066996471724cba37259c8acc777d12af12bd7 Judge a rescue only for what it changed"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 3.1\n\n## What landed\n\n`1f06699` — a rescue is now judged against the tree as it stood before the\nrescue session, not against an absolute dirty check.\n\n- `runRescue` takes `DirtLines` beside the head it already took, before the\n  session runs.\n- `judgeRescue` takes that dirt and uses `touched` to compare head and dirt\n  after the session. A rescue that only answers RETRY/DECIDED/BLOCKED over\n  dirt the unit left now passes; one that adds or changes dirt still fails.\n\n## Landmark drift\n\nNone. `runRescue`, `judgeRescue`, `touched` and the existing dirty-rescue test\nwere where the work order placed them.\n\n## Deviations from the work order\n\nNone. The judge still checks commits separately so it can list them, then uses\n`touched` for the head/dirt comparison.\n\n## What the next session must know\n\n- The new test, `TestARescueDoesNotFailForDirtTheUnitLeftBeforeIt`, leaves\n  `partial.txt` from the unit session, answers RETRY with a rescue that writes\n  only its report, and lands the unit on the next attempt. I confirmed it fails\n  when the judge compares against empty dirt (the old absolute check).\n- Rescue reports and prompts live under `.ploopy`, which `repo.excluded`\n  filters out of `DirtLines`; writing them does not count as the rescue\n  changing the tree.\n- `judgeRescue`'s `touched` call also sees a head move. A rescue committing\n  only excluded paths (e.g. `.ploopy`) would be reported as dirty even though\n  `Commits` filters it out; that was already a hole and is not widened.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e9728280fffeQinKzfbc3aIZkJ",
+      "cost_usd": 0.014231964,
+      "harness": "opencode",
+      "elapsed_s": 142,
+      "session_s": 123,
+      "test_s": 19,
+      "tokens": {
+        "input": 44302,
+        "output": 3757,
+        "reasoning": 3930,
+        "cache_read": 991488
+      }
     }
   }
 }
