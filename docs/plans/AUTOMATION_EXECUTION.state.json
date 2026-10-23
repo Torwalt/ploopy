@@ -48,6 +48,31 @@
         "reasoning": 16967,
         "cache_read": 6528768
       }
+    },
+    "2.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T12:25:44+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "70b522172372501963da5fa6f2ea935c0115e8c2",
+      "commits": [
+        "bf339089b675818db46e5620f8662015d9d46507 Chain a completed plan into its review and fix plan"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `bf33908` chains a completed ordinary plan with follow-up on into its review,\n  then the fix plan the triage writes.\n- The review is written through `writeReview` with triage resolved by\n  `chooseTriageWithSources`: `--triage-*`, then `[review]`, then the last\n  triage, then the default. `ploopy run` now takes the `--triage-*` flags.\n- A complete review still chains to its fix plan when follow-up is on; a fix\n  plan never starts a review. Early stops (`--until`, `--block`, adjust stop)\n  end the chain.\n- `launchArgs` now passes `--follow-up` for every plan, not only reviews.\n- The run prints the triage when it starts the review and the fix plan when it\n  moves on. The README and `skills/ploopy` describe ordinary-plan follow-up.\n\n**Landmark drift**\n\n- `runFixPlan` is now `runChainedPlan`, shared by the review and fix steps.\n- `chainedFixPlan` still exists; the new `chainedPlan`, `followsUp` and\n  `chainedReview` sit beside it in `cmd/ploopy/run.go`.\n- Triage flag fields moved into `triageFlags`, embedded in `reviewFlags` and\n  `runFlags`; `addTriageFlagsTo` binds them for both commands.\n\n**Deviations from the work order**\n\n- A leftover review that is already written but incomplete is run on, as\n  `ploopy review` does; a complete review or a leftover fix plan ends the chain\n  with its reason.\n- `review.IsFix` was added to `internal/review` for the `_FIXES` naming check.\n- `followUpSuffix` was added to the run's start message so a fix plan says\n  nothing about reviewing.\n\n**What the next session must know**\n\n- `chainedReview` returns nil for a clean chain end; only real errors fail the\n  run. Check the `chainedPlan` branch order before changing it: review plans\n  chain fixes, fix plans stop, everything else writes a review.\n- The new `cmd/ploopy/run_chain_test.go` builds its plan on master *and* the\n  branch worktree. Building only the worktree makes the catalog prefer the\n  master copy and hides an open second unit from `loop.Complete`.\n- Triage from the config file and last triage is exercised through\n  `chooseTriageWithSources`; the chain test covers the flag path only.\n- Stage 4's fuller docs pass is still pending. Only the direct follow-up text in\n  the README and `skills/ploopy` changed.\n\n**Open problems**\n\n- `control.Settings.Describe(false)` still says \"then review and fix\" for a\n  fix plan, even though a fix plan never reviews. Run start and chain messages\n  are correct; `adjust`/`status` wording for a fix plan is not.",
+      "session_id": "ses_e97bc6f6afferY2hFZ4HEN8xBc",
+      "cost_usd": 0.07033468799999999,
+      "harness": "opencode",
+      "elapsed_s": 526,
+      "session_s": 504,
+      "verify_s": 1,
+      "test_s": 21,
+      "tokens": {
+        "input": 149976,
+        "output": 14792,
+        "reasoning": 30246,
+        "cache_read": 6938496
+      }
     }
   }
 }
