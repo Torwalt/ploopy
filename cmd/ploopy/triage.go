@@ -95,6 +95,12 @@ func chooseTriageWithSources(ctx context.Context, cmd *cobra.Command, e *env, f 
 			delete(sources, key)
 		}
 	}
+	if sources["effort"] == "from .ploopy.toml" {
+		if h := e.harnesses.Get(t.Agent); h != nil && !contains(h.Efforts(), t.Effort) {
+			return t, sources, fmt.Errorf("[review] triage_effort for %s must be one of %s, not %s",
+				h.Name(), strings.Join(h.Efforts(), ", "), t.Effort)
+		}
+	}
 	if err := validateTriage(e, t); err != nil {
 		return t, sources, err
 	}

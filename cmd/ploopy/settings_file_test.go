@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/Torwalt/ploopy/internal/config"
@@ -298,5 +299,29 @@ func TestAChainedPlanKeepsTheRescue(t *testing.T) {
 	}
 	if next.rescue == nil || next.rescue != kept.rescue {
 		t.Fatalf("the next plan lost the rescue: %+v", next.rescue)
+	}
+}
+
+func TestAFileEffortIsCheckedAgainstTheHarnessTheRunSettlesOn(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		last *runSettings
+	}{
+		{"the last run", &runSettings{Harness: "claude", Model: "sonnet", Effort: "high"}},
+		{"the default", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, _ := worktreeRepo(t, nil)
+			e.cfg.Run = config.Run{Effort: "max"}
+			if tc.last != nil {
+				saveLast(context.Background(), e.root, *tc.last)
+			}
+			cmd, f := settingsCommand(t)
+			p := plan.Parse(finishedPlan, "docs/plans/PASS.md")
+			if _, _, err := givenSettings(cmd, e, p, f); err == nil ||
+				!strings.Contains(err.Error(), "[run] effort") {
+				t.Fatalf("[run] effort max with no [run] agent: %v", err)
+			}
+		})
 	}
 }

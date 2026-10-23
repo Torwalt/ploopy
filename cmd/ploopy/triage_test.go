@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/Torwalt/ploopy/internal/config"
 	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/review"
@@ -204,5 +205,29 @@ func TestALiveReviewsTriageIsLockedAndAFlagCommitsNothing(t *testing.T) {
 	}
 	if got := strings.TrimSpace(gitOut(t, tree, "rev-parse", "HEAD")); got != head {
 		t.Fatalf("the review's head moved from %s to %s", head, got)
+	}
+}
+
+func TestAFileTriageEffortIsCheckedAgainstTheTriageHarness(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		last   *review.Triage
+		effort string
+	}{
+		{"the default", nil, "max"},
+		{"the last triage", &review.Triage{Agent: "opencode", Model: "deepseek/deepseek-flash", Effort: "high"}, "medium"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e, _ := worktreeRepo(t, nil)
+			if tc.last != nil {
+				saveLastTriage(context.Background(), e.root, *tc.last)
+			}
+			e.cfg.Review = config.Review{TriageEffort: tc.effort}
+			cmd, f := triageCommand(t)
+			if _, _, err := chooseTriageWithSources(context.Background(), cmd, e, f, nil); err == nil ||
+				!strings.Contains(err.Error(), "[review] triage_effort") {
+				t.Fatalf("[review] triage_effort %s with no triage_agent: %v", tc.effort, err)
+			}
+		})
 	}
 }

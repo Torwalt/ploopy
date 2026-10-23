@@ -302,12 +302,27 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		g.fromFile("followUp")
 	}
 	if g.prefilled("effort") != "" {
-		if h := e.harnesses.Get(s.Harness); h != nil && !contains(h.Efforts(), s.Effort) {
+		if h := settledHarness(cmd.Context(), e, s.Harness); h != nil && !contains(h.Efforts(), s.Effort) {
 			return s, g, fmt.Errorf("[run] effort for %s must be one of %s, not %s",
 				h.Name(), strings.Join(h.Efforts(), ", "), s.Effort)
 		}
 	}
 	return s, g, nil
+}
+
+// settledHarness is the harness a file value is checked against when no agent
+// is given: the last run's where ploopy can still drive it, else the default.
+func settledHarness(ctx context.Context, e *env, name string) harness.Harness {
+	if name != "" {
+		return e.harnesses.Get(name)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if last := loadLast(ctx, e.root); last != nil && e.harnesses.Get(last.Harness) != nil {
+		return e.harnesses.Get(last.Harness)
+	}
+	return e.harnesses[0]
 }
 
 // unattended settles a run nobody is watching: it needs the harness and the
