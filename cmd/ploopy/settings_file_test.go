@@ -132,9 +132,11 @@ func TestTheReviewTableBeatsTheLastTriageAndFlagsBeatTheReviewTable(t *testing.T
 	if got != want {
 		t.Fatalf("triage %+v, want the file's %+v", got, want)
 	}
-	for _, key := range []string{"agent", "model", "effort", "budget"} {
-		if sources[key] != "from .ploopy.toml" {
-			t.Fatalf("%s source %q, want from .ploopy.toml", key, sources[key])
+	for key, value := range map[string]string{
+		"agent": "opencode", "model": "deepseek/deepseek-flash", "effort": "max", "budget": "2",
+	} {
+		if sources[key] != value {
+			t.Fatalf("%s source value %q, want the file's %q", key, sources[key], value)
 		}
 	}
 
@@ -171,6 +173,141 @@ func TestTheTriageBoardShowsAFileValueAsPrefilled(t *testing.T) {
 		if field.Locked != "" || field.Source != "from .ploopy.toml" {
 			t.Fatalf("%c is locked %q with source %q", key, field.Locked, field.Source)
 		}
+	}
+}
+
+func TestAFileSourceLeavesWhenTheRunFieldChanges(t *testing.T) {
+	e := boardEnv(t)
+	e.harnesses = allHarnesses()
+	e.cfg.Run = config.Run{Peak: "run"}
+	cmd, f := settingsCommand(t)
+	p := plan.Parse(finishedPlan, "docs/plans/PASS.md")
+	s, g, err := givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fill(e, &s, g, nil)
+	board := newSettingsBoard(context.Background(), e, p, g, &s, "pass", 0)
+	peakSource := func() string { return fieldByKey(t, board.board.Columns[0], 'o').Source }
+
+	if got := peakSource(); got != "from .ploopy.toml" {
+		t.Fatalf("the file's peak shows source %q", got)
+	}
+	key(board.board, '1')
+	key(board.board, 'o')
+	if got := peakSource(); got != "" {
+		t.Fatalf("a changed peak still shows source %q", got)
+	}
+	key(board.board, 'o')
+	if got := peakSource(); got != "from .ploopy.toml" {
+		t.Fatalf("a peak back at the file's value shows source %q", got)
+	}
+}
+
+func TestAFileSourceLeavesWhenTheRunColumnFieldChanges(t *testing.T) {
+	e := boardEnv(t)
+	e.harnesses = allHarnesses()
+	e.cfg.Run = config.Run{Finish: "suspend"}
+	cmd, f := settingsCommand(t)
+	p := plan.Parse(finishedPlan, "docs/plans/PASS.md")
+	s, g, err := givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fill(e, &s, g, nil)
+	board := newSettingsBoard(context.Background(), e, p, g, &s, "pass", 0)
+	runAt, _ := columnByTitle(t, board.board, "Run")
+	finishSource := func() string {
+		_, run := columnByTitle(t, board.board, "Run")
+		return fieldByKey(t, run, 'f').Source
+	}
+
+	if got := finishSource(); got != "from .ploopy.toml" {
+		t.Fatalf("the file's finish shows source %q", got)
+	}
+	key(board.board, rune('1'+runAt))
+	for i := 0; i < 2; i++ {
+		key(board.board, 'f')
+		if got := finishSource(); got != "" {
+			t.Fatalf("a changed finish still shows source %q", got)
+		}
+	}
+	key(board.board, 'f')
+	if got := finishSource(); got != "from .ploopy.toml" {
+		t.Fatalf("a finish back at the file's value shows source %q", got)
+	}
+}
+
+func TestAFileSourceLeavesWhenTheAutomationFieldChanges(t *testing.T) {
+	e := boardEnv(t)
+	e.harnesses = allHarnesses()
+	e.cfg.Automation = config.Automation{FollowUp: boolValue(true)}
+	cmd, f := settingsCommand(t)
+	p := plan.Parse(finishedPlan, "docs/plans/PASS.md")
+	s, g, err := givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fill(e, &s, g, nil)
+	board := newSettingsBoard(context.Background(), e, p, g, &s, "pass", 0)
+	at, _ := columnByTitle(t, board.board, "Automation")
+	followSource := func() string {
+		_, automation := columnByTitle(t, board.board, "Automation")
+		return fieldByKey(t, automation, 'n').Source
+	}
+
+	if got := followSource(); got != "from .ploopy.toml" {
+		t.Fatalf("the file's follow-up shows source %q", got)
+	}
+	key(board.board, rune('1'+at))
+	key(board.board, 'n')
+	if got := followSource(); got != "" {
+		t.Fatalf("a changed follow-up still shows source %q", got)
+	}
+	key(board.board, 'n')
+	if got := followSource(); got != "from .ploopy.toml" {
+		t.Fatalf("follow-up back at the file's value shows source %q", got)
+	}
+}
+
+func TestAFileSourceLeavesWhenTheTriageAgentChanges(t *testing.T) {
+	e, _ := worktreeRepo(t, nil)
+	e.cfg.Review = config.Review{
+		TriageAgent: "opencode", TriageModel: "deepseek/deepseek-flash", TriageEffort: "max",
+	}
+	cmd, f := triageCommand(t)
+	tri, givens, sources, ran, err := reviewTriage(context.Background(), cmd, e, f, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ran {
+		t.Fatal("a new review's triage must not be locked")
+	}
+	p := plan.Parse("---\nreviews: docs/plans/PASS.md\n---\n", "docs/plans/PASS_REVIEW.md")
+	board := reviewBoardFrom(t, e, p, tri, givens, sources, "")
+	at, _ := columnByTitle(t, board.board, "Triage")
+	source := func(key rune) string {
+		_, column := columnByTitle(t, board.board, "Triage")
+		return fieldByKey(t, column, key).Source
+	}
+
+	if got := source('a'); got != "from .ploopy.toml" {
+		t.Fatalf("the file's triage agent shows source %q", got)
+	}
+	key(board.board, rune('1'+at))
+	key(board.board, 'A')
+	if got := source('a'); got != "" {
+		t.Fatalf("a changed triage agent still shows source %q", got)
+	}
+	if got := source('m'); got != "" {
+		t.Fatalf("a normalized triage model still shows source %q", got)
+	}
+	if got := source('e'); got != "" {
+		t.Fatalf("a normalized triage effort still shows source %q", got)
+	}
+	key(board.board, 'a')
+	if got := source('a'); got != "from .ploopy.toml" {
+		t.Fatalf("a triage agent back at the file's value shows source %q", got)
 	}
 }
 

@@ -51,19 +51,19 @@ func chooseTriageWithSources(ctx context.Context, cmd *cobra.Command, e *env, f 
 						t.Model, t.Effort = h.Models()[0], preferredEffort(h)
 					}
 				}
-				sources["agent"] = "from .ploopy.toml"
+				sources["agent"] = file.TriageAgent
 			}
 			if file.TriageModel != "" {
 				t.Model = file.TriageModel
-				sources["model"] = "from .ploopy.toml"
+				sources["model"] = file.TriageModel
 			}
 			if file.TriageEffort != "" {
 				t.Effort = file.TriageEffort
-				sources["effort"] = "from .ploopy.toml"
+				sources["effort"] = file.TriageEffort
 			}
 			if file.TriageBudget != nil {
 				t.Budget = *file.TriageBudget
-				sources["budget"] = "from .ploopy.toml"
+				sources["budget"] = strconv.FormatFloat(*file.TriageBudget, 'f', -1, 64)
 			}
 		}
 	}
@@ -95,7 +95,7 @@ func chooseTriageWithSources(ctx context.Context, cmd *cobra.Command, e *env, f 
 			delete(sources, key)
 		}
 	}
-	if sources["effort"] == "from .ploopy.toml" {
+	if sources["effort"] != "" {
 		if h := e.harnesses.Get(t.Agent); h != nil && !contains(h.Efforts(), t.Effort) {
 			return t, sources, fmt.Errorf("[review] triage_effort for %s must be one of %s, not %s",
 				h.Name(), strings.Join(h.Efforts(), ", "), t.Effort)

@@ -43,6 +43,7 @@ type given struct {
 	rescue, rescueModel, rescueEffort                                              bool
 	sources                                                                        map[string]string
 	prefills                                                                       map[string]string
+	fileValues                                                                     map[string]string
 }
 
 // why is where a given setting came from, for the board's locked field.
@@ -60,12 +61,17 @@ func (g *given) from(key, source string) {
 	g.sources[key] = source
 }
 
-// fromFile prefills a setting from .ploopy.toml without locking it.
-func (g *given) fromFile(key string) {
+// fromFile prefills a setting from .ploopy.toml without locking it, remembering
+// the value the file gave beside the label.
+func (g *given) fromFile(key, value string) {
 	if g.prefills == nil {
 		g.prefills = map[string]string{}
 	}
+	if g.fileValues == nil {
+		g.fileValues = map[string]string{}
+	}
 	g.prefills[key] = "from .ploopy.toml"
+	g.fileValues[key] = value
 }
 
 // prefilled is where a file value came from, for the board's editable field.
@@ -74,6 +80,16 @@ func (g given) prefilled(key string) string {
 		return ""
 	}
 	return g.prefills[key]
+}
+
+// source is where a prefilled field came from, and only while it still holds
+// the value the file gave.
+func (g given) source(key, current string) string {
+	value, ok := g.fileValues[key]
+	if !ok || value != current {
+		return ""
+	}
+	return "from .ploopy.toml"
 }
 
 // chosenRun is the settings, resolved.
@@ -133,7 +149,7 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 	}
 	if s.Harness == "" && e.cfg.Run.Agent != "" {
 		s.Harness = e.cfg.Run.Agent
-		g.fromFile("harness")
+		g.fromFile("harness", s.Harness)
 	}
 	if s.Harness != "" && e.harnesses.Get(s.Harness) == nil {
 		return s, g, fmt.Errorf("--agent must be one of %s, not %s",
@@ -150,7 +166,7 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		g.from("model", "from the plan")
 	} else if e.cfg.Run.Model != "" {
 		s.Model = e.cfg.Run.Model
-		g.fromFile("model")
+		g.fromFile("model", s.Model)
 	}
 	if s.Effort != "" {
 		g.effort = true
@@ -161,7 +177,7 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		g.from("effort", "from the plan")
 	} else if e.cfg.Run.Effort != "" {
 		s.Effort = e.cfg.Run.Effort
-		g.fromFile("effort")
+		g.fromFile("effort", s.Effort)
 	}
 
 	if cmd.Flags().Changed("secondary") {
@@ -175,7 +191,6 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 			s.Secondary = toControlAgent(agent)
 		}
 	} else if e.cfg.Run.Secondary != "" {
-		g.fromFile("secondary")
 		if e.cfg.Run.Secondary != "none" {
 			agent, err := resolveAgent(e.harnesses, "[run] secondary", e.cfg.Run.Secondary,
 				e.cfg.Run.SecondaryModel, e.cfg.Run.SecondaryEffort, s.Effort)
@@ -184,6 +199,7 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 			}
 			s.Secondary = toControlAgent(agent)
 		}
+		g.fromFile("secondary", encodeAgent(s.Secondary))
 	}
 	if cmd.Flags().Changed("rescue") {
 		g.rescue = true
@@ -204,7 +220,6 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 			}
 		}
 	} else if e.cfg.Automation.Rescue != "" {
-		g.fromFile("rescue")
 		if e.cfg.Automation.Rescue != "none" {
 			agent, err := resolveAgent(e.harnesses, "[automation] rescue", e.cfg.Automation.Rescue,
 				e.cfg.Automation.RescueModel, e.cfg.Automation.RescueEffort, s.Effort)
@@ -213,12 +228,14 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 			}
 			s.Rescue = toControlAgent(agent)
 			if e.cfg.Automation.RescueModel != "" {
-				g.fromFile("rescueModel")
+				g.fromFile("rescueModel", e.cfg.Automation.RescueModel)
 			}
 			if e.cfg.Automation.RescueEffort != "" {
-				g.fromFile("rescueEffort")
+				g.fromFile("rescueEffort", e.cfg.Automation.RescueEffort)
 			}
 		}
+		rescue, _, _ := agentFields(s.Rescue)
+		g.fromFile("rescue", rescue)
 	}
 	if f.peak != "" {
 		if f.peak != "wait" && f.peak != "run" {
@@ -231,7 +248,7 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 			return s, g, fmt.Errorf("[run] peak must be wait or run, not %s", e.cfg.Run.Peak)
 		}
 		s.Peak = e.cfg.Run.Peak
-		g.fromFile("peak")
+		g.fromFile("peak", s.Peak)
 	}
 	if cmd.Flags().Changed("subscriptions") {
 		set, err := subscriptionSet(e.harnesses, f.subscriptions)
@@ -253,7 +270,7 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 			return s, g, fmt.Errorf("[run] subscriptions: %w", err)
 		}
 		s.Subscriptions = set
-		g.fromFile("subscriptions")
+		g.fromFile("subscriptions", s.Subscriptions)
 	}
 	s.SpendAll = f.spendAll
 	if cmd.Flags().Changed("spend-all") {
@@ -261,14 +278,14 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		g.from("spendAll", "from a flag")
 	} else if e.cfg.Run.SpendAll != nil {
 		s.SpendAll = *e.cfg.Run.SpendAll
-		g.fromFile("spendAll")
+		g.fromFile("spendAll", spendLabel(s.SpendAll))
 	}
 	s.Push = e.cfg.Push
 	if cmd.Flags().Changed("push") {
 		s.Push, g.push = f.push, true
 		g.from("push", "from a flag")
 	} else if e.cfg.PushSet {
-		g.fromFile("push")
+		g.fromFile("push", yesNo(s.Push))
 	}
 	if f.finish != "" {
 		if !ui.Finish(f.finish).Valid() {
@@ -281,7 +298,7 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 			return s, g, fmt.Errorf("[run] finish must be none, suspend or poweroff, not %s", e.cfg.Run.Finish)
 		}
 		s.Finish = e.cfg.Run.Finish
-		g.fromFile("finish")
+		g.fromFile("finish", s.Finish)
 	}
 	if cmd.Flags().Changed("follow-up") {
 		s.FollowUp, g.followUp = f.followUp, true
@@ -299,7 +316,7 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		g.from("followUp", "from --then")
 	} else if e.cfg.Automation.FollowUp != nil {
 		s.FollowUp = *e.cfg.Automation.FollowUp
-		g.fromFile("followUp")
+		g.fromFile("followUp", yesNo(s.FollowUp))
 	}
 	if g.prefilled("effort") != "" {
 		if h := settledHarness(cmd.Context(), e, s.Harness); h != nil && !contains(h.Efforts(), s.Effort) {

@@ -82,11 +82,12 @@ func (d *triageDraft) lock(key string) string {
 	return ""
 }
 
-func (d *triageDraft) source(key string) string {
-	if d.sources == nil {
+func (d *triageDraft) source(key, current string) string {
+	value, ok := d.sources[key]
+	if !ok || value != current {
 		return ""
 	}
-	return d.sources[key]
+	return "from .ploopy.toml"
 }
 
 // leaseDraft is one subscription's lease and what it runs as on the board.
@@ -327,16 +328,16 @@ func (sb *settingsBoard) triageColumn() ui.Column {
 	return ui.Column{Title: "Triage", Fields: []ui.BoardField{
 		{Key: 'a', Label: "agent", Value: &d.agent, Choices: func() []ui.Choice {
 			return labelled(sb.env.harnesses.Names())
-		}, Locked: d.lock("agent"), Source: d.source("agent")},
+		}, Locked: d.lock("agent"), Source: d.source("agent", d.agent)},
 		{Key: 'm', Label: "model", Value: &d.model, Choices: func() []ui.Choice {
 			return labelled(triageModelChoices(sb.env, d.agent, d.model))
-		}, Locked: d.lock("model"), Source: d.source("model")},
+		}, Locked: d.lock("model"), Source: d.source("model", d.model)},
 		{Key: 'e', Label: "effort", Value: &d.effort, Choices: func() []ui.Choice {
 			return labelled(effortChoices(sb.env.harnesses.Get(d.agent), d.effort))
-		}, Locked: d.lock("effort"), Source: d.source("effort")},
+		}, Locked: d.lock("effort"), Source: d.source("effort", d.effort)},
 		{Key: 'b', Label: "cap", Value: &d.budget, Choices: func() []ui.Choice {
 			return budgetOptions(d.budget)
-		}, Locked: d.lock("budget"), Source: d.source("budget")},
+		}, Locked: d.lock("budget"), Source: d.source("budget", d.budget)},
 	}}
 }
 
@@ -354,20 +355,20 @@ func (sb *settingsBoard) bedrockColumn() ui.Column {
 	fields := []ui.BoardField{
 		{Key: 'a', Label: "agent", Value: &s.Harness, Choices: func() []ui.Choice {
 			return labelled(sb.env.harnesses.Names())
-		}, Locked: sb.given.why("harness"), Source: sb.given.prefilled("harness")},
+		}, Locked: sb.given.why("harness"), Source: sb.given.source("harness", s.Harness)},
 		{Key: 'm', Label: "model", Value: &s.Model, Choices: func() []ui.Choice {
 			return labelled(modelChoices(h, s.Model))
-		}, Locked: sb.given.why("model"), Source: sb.given.prefilled("model")},
+		}, Locked: sb.given.why("model"), Source: sb.given.source("model", s.Model)},
 		{Key: 'e', Label: "effort", Value: &s.Effort, Choices: func() []ui.Choice {
 			return labelled(effortChoices(h, s.Effort))
-		}, Locked: sb.given.why("effort"), Source: sb.given.prefilled("effort")},
+		}, Locked: sb.given.why("effort"), Source: sb.given.source("effort", s.Effort)},
 		{Key: 'l', Label: "limit", Value: &sb.secondary, Choices: func() []ui.Choice {
 			return secondaryChoices(sb.env.harnesses, s.Harness)
-		}, Locked: sb.given.why("secondary"), Source: sb.given.prefilled("secondary")},
+		}, Locked: sb.given.why("secondary"), Source: sb.given.source("secondary", sb.secondary)},
 	}
 	if peaked := peakedHarness(sb.env.harnesses); peaked != nil {
 		fields = append(fields, ui.BoardField{Key: 'o', Label: "peak", Value: &s.Peak,
-			Choices: func() []ui.Choice { return peakChoices }, Locked: sb.given.why("peak"), Source: sb.given.prefilled("peak")})
+			Choices: func() []ui.Choice { return peakChoices }, Locked: sb.given.why("peak"), Source: sb.given.source("peak", s.Peak)})
 	}
 	column := ui.Column{Title: "Bedrock", Fields: fields}
 	if fallback := harness.FallbackModel(h, s.Model); fallback != "" {
@@ -409,10 +410,10 @@ func (sb *settingsBoard) automationColumn() ui.Column {
 	return ui.Column{Title: "Automation", Fields: []ui.BoardField{
 		{Key: 'n', Label: "follow up", Value: &sb.followUp,
 			Choices: func() []ui.Choice { return yesNoChoices(sb.followUp == "yes") },
-			Locked:  sb.given.why("followUp"), Source: sb.given.prefilled("followUp")},
+			Locked:  sb.given.why("followUp"), Source: sb.given.source("followUp", sb.followUp)},
 		{Key: 'r', Label: "rescue", Value: &sb.rescue,
 			Choices: func() []ui.Choice { return rescueHarnessChoices(sb.env.harnesses) },
-			Locked:  sb.given.why("rescue"), Source: sb.given.prefilled("rescue")},
+			Locked:  sb.given.why("rescue"), Source: sb.given.source("rescue", sb.rescue)},
 		{Key: 'm', Label: "model", Value: &sb.rescueModel,
 			Choices: func() []ui.Choice {
 				if h := sb.env.harnesses.Get(sb.rescue); h != nil {
@@ -420,7 +421,7 @@ func (sb *settingsBoard) automationColumn() ui.Column {
 				}
 				return nil
 			},
-			Locked: sb.given.why("rescueModel"), Source: sb.given.prefilled("rescueModel")},
+			Locked: sb.given.why("rescueModel"), Source: sb.given.source("rescueModel", sb.rescueModel)},
 		{Key: 'e', Label: "effort", Value: &sb.rescueEffort,
 			Choices: func() []ui.Choice {
 				if h := sb.env.harnesses.Get(sb.rescue); h != nil {
@@ -428,7 +429,7 @@ func (sb *settingsBoard) automationColumn() ui.Column {
 				}
 				return nil
 			},
-			Locked: sb.given.why("rescueEffort"), Source: sb.given.prefilled("rescueEffort")},
+			Locked: sb.given.why("rescueEffort"), Source: sb.given.source("rescueEffort", sb.rescueEffort)},
 	}}
 }
 
@@ -448,17 +449,17 @@ func (sb *settingsBoard) runColumn() ui.Column {
 	fields := []ui.BoardField{
 		{Key: 's', Label: "subs", Value: &s.Subscriptions, Choices: func() []ui.Choice {
 			return subscriptionChoices(sb.env.harnesses, s.Harness)
-		}, Locked: sb.given.why("subscriptions"), Source: sb.given.prefilled("subscriptions")},
+		}, Locked: sb.given.why("subscriptions"), Source: sb.given.source("subscriptions", s.Subscriptions)},
 		{Key: 'w', Label: "week", Value: &sb.spend, Choices: func() []ui.Choice {
 			return spendChoices
-		}, Locked: sb.given.why("spendAll"), Source: sb.given.prefilled("spendAll")},
+		}, Locked: sb.given.why("spendAll"), Source: sb.given.source("spendAll", sb.spend)},
 	}
 	if sb.canPush {
 		fields = append(fields, ui.BoardField{Key: 'p', Label: "push", Value: &sb.push,
-			Choices: func() []ui.Choice { return yesNoChoices(true) }, Locked: sb.given.why("push"), Source: sb.given.prefilled("push")})
+			Choices: func() []ui.Choice { return yesNoChoices(true) }, Locked: sb.given.why("push"), Source: sb.given.source("push", sb.push)})
 	}
 	fields = append(fields, ui.BoardField{Key: 'f', Label: "end", Value: &s.Finish,
-		Choices: func() []ui.Choice { return ui.Finishes }, Locked: sb.given.why("finish"), Source: sb.given.prefilled("finish")})
+		Choices: func() []ui.Choice { return ui.Finishes }, Locked: sb.given.why("finish"), Source: sb.given.source("finish", s.Finish)})
 	if sb.adjust {
 		fields = append(fields, ui.BoardField{Key: 'x', Label: "stop", Value: &sb.stop,
 			Choices: func() []ui.Choice { return yesNoChoices(sb.stop == "yes") }})
