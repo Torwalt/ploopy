@@ -1,6 +1,7 @@
 package loop
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -125,6 +126,61 @@ func TestARescueDecisionLandsTheUnitAndKeepsTheDecisions(t *testing.T) {
 	}
 	if rescue.CostUSD != 0.25 || entry.CostUSD != 0.25 {
 		t.Fatalf("rescue cost %.2f, unit cost %.2f", rescue.CostUSD, entry.CostUSD)
+	}
+}
+
+func TestRescueDecisionsSurviveAUsageLimitCut(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the premise is wrong"}},
+		fake.Step{Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the premise is still wrong"}},
+		fake.Step{Do: commits("partial.go", "partial"), Outcome: harness.Outcome{
+			RateLimit: &harness.RateLimit{Reason: "usage limit"}}},
+		fake.Step{Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	rescuer(t, f, fake.Step{
+		Do: rescue("1.1", 1, rescueReport("the work order leaves the clock open",
+			"Use the repository's existing clock, not a new one.", "wire the existing clock", "")),
+		Outcome: harness.Outcome{Marker: harness.Decided, Reason: "use the existing clock"},
+	})
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if prompt := f.h.Prompts[3]; !strings.Contains(prompt, "Use the repository's existing clock") {
+		t.Fatalf("the session after a usage limit lost the decision:\n%s", prompt)
+	}
+}
+
+func TestRescueDecisionsSurviveAStoppedRun(t *testing.T) {
+	ctx, stop := context.WithCancel(context.Background())
+	defer stop()
+	f := setup(t, twoUnits,
+		fake.Step{Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the premise is wrong"}},
+		fake.Step{Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the premise is still wrong"}},
+		fake.Step{Do: func(dir string) error {
+			stop()
+			return commits("partial.go", "partial")(dir)
+		}, Outcome: harness.Outcome{Exit: -1}},
+		fake.Step{Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	rescuer(t, f, fake.Step{
+		Do: rescue("1.1", 1, rescueReport("the work order leaves the clock open",
+			"Use the repository's existing clock, not a new one.", "wire the existing clock", "")),
+		Outcome: harness.Outcome{Marker: harness.Decided, Reason: "use the existing clock"},
+	})
+
+	if result := f.runUntilStopped(ctx); result.Status != "failed" {
+		t.Fatalf("stopped run %+v", result)
+	}
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("second run %+v", result)
+	}
+	prompt := f.h.Prompts[3]
+	if !strings.Contains(prompt, stoppedMidUnit) ||
+		!strings.Contains(prompt, "Use the repository's existing clock") {
+		t.Fatalf("the session after a stopped run lost the decision:\n%s", prompt)
 	}
 }
 

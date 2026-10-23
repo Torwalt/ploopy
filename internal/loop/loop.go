@@ -937,7 +937,7 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 				l.noteAttempt(&attempts, agent, given, stem, tail,
 					"usage limit: "+outcome.RateLimit.Reason, outcome, info)
 				if changed {
-					failure = cutOffMidUnit
+					failure = l.withDecisions(cutOffMidUnit)
 					l.progress.Failure = failure
 					if err := l.progress.save(); err != nil {
 						return err
@@ -1277,7 +1277,7 @@ func (l *Loop) interrupted(ctx context.Context, u plan.Unit, stem string, agent 
 		return err
 	}
 	if changed {
-		l.progress.Failure = stoppedMidUnit
+		l.progress.Failure = l.withDecisions(stoppedMidUnit)
 	}
 	l.progress.Session, l.progress.LeftDirty = nil, len(dirt) > 0
 	if err := l.progress.save(); err != nil {
