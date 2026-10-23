@@ -156,6 +156,7 @@ type planRun struct {
 	report   *ui.Reporter
 	result   loop.Result
 	complete bool
+	limited  bool
 	wanted   control.Settings
 	chosen   chosenRun
 }
@@ -207,7 +208,8 @@ func chainedPlan(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, r
 
 // followsUp reports whether the run may go on to the next plan of its chain.
 func followsUp(ctx context.Context, r *planRun) bool {
-	return ctx.Err() == nil && r.p != nil && r.complete && !r.result.Stopped &&
+	return ctx.Err() == nil && r.p != nil && r.complete && r.result.Status == "done" &&
+		!r.limited && !r.result.Stopped &&
 		!r.wanted.Stops() && r.wanted.FollowUp != nil && *r.wanted.FollowUp
 }
 
@@ -358,7 +360,7 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 	report.Say("%s with %s%s at %s effort%s%s%s%s%s", p.Path, pick.agent.Harness.Name(),
 		modelSuffix(pick.agent.Model), pick.agent.Effort, secondarySuffix(pick.secondary),
 		peakSuffix(pick), pushSuffix(pick.push), finishSuffix(pick.finish),
-		followUpSuffix(pick.followUp, p))
+		followUpSuffix(pick.followUp, p, f.until != "" || f.units > 0))
 	if fallback := harness.FallbackModel(pick.agent.Harness, pick.agent.Model); fallback != "" {
 		report.Say("on a usage limit, %s continues with %s before waiting or switching harness", pick.agent.Model, fallback)
 	}
@@ -388,7 +390,8 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 
 	return &planRun{
 		root: root, branch: branch, cfg: cfg, p: p, runner: runner, report: report,
-		result: result, complete: complete, wanted: steer.wanted(), chosen: pick,
+		result: result, complete: complete, limited: f.until != "" || f.units > 0,
+		wanted: steer.wanted(), chosen: pick,
 	}, nil
 }
 
@@ -627,8 +630,8 @@ func finishSuffix(finish ui.Finish) string {
 }
 
 // followUpSuffix says which plan a run with follow-up goes on to, if any.
-func followUpSuffix(followUp bool, p *plan.Plan) string {
-	if !followUp || p == nil {
+func followUpSuffix(followUp bool, p *plan.Plan, limited bool) string {
+	if !followUp || p == nil || limited {
 		return ""
 	}
 	switch {

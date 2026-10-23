@@ -108,8 +108,9 @@ explicit model and effort.
 
 `follow_up`, or `--follow-up` on a run, reviews an ordinary plan that completes
 and then runs the fix plan its triage writes, in the same invocation; on a
-review it runs that fix plan. A fix plan is never reviewed. `--then fixes` is
-its deprecated alias.
+review it runs that fix plan. A fix plan is never reviewed. A run limited by
+`--until` or `--units`, or one that failed, does not go on to the next plan of
+the chain. `--then fixes` is its deprecated alias.
 
 `rescue`, `--rescue <harness|none>`, with `rescue_model` and `rescue_effort`,
 names a stronger agent for the three places a run would otherwise stop on a

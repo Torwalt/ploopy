@@ -57,8 +57,9 @@ flag or in the plan's front matter shows locked. Every answer is also a flag:
 own.
 - `follow_up` reviews an ordinary plan that completes and runs the fix plan its
   triage writes, in the same invocation; on a review it runs that fix plan. A
-  fix plan is never reviewed. `--follow-up` overrides it; `--then fixes` is its
-  deprecated alias.
+  fix plan is never reviewed. `--until` and `--units` end the chain, as does a
+  run that failed. `--follow-up` overrides it; `--then fixes` is its deprecated
+  alias.
 - `rescue` names a stronger agent that steps in where a run would stop on a
   unit: retries spent, sessions in a row that touch nothing, or a block the
   second opinion confirmed. It only diagnoses and answers `RETRY`, `DECIDED` or

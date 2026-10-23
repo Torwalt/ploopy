@@ -11,6 +11,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/harness/fake"
+	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
 )
@@ -73,6 +74,13 @@ func runArgs(extra ...string) []string {
 
 func triageArgs(extra ...string) []string {
 	return append([]string{"--triage-agent", "fake", "--triage-model", "fake-model", "--triage-effort", "high"}, extra...)
+}
+
+// lockIndex makes the next commit fail, leaving a state file written on disk.
+func lockIndex(t *testing.T, dir string) error {
+	t.Helper()
+	gitDir := strings.TrimSpace(gitOut(t, dir, "rev-parse", "--absolute-git-dir"))
+	return os.WriteFile(filepath.Join(gitDir, "index.lock"), nil, 0o644)
 }
 
 // pushedRepo adds an origin that records each push.
@@ -225,6 +233,102 @@ func TestAPlanStoppedEarlyDoesNotGoOnToItsReview(t *testing.T) {
 			t.Fatal("a blocked plan was reviewed")
 		}
 	})
+}
+
+func TestAFinishedPlanLimitedByAFlagDoesNotGoOnToItsReview(t *testing.T) {
+	for _, limit := range []struct {
+		name string
+		args []string
+	}{
+		{"until", []string{"--until", "1.1"}},
+		{"units", []string{"--units", "1"}},
+	} {
+		t.Run(limit.name, func(t *testing.T) {
+			e, tree := openPlanRepo(t, finishedPlan)
+			h := fake.New(fixStep("plan.go", "Do the plan"), findingsStep(), triageStep(t))
+			e.harnesses = harness.Set{h}
+
+			args := runArgs(triageArgs(append([]string{"--follow-up"}, limit.args...)...)...)
+			if err := runRun(t, e, args...); err != nil {
+				t.Fatal(err)
+			}
+			if h.Started() != 1 {
+				t.Fatalf("the run started %d sessions, want the plan only", h.Started())
+			}
+			if exists(filepath.Join(tree, "docs/plans/PASS_REVIEW.md")) {
+				t.Fatal("a limited run went on to its review")
+			}
+		})
+	}
+}
+
+func TestARunThatFailedAfterItsLastUnitLandedDoesNotGoOnToItsReview(t *testing.T) {
+	e, tree := openPlanRepo(t, finishedPlan)
+	h := fake.New(
+		fake.Step{
+			Do: func(dir string) error {
+				if err := fixStep("plan.go", "Do the plan").Do(dir); err != nil {
+					return err
+				}
+				return lockIndex(t, dir)
+			},
+			Outcome: harness.Outcome{Marker: harness.Done},
+		},
+		findingsStep(), triageStep(t))
+	e.harnesses = harness.Set{h}
+
+	err := runRun(t, e, runArgs(triageArgs("--follow-up")...)...)
+	if err == nil {
+		t.Fatal("a run whose state commit failed ended without an error")
+	}
+	if !strings.Contains(err.Error(), "Resume with") {
+		t.Fatalf("the run ended with %q, want the loop's failure", err)
+	}
+	if h.Started() != 1 {
+		t.Fatalf("the run started %d sessions, want the plan only", h.Started())
+	}
+	if exists(filepath.Join(tree, "docs/plans/PASS_REVIEW.md")) {
+		t.Fatal("a failed run went on to its review")
+	}
+	raw, err := os.ReadFile(filepath.Join(tree, "docs/plans/PASS.state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := state.Parse(raw, "docs/plans/PASS.state.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Status("1.1"); got != state.Landed {
+		t.Fatalf("plan unit 1.1 is %s, want landed", got)
+	}
+}
+
+func TestTheFollowUpSuffixNamesOnlyWhatTheRunWillDo(t *testing.T) {
+	ordinary := plan.Parse(finishedPlan, "docs/plans/PASS.md")
+	reviewed := plan.Parse("---\nreviews: docs/plans/PASS.md\n---\n\n"+finishedPlan, "docs/plans/PASS_REVIEW.md")
+	fix := plan.Parse(finishedPlan, "docs/plans/PASS_FIXES.md")
+
+	cases := []struct {
+		name     string
+		p        *plan.Plan
+		followUp bool
+		limited  bool
+		want     string
+	}{
+		{"ordinary", ordinary, true, false, ", then its review and fix plan"},
+		{"review", reviewed, true, false, ", then its fix plan"},
+		{"fix plan", fix, true, false, ""},
+		{"limited ordinary", ordinary, true, true, ""},
+		{"limited review", reviewed, true, true, ""},
+		{"follow-up off", ordinary, false, false, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := followUpSuffix(c.followUp, c.p, c.limited); got != c.want {
+				t.Fatalf("the suffix is %q, want %q", got, c.want)
+			}
+		})
+	}
 }
 
 func TestAFixPlanWithFollowUpDoesNotStartAReview(t *testing.T) {
