@@ -18,14 +18,20 @@ import (
 	"github.com/Torwalt/ploopy/internal/ui"
 )
 
-type reviewFlags struct {
-	run          runFlags
-	since        string
-	writeOnly    bool
+// triageFlags is who weighs the findings, on `review` and on a run that
+// follows up with one.
+type triageFlags struct {
 	triageAgent  string
 	triageModel  string
 	triageEffort string
 	triageBudget float64
+}
+
+type reviewFlags struct {
+	run       runFlags
+	since     string
+	writeOnly bool
+	triageFlags
 }
 
 func newReview(e *env) *cobra.Command {
@@ -64,6 +70,12 @@ func newReview(e *env) *cobra.Command {
 
 // addTriageFlags is who weighs the findings, as flags.
 func addTriageFlags(cmd *cobra.Command, f *reviewFlags) {
+	addTriageFlagsTo(cmd, &f.triageFlags)
+}
+
+// addTriageFlagsTo adds the triage flags to a command, for review and for a
+// run that may follow up with one.
+func addTriageFlagsTo(cmd *cobra.Command, f *triageFlags) {
 	flags := cmd.Flags()
 	flags.StringVar(&f.triageAgent, "triage-agent", "", "harness that runs the triage; claude when nothing else says")
 	flags.StringVar(&f.triageModel, "triage-model", "", "model for the triage; opus when nothing else says")

@@ -167,10 +167,8 @@ func launchArgs(cmd *cobra.Command, f *runFlags, p *plan.Plan, pick chosenRun) [
 		"--subscriptions", pick.subscriptions,
 		"--spend-all="+strconv.FormatBool(pick.spendAll),
 		"--push="+strconv.FormatBool(pick.push),
-		"--finish", string(pick.finish))
-	if p.Reviews() != "" {
-		args = append(args, "--follow-up="+strconv.FormatBool(pick.followUp))
-	}
+		"--finish", string(pick.finish),
+		"--follow-up="+strconv.FormatBool(pick.followUp))
 
 	runOnly := runFlagNames()
 	cmd.Flags().Visit(func(flag *pflag.Flag) {
@@ -186,7 +184,9 @@ func launchArgs(cmd *cobra.Command, f *runFlags, p *plan.Plan, pick chosenRun) [
 // its own (review) hands on only the run's.
 func runFlagNames() map[string]bool {
 	probe := &cobra.Command{}
-	addRunFlags(probe, &runFlags{})
+	f := &runFlags{}
+	addRunFlags(probe, f)
+	addTriageFlagsTo(probe, &f.triageFlags)
 	names := map[string]bool{}
 	probe.Flags().VisitAll(func(flag *pflag.Flag) { names[flag.Name] = true })
 	return names

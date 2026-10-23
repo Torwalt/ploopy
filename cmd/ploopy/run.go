@@ -55,14 +55,15 @@ type runFlags struct {
 	spendAll      bool
 	followUp      bool
 	then          string
-	quiet         bool
-	grace         time.Duration
-	away          string
-	night         string
-	reserve       int
-	detach        bool
-	here          bool
-	launched      bool
+	triageFlags
+	quiet    bool
+	grace    time.Duration
+	away     string
+	night    string
+	reserve  int
+	detach   bool
+	here     bool
+	launched bool
 }
 
 func newRun(e *env) *cobra.Command {
@@ -77,6 +78,7 @@ func newRun(e *env) *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error { return runPlan(cmd, e, &f, nil) },
 	}
 	addRunFlags(cmd, &f)
+	addTriageFlagsTo(cmd, &f.triageFlags)
 	return cmd
 }
 
@@ -159,14 +161,13 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) error {
 	}
 
 	for {
-		fixes, ok := chainedFixPlan(ctx, last)
-		if !ok {
-			break
-		}
-		next, err := runFixPlan(ctx, cmd, e, f, last, fixes)
+		next, err := chainedPlan(ctx, cmd, e, f, last)
 		if err != nil {
 			finishRun(ctx, e, f, last)
 			return err
+		}
+		if next == nil {
+			break
 		}
 		last = next
 	}
@@ -176,6 +177,80 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) error {
 		return fmt.Errorf("%s", last.result.Message)
 	}
 	return nil
+}
+
+// chainedPlan is the next plan the run carries, or nil when the chain ends.
+func chainedPlan(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, r *planRun) (*planRun, error) {
+	if !followsUp(ctx, r) {
+		return nil, nil
+	}
+	if r.p.Reviews() != "" {
+		fixes, ok := chainedFixPlan(ctx, r)
+		if !ok {
+			return nil, nil
+		}
+		r.report.Say("%s complete; running its fix plan %s", r.p.Path, fixes)
+		return runChainedPlan(ctx, cmd, e, f, r, fixes)
+	}
+	if review.IsFix(r.p.Path) {
+		return nil, nil
+	}
+	return chainedReview(ctx, cmd, e, f, r)
+}
+
+// followsUp reports whether the run may go on to the next plan of its chain.
+func followsUp(ctx context.Context, r *planRun) bool {
+	return ctx.Err() == nil && r.p != nil && r.complete && !r.result.Stopped &&
+		!r.wanted.Stops() && r.wanted.FollowUp != nil && *r.wanted.FollowUp
+}
+
+// chainedReview writes and runs the review of a complete ordinary plan.
+func chainedReview(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, r *planRun) (*planRun, error) {
+	path := review.Path(r.p.Path)
+	if isFile(filepath.Join(r.root, path)) {
+		existing, err := plan.Load(filepath.Join(r.root, path), path)
+		if err != nil {
+			return nil, err
+		}
+		s, err := state.Load(filepath.Join(r.root, state.PathFor(path)))
+		if err != nil {
+			return nil, err
+		}
+		if loop.Complete(existing, s) {
+			r.report.Say("%s is already complete; not reviewing %s again", path, r.p.Path)
+			return nil, nil
+		}
+		r.report.Say("%s is already written; running it on", path)
+		return runChainedPlan(ctx, cmd, e, f, r, path)
+	}
+	fixes := review.FixesPath(r.p.Path)
+	if isFile(filepath.Join(r.root, fixes)) {
+		r.report.Say("%s from an earlier review still exists; not reviewing %s again", fixes, r.p.Path)
+		return nil, nil
+	}
+	s, err := state.Load(filepath.Join(r.root, state.PathFor(r.p.Path)))
+	if err != nil {
+		return nil, err
+	}
+	units, err := review.Reviewable(r.p, s, "")
+	if err != nil {
+		return nil, err
+	}
+	if len(units) == 0 {
+		r.report.Say("%s has no landed unit with commits to review; ending the chain", r.p.Path)
+		return nil, nil
+	}
+	rf := &reviewFlags{run: *f}
+	rf.triageFlags = f.triageFlags
+	triage, _, err := chooseTriageWithSources(ctx, cmd, e, rf, nil)
+	if err != nil {
+		return nil, err
+	}
+	r.report.Say("%s complete; reviewing it (triage %s)", r.p.Path, triage.Label())
+	if err := writeReview(cmd, e, r.root, r.p, s, rf, triage); err != nil {
+		return nil, err
+	}
+	return runChainedPlan(ctx, cmd, e, f, r, path)
 }
 
 // runOnce carries one plan to its end, without pushing, leaving its worktree
@@ -302,9 +377,10 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 		return nil, err
 	}
 
-	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, pick.agent.Harness.Name(),
+	report.Say("%s with %s%s at %s effort%s%s%s%s%s", p.Path, pick.agent.Harness.Name(),
 		modelSuffix(pick.agent.Model), pick.agent.Effort, secondarySuffix(pick.secondary),
-		peakSuffix(pick), pushSuffix(pick.push), finishSuffix(pick.finish))
+		peakSuffix(pick), pushSuffix(pick.push), finishSuffix(pick.finish),
+		followUpSuffix(pick.followUp, p))
 	if fallback := harness.FallbackModel(pick.agent.Harness, pick.agent.Model); fallback != "" {
 		report.Say("on a usage limit, %s continues with %s before waiting or switching harness", pick.agent.Model, fallback)
 	}
@@ -357,11 +433,7 @@ func announceSubscriptions(report *ui.Reporter, e *env, p *plan.Plan, pick chose
 // chainedFixPlan is the fix plan a complete review hands over to, when
 // follow-up says so and the triage wrote one.
 func chainedFixPlan(ctx context.Context, r *planRun) (string, bool) {
-	if ctx.Err() != nil || r.p == nil || r.p.Reviews() == "" || !r.complete ||
-		r.result.Stopped || r.wanted.Stops() {
-		return "", false
-	}
-	if r.wanted.FollowUp == nil || !*r.wanted.FollowUp {
+	if !followsUp(ctx, r) || r.p.Reviews() == "" {
 		return "", false
 	}
 	fixes := review.FixesPath(r.p.Reviews())
@@ -371,23 +443,22 @@ func chainedFixPlan(ctx context.Context, r *planRun) (string, bool) {
 	return fixes, true
 }
 
-// runFixPlan runs a review's fix plan in the review's worktree and settings,
-// but with the fix plan's own front matter where it gives some.
-func runFixPlan(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, reviewRun *planRun, fixes string) (*planRun, error) {
-	p, err := plan.Load(filepath.Join(reviewRun.root, fixes), fixes)
+// runChainedPlan runs the next plan of the chain in the same worktree and
+// settings, but with its own front matter where it gives some.
+func runChainedPlan(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, previous *planRun, path string) (*planRun, error) {
+	p, err := plan.Load(filepath.Join(previous.root, path), path)
 	if err != nil {
 		return nil, err
 	}
-	settings, err := applyPlanSettings(e, p, overChosen(e, reviewRun.chosen, reviewRun.wanted))
+	settings, err := applyPlanSettings(e, p, overChosen(e, previous.chosen, previous.wanted))
 	if err != nil {
 		return nil, err
 	}
 	next := *f
-	next.planName = fixes
+	next.planName = path
 	next.from, next.until, next.units = "", "", 0
 	next.dryRun = false
-	// The review's --test/--no-test only answers where the fix plan gives no
-	// test: of its own.
+	// The plan's own test setting, when it gives one, answers for itself.
 	if _, given := p.Settings["test"]; given {
 		next.tests, next.noTests = false, false
 	}
@@ -537,6 +608,21 @@ func finishSuffix(finish ui.Finish) string {
 		return ""
 	}
 	return ", then " + string(finish)
+}
+
+// followUpSuffix says which plan a run with follow-up goes on to, if any.
+func followUpSuffix(followUp bool, p *plan.Plan) string {
+	if !followUp || p == nil {
+		return ""
+	}
+	switch {
+	case p.Reviews() != "":
+		return ", then its fix plan"
+	case review.IsFix(p.Path):
+		return ""
+	default:
+		return ", then its review and fix plan"
+	}
 }
 
 // choosePlan takes the plan from the flag, or offers the open ones, each

@@ -82,8 +82,10 @@ sessions only while lent.
 **Review.** `ploopy review <NAME>` writes and runs `<NAME>_REVIEW.md`: one
 read-only session per landed unit and one for the seams, then a triage that
 writes `<NAME>_FIXES.md`.
-- `--follow-up`, or `n` on the board, runs the fix plan in the same worktree
-  right after. `--then fixes` is its deprecated alias.
+- With `--follow-up`, or `n` on the board, an ordinary plan that completes is
+  reviewed and the fix plan the triage writes runs right after, in the same
+  worktree; on a review it runs that fix plan. A fix plan is never reviewed.
+  `--then fixes` is its deprecated alias.
 - A repository adds its own checklist at `.agents/review-checklist.md`.
 
 **Land.** `ploopy land [BRANCH]` rebases the branch onto the default branch,

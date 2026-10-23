@@ -46,6 +46,21 @@ func TestPathsSitBesideTheReviewedPlan(t *testing.T) {
 	}
 }
 
+func TestOnlyATriageFixPlanIsAFixPlan(t *testing.T) {
+	for path, want := range map[string]bool{
+		"docs/plans/PASS.md":              false,
+		"docs/plans/PASS_REVIEW.md":       false,
+		"docs/plans/PASS_FIXES.md":        true,
+		"docs/plans/PASS_FIXES_REVIEW.md": false,
+		"docs/plans/PASS_FIXES_FIXES.md":  true,
+		"docs/plans/PASS_FIXED.md":        false,
+	} {
+		if got := IsFix(path); got != want {
+			t.Errorf("IsFix(%s) = %v, want %v", path, got, want)
+		}
+	}
+}
+
 func TestAReviewAndItsFixesBelongToTheReviewedPlan(t *testing.T) {
 	for path, want := range map[string]string{
 		"docs/plans/PASS.md":              "docs/plans/PASS.md",

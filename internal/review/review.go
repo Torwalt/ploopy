@@ -146,6 +146,13 @@ func Family(path string) string {
 	return lineage[len(lineage)-1]
 }
 
+// IsFix reports whether a plan is the fix plan a triage wrote: its name ends
+// in _FIXES. A review of a fix plan is not itself a fix plan.
+func IsFix(path string) bool {
+	stem := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	return strings.HasSuffix(stem, "_FIXES")
+}
+
 func sibling(path, suffix string) string {
 	stem := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	return filepath.Join(filepath.Dir(path), stem+suffix+".md")
