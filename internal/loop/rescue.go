@@ -120,6 +120,10 @@ func (l *Loop) runRescue(ctx context.Context, p *plan.Plan, u plan.Unit, c rescu
 	if err != nil {
 		return rescueResult{}, err
 	}
+	dirt, err := l.repo.DirtLines(ctx)
+	if err != nil {
+		return rescueResult{}, err
+	}
 
 	l.record("rescue", fmt.Sprintf("rescue %d for %s, %s: %s", c.number, u.ID, c.trigger, firstLine(c.failure)))
 	l.report.Say("rescue %d for %s (%s): %s starts", c.number, u.ID, c.trigger, agent.Label())
@@ -144,7 +148,7 @@ func (l *Loop) runRescue(ctx context.Context, p *plan.Plan, u plan.Unit, c rescu
 		return l.rescueFailed(u, c, "the session hit a usage limit: "+outcome.RateLimit.Reason, outcome.CostUSD), nil
 	}
 
-	verdict := l.judgeRescue(context.WithoutCancel(ctx), agent, head, outcome)
+	verdict := l.judgeRescue(context.WithoutCancel(ctx), agent, head, dirt, outcome)
 	if verdict.Kind != Landed {
 		return l.rescueFailed(u, c, verdict.Reason, outcome.CostUSD), nil
 	}
@@ -258,7 +262,7 @@ func (l *Loop) rescueReport(u plan.Unit, n int) (string, error) {
 	return string(text), nil
 }
 
-func (l *Loop) judgeRescue(ctx context.Context, agent Agent, base string, outcome harness.Outcome) Verdict {
+func (l *Loop) judgeRescue(ctx context.Context, agent Agent, base string, dirt []string, outcome harness.Outcome) Verdict {
 	commits, err := l.repo.Commits(ctx, base)
 	if err != nil {
 		return Verdict{Kind: Failed, Reason: err.Error()}
@@ -272,14 +276,18 @@ func (l *Loop) judgeRescue(ctx context.Context, agent Agent, base string, outcom
 			strings.Join(listing, "\n") + "\nThe commits stay for the author; the run stops here"}
 	}
 
-	dirt, err := l.repo.DirtLines(ctx)
+	changed, err := l.touched(ctx, base, dirt)
 	if err != nil {
 		return Verdict{Kind: Failed, Reason: err.Error()}
 	}
-	if len(dirt) > 0 {
+	if changed {
+		current, err := l.repo.DirtLines(ctx)
+		if err != nil {
+			return Verdict{Kind: Failed, Reason: err.Error()}
+		}
 		return Verdict{Kind: Failed, Reason: "the working tree is dirty after the rescue, and a rescue " +
 			"changes nothing. The changes stay for the author; the run stops here:\n" +
-			strings.Join(head(dirt, 20), "\n")}
+			strings.Join(head(current, 20), "\n")}
 	}
 
 	switch outcome.Marker {

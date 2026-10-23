@@ -268,6 +268,30 @@ func TestARescueThatLeavesTheTreeDirtyFailsAndLeavesIt(t *testing.T) {
 	}
 }
 
+func TestARescueDoesNotFailForDirtTheUnitLeftBeforeIt(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Do: leaves("partial.txt"), Outcome: done()}, // DONE without a commit fails
+		fake.Step{Do: commits("one.go", "first"), Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	f.opts.Retries = 0
+	other := rescuer(t, f, fake.Step{
+		// The rescue answers without touching the tree the unit left dirty.
+		Do:      rescue("1.1", 1, rescueReport("the unit ran out of attempts", "", "finish the unit", "")),
+		Outcome: harness.Outcome{Marker: harness.Retry, Reason: "the unit still has work to do"},
+	})
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if other.Started() != 1 {
+		t.Fatalf("%d rescues ran, want 1", other.Started())
+	}
+	if entry := f.state().Entry("1.1"); entry == nil || entry.Status != state.Landed {
+		t.Fatalf("unit 1.1 is %+v", entry)
+	}
+}
+
 func TestARescueWithNoMarkerStopsTheRun(t *testing.T) {
 	f := setup(t, twoUnits, fake.Step{Outcome: done()})
 	f.opts.Retries = 0
