@@ -3,6 +3,8 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    # nixos-unstable ships OpenCode 2; this pin is the last revision with OpenCode 1.
+    nixpkgs-opencode.url = "github:NixOS/nixpkgs/4bcd09ff0157f78d3930877872a2405ee3ee1e9c";
     # Claude Code CLI (rolling: bleeding edge, updated separately).
     claude-code-nix.url = "github:sadjow/claude-code-nix";
   };
@@ -11,6 +13,7 @@
     {
       self,
       nixpkgs,
+      nixpkgs-opencode,
       claude-code-nix,
     }:
     let
@@ -26,6 +29,9 @@
     {
       packages = forAllSystems (pkgs: rec {
         default = ploopy;
+        opencode = pkgs.callPackage ./nix/opencode.nix {
+          inherit (nixpkgs-opencode.legacyPackages.${pkgs.stdenv.hostPlatform.system}) opencode;
+        };
         ploopy = pkgs.buildGoModule {
           pname = "ploopy";
           inherit version;
@@ -129,7 +135,7 @@
             git
             ripgrep
             jq
-            opencode
+            self.packages.${pkgs.stdenv.hostPlatform.system}.opencode
             codex
             claude-code-nix.packages.${pkgs.stdenv.hostPlatform.system}.claude-code
             nixfmt
