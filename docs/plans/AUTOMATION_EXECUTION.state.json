@@ -98,6 +98,30 @@
         "reasoning": 35512,
         "cache_read": 12091648
       }
+    },
+    "3.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T12:42:13+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "9567d5d8bea9e9182c939552b3e591b6670c0a26",
+      "commits": [
+        "c50014da524f3d8b7bc0666d5ed078c5598ec926 Record rescues in state, reports and the closing summary"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `c50014d` adds `state.Rescue` and `state.Entry.Rescues`, collects each rescue in\n  `progress.Rescues`, and copies them onto the entry when a unit settles landed\n  or blocked.\n- Each record carries the trigger, verdict (`retry`/`decided`/`blocked`/`failed`),\n  agent label, reason, the report text cut at 4000 bytes, date and its cost.\n  A rescue's cost stays in the unit's `cost_usd`; its time stays out of\n  `session_s`.\n- `ploopy report` prints a *Rescued* section after *What went wrong*, with the\n  full *Decisions* section for `decided` rescues.\n- The closing summary prints one line per rescue and ends with\n  `review these: ploopy report \u003cplan\u003e`; decisions are shown under `decided`\n  lines.\n\n**Landmark drift**\n\n- `entry` now also copies `l.progress.Rescues`; `settle`'s blocked path clears\n  `progress.Rescues` after recording the entry.\n- `stats.Report` calls a new `rescued()` between `trouble()` and the cost note.\n- `ui.Summary` ends with `rescues()`, after the run totals and price note.\n- `Rescue.Section` in `internal/state` parses a report's `## Name` body; both the\n  report and the summary use it instead of a loop-side helper.\n\n**Deviations from the work order**\n\n- Every rescue is recorded, including a failed one (`verdict: failed`), with any\n  report text it left. This matches \"every rescue is recorded\" in §9.\n- The 4000-byte cut is literal byte truncation, as §9 says.\n- The report and summary read rescues from the state file, not from the current\n  run's stats log.\n\n**What the next session must know**\n\n- On a completed plan `runOnce` prints `stats.Report` rather than `Summary`; that\n  path now has the *Rescued* section too. `Summary` is used for a run that did\n  not complete and by `ploopy status`.\n- `Rescue.Reason` is the marker's one-line reason, not the marker keyword\n  (`retry`/`decided`/`blocked` are in `Verdict`).\n- Progress keeps rescues when the same unit is resumed after a crash or a failed\n  run. An entry settled by a later run can therefore include rescues from an\n  earlier run; rescues for a run that stopped failed stay only in `progress`.\n- Existing report test expectations still pass unchanged; rescue sessions are\n  still counted in the ordinary *Sessions* and *Agents* lines. §9 does not ask\n  for their removal.\n\n**Open problems**\n\n- No user-facing rescue setting yet (3.3), so the records are only reachable from\n  tests.\n- README and `skills/ploopy` still omit the rescue lifecycle; that docs pass is\n  unchanged from the previous handover.",
+      "session_id": "ses_e97a8f25effe8S3rCZHsGQ1rYd",
+      "cost_usd": 0.031564734,
+      "harness": "opencode",
+      "elapsed_s": 237,
+      "session_s": 224,
+      "test_s": 13,
+      "tokens": {
+        "input": 80349,
+        "output": 10158,
+        "reasoning": 11370,
+        "cache_read": 2198528
+      }
     }
   }
 }
