@@ -339,6 +339,30 @@
         "reasoning": 7362,
         "cache_read": 2309248
       }
+    },
+    "3.7": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T15:20:58+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "24b5e6a2e5d55311f939e9e6f4b2de5b06ca50d9",
+      "commits": [
+        "3760c6d1b1f85a53ec34910daf42bb6ffbde0dcf Strengthen the estimate tests against rescue sessions"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 3.7\n\n## What landed\n\n`3760c6d` strengthens the two estimate tests so the rescue skip is observable:\n\n- `TestARescueIsMarkedInStatsAndHistoryAndLeftOutOfEstimates` now requires the\n  unit's own agent (`fake fake-model high`) to keep both landed units in its\n  estimate. With the rescue record counted, unit 1.1 turns mixed and drops out,\n  leaving `Units: 1`, so the test fails.\n- New `TestARescueSessionIsLeftOutOfItsUnitsEstimate` in\n  `internal/history/history_test.go` uses fixed session seconds and costs: the\n  unit's own agent keeps `Units: 1`, 20 minutes and $2, while the rescue's 9000\n  seconds and $9 stay out, and the rescue agent has no estimate.\n\nVerified the defect: temporarily deleting the `r.Role == \"rescue\"` skip in\n`internal/history/estimate.go` made both tests fail with `Units` short by one.\nThe skip was restored; `go build`, `go vet`, `gofmt`, `go test ./...` are green.\n\n## Landmark drift\n\n- The evidence cites the rescue-agent assertion at\n  `internal/loop/rescue_test.go:373-375`; that code now lives at 602-604, and the\n  test function is at 554.\n\n## Deviations from the work order\n\n- Added the focused history test in addition to strengthening the loop test, to\n  pin the rescue's seconds and cost deterministically. The loop test alone can\n  only observe the unit dropping out, since its durations come from the real\n  clock.\n\n## What the next session must know\n\n- The loop test's unit agent label is `fake fake-model high` (harness `fake`,\n  model `fake-model`, effort `high`).\n- `Estimates` drops a unit when two agents share it, so the missing skip does\n  not merely add rescue time; it makes the unit disappear from its own agent's\n  estimate. That is what the strengthened assertions catch.\n- No production code changed; `internal/history/estimate.go` is untouched.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e97169434ffe93A4Jrz3In6gbG",
+      "cost_usd": 0.015374754,
+      "harness": "opencode",
+      "elapsed_s": 170,
+      "session_s": 151,
+      "test_s": 18,
+      "tokens": {
+        "input": 44079,
+        "output": 3499,
+        "reasoning": 6526,
+        "cache_read": 915968
+      }
     }
   }
 }
