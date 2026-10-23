@@ -1016,7 +1016,7 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 							}
 							continue
 						case rescueBlocked:
-							blocked := Verdict{Kind: Blocked, Reason: result.reason, Marker: harness.Blocked}
+							blocked := l.blockedByRescue(after, result.reason, base, nil)
 							if _, err := l.settle(after, p, u, agent, blocked, base, attempt, outcome, tail); err != nil {
 								return err
 							}
@@ -1109,8 +1109,9 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 					}
 					continue
 				case rescueBlocked:
+					// The blocked verdict already holds what git showed.
 					verdict = Verdict{Kind: Blocked, Reason: result.reason, Marker: harness.Blocked,
-						Notes: verdict.Notes}
+						Commits: verdict.Commits, Notes: verdict.Notes}
 				}
 			}
 		}
@@ -1169,8 +1170,7 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 					}
 					continue
 				case rescueBlocked:
-					blocked := Verdict{Kind: Blocked, Reason: result.reason, Marker: harness.Blocked,
-						Notes: verdict.Notes}
+					blocked := l.blockedByRescue(judgeCtx, result.reason, base, verdict.Notes)
 					if _, err := l.settle(judgeCtx, p, u, agent, blocked, base, attempt, outcome, tail); err != nil {
 						return err
 					}
@@ -1466,6 +1466,18 @@ func (l *Loop) settle(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agen
 	l.record("complete", string(summary))
 	l.report.UnitDone(u, verdict)
 	return true, nil
+}
+
+// blockedByRescue is the verdict a rescue's BLOCKED answer settles: the reason
+// is the rescue's, and git still says what the unit left behind.
+func (l *Loop) blockedByRescue(ctx context.Context, reason, base string, notes []string) Verdict {
+	verdict := Verdict{Kind: Blocked, Reason: reason, Marker: harness.Blocked, Notes: notes}
+	verdict.Commits, _ = l.repo.Commits(ctx, base)
+	if len(verdict.Commits) > 0 {
+		verdict.Notes = append(verdict.Notes, fmt.Sprintf(
+			"the session committed %d time(s) before blocking", len(verdict.Commits)))
+	}
+	return verdict
 }
 
 // failedAttempt prepares the retry. Whether the retries have run out, and

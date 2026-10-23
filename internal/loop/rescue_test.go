@@ -208,6 +208,54 @@ func TestARescueBlockStopsTheRunWithItsReason(t *testing.T) {
 	}
 }
 
+func TestARescueBlockRecordsWhatTheSessionCommitted(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Do: commits("one.go", "half of it"), Outcome: harness.Outcome{
+			Marker: harness.Blocked, Reason: "the premise is wrong"}},
+		fake.Step{Outcome: harness.Outcome{
+			Marker: harness.Blocked, Reason: "the premise is still wrong"}},
+	)
+	rescuer(t, f, fake.Step{
+		Do:      rescue("1.1", 1, rescueReport("the rest needs the author", "", "ask the author", "")),
+		Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the author must decide"},
+	})
+
+	result := f.run()
+	if result.Status != "failed" || !strings.Contains(result.Message, "the author must decide") {
+		t.Fatalf("run %+v", result)
+	}
+	entry := f.state().Entry("1.1")
+	if entry == nil || entry.Status != state.Blocked {
+		t.Fatalf("unit 1.1 is %+v", entry)
+	}
+	if len(entry.Commits) != 1 || !strings.Contains(entry.Commits[0], "half of it") {
+		t.Fatalf("the blocked unit did not record its commit: %+v", entry.Commits)
+	}
+}
+
+func TestARescueBlockAfterAFailedCheckRecordsTheCommit(t *testing.T) {
+	f := setup(t, twoUnits, fake.Step{
+		Do: commits("one.go", "half of it"), Outcome: done()})
+	f.opts.Retries = 0
+	f.opts.VerifyCmd = "test ! -f one.go"
+	rescuer(t, f, fake.Step{
+		Do:      rescue("1.1", 1, rescueReport("the check cannot pass yet", "", "ask the author", "")),
+		Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the author must decide"},
+	})
+
+	result := f.run()
+	if result.Status != "failed" || !strings.Contains(result.Message, "the author must decide") {
+		t.Fatalf("run %+v", result)
+	}
+	entry := f.state().Entry("1.1")
+	if entry == nil || entry.Status != state.Blocked {
+		t.Fatalf("unit 1.1 is %+v", entry)
+	}
+	if len(entry.Commits) != 1 || !strings.Contains(entry.Commits[0], "half of it") {
+		t.Fatalf("the blocked unit did not record its commit: %+v", entry.Commits)
+	}
+}
+
 func TestARescueBlockAfterSpentRetriesSettlesTheUnitBlocked(t *testing.T) {
 	f := setup(t, twoUnits, fake.Step{Outcome: done()})
 	f.opts.Retries = 0
