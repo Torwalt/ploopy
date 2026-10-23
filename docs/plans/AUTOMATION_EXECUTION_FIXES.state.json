@@ -242,6 +242,30 @@
         "reasoning": 3528,
         "cache_read": 1031168
       }
+    },
+    "3.3": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T15:06:04+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "c06d8a4b2ada58469255fb1eaa6fbc4c6bd03cd5",
+      "commits": [
+        "24c114c6a0d9449dfd608f36a38472a7f16e1794 Record a blocked rescue's commits"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 3.3\n\n## What landed\n\nA BLOCKED rescue now settles the unit with the commits git reports since its\nbase, as an ordinary blocked verdict does.\n\n- The blocked trigger carries the commits its `l.blocked` verdict already read.\n- The failed and transient triggers build the blocked verdict through\n  `blockedByRescue`, which reads `repo.Commits(ctx, base)` and notes how many\n  commits the unit left.\n- Two tests in `internal/loop/rescue_test.go`: a session that commits then\n  blocks, and one that commits then fails its check, both confirmed blocked by\n  a rescue. Both failed before the change with `commits: []`.\n\n## Landmark drift\n\nNone. `loop.go` line numbers were close to the work order; the three\n`rescueBlocked` cases were where it placed them.\n\n## Deviations from the work order\n\nAdded the failed-check test as well as the named commit-then-block test, so\nboth rebuilt verdict paths are covered. The blocked trigger keeps the commits\nand notes already on the verdict rather than re-reading git and duplicating the\n\"committed N time(s)\" note.\n\n## What the next session must know\n\n- `blockedByRescue` is the helper for rescue-blocked verdicts that do not\n  already have a blocked verdict in hand. It appends the same commit note\n  `l.blocked` writes.\n- The transient trigger cannot itself create commits (it requires an untouched\n  repository), but a unit can arrive there after an earlier attempt committed;\n  the helper reads those too.\n- The verdict's `Commits` are written to `state.Entry.Commits` by `entry`;\n  `settle` is unchanged.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e9723c0e0ffeg73spTmW080iEC",
+      "cost_usd": 0.01606131,
+      "harness": "opencode",
+      "elapsed_s": 138,
+      "session_s": 119,
+      "test_s": 19,
+      "tokens": {
+        "input": 43197,
+        "output": 3381,
+        "reasoning": 8627,
+        "cache_read": 792320
+      }
     }
   }
 }
