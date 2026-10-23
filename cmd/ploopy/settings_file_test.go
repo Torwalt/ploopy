@@ -414,6 +414,24 @@ func TestTheRescueComesFromTheFileAFlagOrTheLastRun(t *testing.T) {
 	}
 }
 
+func TestTheChosenRescueReachesTheLoopOptions(t *testing.T) {
+	e := boardEnv(t)
+	e.harnesses = allHarnesses()
+	p := plan.Parse(finishedPlan, "docs/plans/PASS.md")
+	_, f := settingsCommand(t)
+
+	rescue := &loop.Agent{Harness: e.harnesses.Get("claude"), Model: "opus", Effort: "high"}
+	opts := runOptions(context.Background(), e, f, p, e.cfg, skills{}, chosenRun{rescue: rescue}, "", "")
+	if opts.Rescue != rescue {
+		t.Fatalf("the run's options carry rescue %+v, want %+v", opts.Rescue, rescue)
+	}
+
+	opts = runOptions(context.Background(), e, f, p, e.cfg, skills{}, chosenRun{}, "", "")
+	if opts.Rescue != nil {
+		t.Fatalf("a run without a rescue carries %+v", opts.Rescue)
+	}
+}
+
 func TestAChainedPlanKeepsTheRescue(t *testing.T) {
 	e := boardEnv(t)
 	e.harnesses = allHarnesses()

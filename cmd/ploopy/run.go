@@ -316,39 +316,7 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 	report := ui.NewReporter(os.Stdout, os.Stderr)
 	report.Quiet = f.quiet
 	leases := newLendingLoader(e.harnesses, pick.agent.Harness.Name(), report)
-	opts := loop.Options{
-		PlanPath:     p.Path,
-		Harness:      pick.agent.Harness,
-		Model:        pick.agent.Model,
-		Effort:       pick.agent.Effort,
-		Start:        f.from,
-		Until:        f.until,
-		MaxUnits:     f.units,
-		Retries:      f.retries,
-		BlockRetries: f.blockRetries,
-		Timeout:      f.timeout,
-		Backoff:      f.backoff,
-		Tests:        testsOverride(f),
-		Context:      strings.Fields(f.context),
-		BaseContext:  cfg.Context,
-		Skill:        skill.unit,
-		ReviewSkill:  skill.review,
-		TriageSkill:  skill.triage,
-		RescueSkill:  skill.rescue,
-		Checklist:    skill.checklist,
-		Harnesses:    e.harnesses,
-		VerifyCmd:    verify,
-		TestCmd:      test,
-		AuthorPaths:  cfg.AuthorPaths,
-		StateCommit:  cfg.StateCommit,
-		Notify:       f.notify,
-		HarnessArgs:  e.extra,
-		MaxBudgetUSD: f.budget,
-		Secondary:    pick.secondary,
-		Rescue:       pick.rescue,
-		WaitOffPeak:  pick.waitOffPeak,
-		History:      historyPath(ctx, e.root),
-	}
+	opts := runOptions(ctx, e, f, p, cfg, skill, pick, verify, test)
 
 	if f.dryRun {
 		runner, err := loop.New(t.root, opts, report)
@@ -422,6 +390,44 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 		root: root, branch: branch, cfg: cfg, p: p, runner: runner, report: report,
 		result: result, complete: complete, wanted: steer.wanted(), chosen: pick,
 	}, nil
+}
+
+// runOptions is the loop's settings for one plan, from what the run settled
+// on and the checks chosen for it.
+func runOptions(ctx context.Context, e *env, f *runFlags, p *plan.Plan, cfg config.Config, skill skills, pick chosenRun, verify, test string) loop.Options {
+	return loop.Options{
+		PlanPath:     p.Path,
+		Harness:      pick.agent.Harness,
+		Model:        pick.agent.Model,
+		Effort:       pick.agent.Effort,
+		Start:        f.from,
+		Until:        f.until,
+		MaxUnits:     f.units,
+		Retries:      f.retries,
+		BlockRetries: f.blockRetries,
+		Timeout:      f.timeout,
+		Backoff:      f.backoff,
+		Tests:        testsOverride(f),
+		Context:      strings.Fields(f.context),
+		BaseContext:  cfg.Context,
+		Skill:        skill.unit,
+		ReviewSkill:  skill.review,
+		TriageSkill:  skill.triage,
+		RescueSkill:  skill.rescue,
+		Checklist:    skill.checklist,
+		Harnesses:    e.harnesses,
+		VerifyCmd:    verify,
+		TestCmd:      test,
+		AuthorPaths:  cfg.AuthorPaths,
+		StateCommit:  cfg.StateCommit,
+		Notify:       f.notify,
+		HarnessArgs:  e.extra,
+		MaxBudgetUSD: f.budget,
+		Secondary:    pick.secondary,
+		Rescue:       pick.rescue,
+		WaitOffPeak:  pick.waitOffPeak,
+		History:      historyPath(ctx, e.root),
+	}
 }
 
 // announceSubscriptions says which subscriptions the run may use and whether
