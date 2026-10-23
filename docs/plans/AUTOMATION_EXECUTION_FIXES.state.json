@@ -363,6 +363,30 @@
         "reasoning": 6526,
         "cache_read": 915968
       }
+    },
+    "3.8": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T15:22:36+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "633d52cdde6b839a59fea8103ddc82acde21ae5c",
+      "commits": [
+        "fe6e2f7e399e92b6158e42eda4fe465bc14b7f2c Drop the rescue fields nothing reads"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 3.8\n\n## What landed\n\n`fe6e2f7` removes the dead rescue state:\n\n- `rescueAttempt.Info` and `.Tail` are gone; `noteAttempt` no longer takes\n  `tail` or `info` and its three callers pass only what it records.\n- `rescueResult.report` and `.diagnosis` are gone. The retry and decided cases\n  still read the report text for `next`/`decisions` and pass it straight to\n  `recordRescue`; the blocked case reads the text once and records it.\n\nNo behaviour change. `rg -n '\\.Tail\\b|\\bInfo:|diagnosis' internal/loop/rescue.go`\nfinds nothing. Build, vet, gofmt and `go test ./...` are green.\n\n## Landmark drift\n\n- The cited `internal/loop/rescue.go:28-37`, `:61-69`, `:93-99` still matched\n  the structs and `noteAttempt`; only line numbers shifted after the edit.\n- `noteAttempt` callers are in `internal/loop/loop.go` at what are now the\n  usage-limit, transient and judged-session paths, unchanged in placement.\n\n## Deviations from the work order\n\nNone.\n\n## What the next session must know\n\n- `sessionInfo` and `sessionRecord.Info` are still live and untouched; only the\n  rescue copies were dead.\n- `rescueResult` still carries `next`, `decisions`, `wait`, `action`, `reason`;\n  those are read by the rescue branches in `runUnit`.\n- The blocked rescue now ignores the read error from `rescueReport` exactly as\n  before (empty report on failure), so the record is unchanged.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e97140083ffeVVJIiHFiiK0bvP",
+      "cost_usd": 0.00931899,
+      "harness": "opencode",
+      "elapsed_s": 99,
+      "session_s": 81,
+      "test_s": 17,
+      "tokens": {
+        "input": 33269,
+        "output": 3355,
+        "reasoning": 1101,
+        "cache_read": 551680
+      }
     }
   }
 }
