@@ -436,6 +436,29 @@ func TestChangingTheAgentKeepsAGivenModelOrEffort(t *testing.T) {
 	}
 }
 
+func TestChangingTheAgentResetsAFileModelAndEffort(t *testing.T) {
+	e := boardEnv(t)
+	e.cfg.Run = config.Run{Agent: "opencode", Model: "custom/model", Effort: "max"}
+	p := plan.Parse("", "docs/plans/PASS.md")
+	cmd, f := settingsCommand(t)
+	s, g, err := givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fill(e, &s, g, nil)
+	board := newSettingsBoard(context.Background(), e, p, g, &s, "pass", 3)
+
+	key(board.board, '1')
+	key(board.board, 'a')
+	if s.Harness != "claude" {
+		t.Fatalf("the agent changed to %q", s.Harness)
+	}
+	h := e.harnesses.Get("claude")
+	if s.Model != h.Models()[0] || s.Effort != preferredEffort(h) {
+		t.Fatalf("the board kept %s at %s, want %s's defaults", s.Model, s.Effort, h.Name())
+	}
+}
+
 func TestChangingTheTriageAgentKeepsAGivenModel(t *testing.T) {
 	e := boardEnv(t)
 	p := plan.Parse("---\nreviews: docs/plans/PASS.md\n---\n", "docs/plans/PASS_REVIEW.md")

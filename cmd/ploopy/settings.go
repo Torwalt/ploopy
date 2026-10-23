@@ -122,10 +122,12 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 
 	s.Harness = f.agent
 	if s.Harness != "" {
+		g.harness = true
 		g.from("harness", "from a flag")
 	} else {
 		s.Harness = p.Settings["agent"]
 		if s.Harness != "" {
+			g.harness = true
 			g.from("harness", "from the plan")
 		}
 	}
@@ -140,24 +142,27 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 	fromPlan := p.Settings["agent"] != "" && p.Settings["agent"] == s.Harness
 	s.Model, s.Effort = f.model, f.effort
 	if s.Model != "" {
+		g.model = true
 		g.from("model", "from a flag")
 	} else if fromPlan && p.Settings["model"] != "" {
 		s.Model = p.Settings["model"]
+		g.model = true
 		g.from("model", "from the plan")
 	} else if e.cfg.Run.Model != "" {
 		s.Model = e.cfg.Run.Model
 		g.fromFile("model")
 	}
 	if s.Effort != "" {
+		g.effort = true
 		g.from("effort", "from a flag")
 	} else if fromPlan && p.Settings["effort"] != "" {
 		s.Effort = p.Settings["effort"]
+		g.effort = true
 		g.from("effort", "from the plan")
 	} else if e.cfg.Run.Effort != "" {
 		s.Effort = e.cfg.Run.Effort
 		g.fromFile("effort")
 	}
-	g.harness, g.model, g.effort = s.Harness != "", s.Model != "", s.Effort != ""
 
 	if cmd.Flags().Changed("secondary") {
 		g.secondary = true
