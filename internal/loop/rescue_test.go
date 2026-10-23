@@ -599,6 +599,9 @@ func TestARescueIsMarkedInStatsAndHistoryAndLeftOutOfEstimates(t *testing.T) {
 	if !found {
 		t.Fatal("the history has no rescue record")
 	}
+	if e := history.For(records, "fake fake-model high"); e.Units != 2 {
+		t.Fatalf("the estimate left out the unit the agent landed: %+v", e)
+	}
 	if e := history.For(records, "rescuer rescue-model high"); e.Units != 0 {
 		t.Fatalf("the estimate counted rescue sessions: %+v", e)
 	}

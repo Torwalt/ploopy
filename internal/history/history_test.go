@@ -64,6 +64,23 @@ func TestAUnitTwoAgentsShareIsLeftOut(t *testing.T) {
 	}
 }
 
+// A rescue's session is not part of the unit it diagnosed: the unit keeps the
+// time and cost of its own agent's attempts only.
+func TestARescueSessionIsLeftOutOfItsUnitsEstimate(t *testing.T) {
+	records := []history.Record{
+		{Plan: "MAP_EDITOR", Unit: "1.1", Agent: "claude sonnet high", Harness: "claude", Verdict: "failed", Seconds: 600, CostUSD: 1},
+		{Plan: "MAP_EDITOR", Unit: "1.1", Role: "rescue", Agent: "claude opus high", Harness: "claude", Verdict: "retry", Seconds: 9000, CostUSD: 9},
+		{Plan: "MAP_EDITOR", Unit: "1.1", Agent: "claude sonnet high", Harness: "claude", Verdict: "landed", Seconds: 600, CostUSD: 1},
+	}
+	e := history.For(records, "claude sonnet high")
+	if e.Units != 1 || !near(e.Minutes, 20) || !near(e.CostUSD, 2) {
+		t.Fatalf("estimate %+v", e)
+	}
+	if other := history.For(records, "claude opus high"); other.Units != 0 {
+		t.Fatalf("the rescue's agent has an estimate: %+v", other)
+	}
+}
+
 func TestUnitsRunWhileAwayWinOnceThereAreEnough(t *testing.T) {
 	var records []history.Record
 	for _, unit := range []string{"1", "2", "3"} {
