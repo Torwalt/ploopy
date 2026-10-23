@@ -1,0 +1,28 @@
+{
+  "units": {
+    "1.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T12:09:05+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "e91d1cecc3562f90ecc3c597c384eab3d028109a",
+      "commits": [
+        "a014a538d313da11d82914c7039f67ba0eb0b002 Read run and review settings from .ploopy.toml"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n- `a014a53` adds `[run]` and `[review]` to `.ploopy.toml`, with every key from §3.\n- `cmd/ploopy` now reads file values after flags and front matter and before the last run, without locking them on the board; the board shows `from .ploopy.toml`.\n- `[run] push` wins over top-level `push`; the old key still loads. The README documents both tables.\n\n**Landmark drift**\n- None. The symbols named in the work order were where expected.\n\n**Deviations from the work order**\n- New-key validation lives in `config.Config.Validate(harnesses harness.Set)`, called from `main`/`optionalConfig`, instead of inside `Load`. `Load` cannot know the harness efforts or which harnesses are metered; `Validate` gets the same `harness.Set` the command built.\n- `run.spend_all`, `run.push` and `review.triage_budget` are pointers in `config` so an explicit `false`/`0` can be told from an unset key. `Load` resolves `run.push` into the existing `Push`, and records whether either push key was written in `PushSet`.\n- `subscriptionSet` in `cmd/ploopy` now delegates to `config.NormalizeSubscriptions` so file and flag validation share one implementation.\n\n**What the next session must know**\n- Call `cfg.Validate(harnesses)` after building the harness set; `Load` alone only checks TOML shape. `checkConfig` does this for every command.\n- Use `given.fromFile(key)` for a file value and `given.prefilled(key)` in the board; `given.from(key, source)` still means locked.\n- `Run.SpendAll == nil` / `Review.TriageBudget == nil` mean the key was absent. Do not read them as zero without checking.\n- The triage file path is `chooseTriageWithSources`; `chooseTriage` keeps its old two-value signature for existing callers.\n- `internal/ui.BoardField.Source` is rendered only when `Locked` is empty, so a flag or plan value never shows the file source.\n- Still to do in later units: `[automation]`, follow-up and rescue. Leave `Run`/`Review` untouched when adding them.\n\n**Open problems**\n- A file effort without a file agent cannot be validated in `config.Validate` (no harness is known yet); `givenSettings` checks it against the resolved harness and names `[run] effort`. Triage effort without a triage agent is checked by `validateTriage` with the existing triage message rather than a `[review]` key message.",
+      "session_id": "ses_e97cbfdacffe5xg9iP3MeconyS",
+      "cost_usd": 0.06397746600000001,
+      "harness": "opencode",
+      "elapsed_s": 546,
+      "session_s": 534,
+      "test_s": 11,
+      "tokens": {
+        "input": 144371,
+        "output": 20134,
+        "reasoning": 24675,
+        "cache_read": 5145472
+      }
+    }
+  }
+}
