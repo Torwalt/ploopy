@@ -144,6 +144,31 @@
         "reasoning": 9799,
         "cache_read": 2085504
       }
+    },
+    "2.3": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T14:56:06+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "f653afa461e5b5d86dbb6eed574ffed9a872b9f0",
+      "commits": [
+        "61eb09dc94d2f857f3930b60b0858d43f6a2f894 Apply triage flags when the chain resumes a review"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 2.3\n\n## What landed\n\n`61eb09d` — the chain now resolves a leftover review's triage the way a\nnon-interactive `ploopy review` does.\n\n- `chainedReview` builds a `reviewFlags` from the run's flags and calls\n  `reviewTriage` on the already-written review, then `changeTriage` when the\n  triage has not run. `--triage-agent/model/effort/budget` therefore rewrite\n  the review's front matter before the review resumes.\n- A triage whose unit is landed or skipped (`triageRan`) is left untouched;\n  `changeTriage`'s own `triageLock` still refuses a live review.\n- Tests in `cmd/ploopy/review_chain_test.go`: one resumes a leftover review\n  with new triage flags and checks both the triage session's model and the\n  rewritten front matter (fails at `f653afa`: the triage ran as `old-model`);\n  one leaves an already-run triage alone.\n\n## Landmark drift\n\nNone. `chainedReview`, `reviewTriage` and `changeTriage` are where the order\nplaced them.\n\n## Deviations from the work order\n\n- The existing-review branch calls `reviewTriage` and `changeTriage` directly\n  rather than extracting a helper shared with `reviewPlan`; the non-interactive\n  review path has extra board/`writeOnly` branches the chain does not use.\n- The guard is `!triageRan` plus `u != nil`, mirroring `reviewPlan`'s\n  non-interactive condition without its `ui.Interactive()` test: the chain is\n  always unattended.\n\n## What the next session must know\n\n- `reviewTriage` validates and remembers the chosen triage (`saveLastTriage`)\n  even when the triage has already run; it returns the review's own triage in\n  that case and `triageRan == true`.\n- The run's `--triage-*` flags already reach `runFlags.triageFlags`; only the\n  leftover-review branch was missing the resolution step.\n- A leftover review whose collecting units are incomplete still applies the\n  triage change first, then runs from its first open unit.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e972ddbd7ffehtMqV8YHmq6tbE",
+      "cost_usd": 0.021498660000000003,
+      "harness": "opencode",
+      "elapsed_s": 202,
+      "session_s": 169,
+      "verify_s": 1,
+      "test_s": 32,
+      "tokens": {
+        "input": 64998,
+        "output": 5415,
+        "reasoning": 6157,
+        "cache_read": 1601920
+      }
     }
   }
 }
