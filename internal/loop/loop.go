@@ -1374,6 +1374,7 @@ func (l *Loop) entry(agent Agent, verdict Verdict, base string, attempts int, ha
 		VerifyS:   seconds(spent.Verify),
 		TestS:     seconds(spent.Test),
 		Tokens:    tokens,
+		Rescues:   l.progress.Rescues,
 	}
 }
 
@@ -1430,6 +1431,7 @@ func (l *Loop) settle(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agen
 		}
 		dirt, _ := l.repo.DirtLines(ctx)
 		l.progress.Failure, l.progress.Session, l.progress.LeftDirty = "", nil, len(dirt) > 0
+		l.progress.Rescues = nil
 		_ = l.progress.save()
 
 		l.report.UnitDone(u, verdict)

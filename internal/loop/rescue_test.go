@@ -94,7 +94,7 @@ func TestARescueDecisionLandsTheUnitAndKeepsTheDecisions(t *testing.T) {
 	other := rescuer(t, f, fake.Step{
 		Do: rescue("1.1", 1, rescueReport("the work order leaves the clock open",
 			"Use the repository's existing clock, not a new one.", "wire the existing clock", "")),
-		Outcome: harness.Outcome{Marker: harness.Decided, Reason: "use the existing clock"},
+		Outcome: harness.Outcome{Marker: harness.Decided, Reason: "use the existing clock", CostUSD: 0.25},
 	})
 
 	if result := f.run(); result.Status != "done" {
@@ -110,8 +110,21 @@ func TestARescueDecisionLandsTheUnitAndKeepsTheDecisions(t *testing.T) {
 	if prompt := f.h.Prompts[3]; !strings.Contains(prompt, "Use the repository's existing clock") {
 		t.Fatalf("the attempt after a later failure lost the decision:\n%s", prompt)
 	}
-	if entry := f.state().Entry("1.1"); entry == nil || entry.Status != state.Landed {
+	entry := f.state().Entry("1.1")
+	if entry == nil || entry.Status != state.Landed {
 		t.Fatalf("unit 1.1 is %+v", entry)
+	}
+	if len(entry.Rescues) != 1 {
+		t.Fatalf("unit 1.1 recorded %d rescues, want 1: %+v", len(entry.Rescues), entry.Rescues)
+	}
+	rescue := entry.Rescues[0]
+	if rescue.Trigger != "blocked" || rescue.Verdict != "decided" ||
+		rescue.Reason != "use the existing clock" || rescue.Agent != "rescuer rescue-model high" ||
+		!strings.Contains(rescue.Report, "Use the repository's existing clock") {
+		t.Fatalf("the rescue record is %+v", rescue)
+	}
+	if rescue.CostUSD != 0.25 || entry.CostUSD != 0.25 {
+		t.Fatalf("rescue cost %.2f, unit cost %.2f", rescue.CostUSD, entry.CostUSD)
 	}
 }
 

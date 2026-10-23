@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/Torwalt/ploopy/internal/harness"
+	"github.com/Torwalt/ploopy/internal/state"
 )
 
 // sessionRecord is a session that ended but was not yet judged. The next run
@@ -36,6 +37,7 @@ type progress struct {
 	Session   *sessionRecord `json:"session,omitempty"`
 	LeftDirty bool           `json:"left_dirty,omitempty"`
 	Spent     spent          `json:"spent"`
+	Rescues   []state.Rescue `json:"rescues,omitempty"`
 }
 
 func loadProgress(path string) *progress {
@@ -69,6 +71,7 @@ func (p *progress) reset(unit, base, failure string, session *sessionRecord) err
 	if p.Unit != unit {
 		p.Spent = spent{}
 		p.Decisions = ""
+		p.Rescues = nil
 		// The next unit starts from a clean tree or from dirt the loop did not
 		// leave; either way, it is not this unit's earlier attempt.
 		p.LeftDirty = false

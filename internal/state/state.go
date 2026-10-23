@@ -53,6 +53,35 @@ type Entry struct {
 	VerifyS  int             `json:"verify_s,omitempty"`
 	TestS    int             `json:"test_s,omitempty"`
 	Tokens   *harness.Tokens `json:"tokens,omitempty"`
+
+	Rescues []Rescue `json:"rescues,omitempty"`
+}
+
+// Rescue is one diagnosis session the run gave a unit.
+type Rescue struct {
+	Trigger string  `json:"trigger,omitempty"`
+	Verdict string  `json:"verdict,omitempty"`
+	Agent   string  `json:"agent,omitempty"`
+	Reason  string  `json:"reason,omitempty"`
+	Report  string  `json:"report,omitempty"`
+	Date    string  `json:"date,omitempty"`
+	CostUSD float64 `json:"cost_usd,omitempty"`
+}
+
+// Section is the body under a `## Name` heading in a rescue's report.
+func (r Rescue) Section(name string) string {
+	var out []string
+	in := false
+	for _, line := range strings.Split(r.Report, "\n") {
+		if strings.HasPrefix(line, "## ") {
+			in = strings.EqualFold(strings.TrimSpace(strings.TrimPrefix(line, "## ")), name)
+			continue
+		}
+		if in {
+			out = append(out, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
 type file struct {

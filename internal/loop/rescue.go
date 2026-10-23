@@ -11,15 +11,17 @@ import (
 
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/plan"
+	"github.com/Torwalt/ploopy/internal/state"
 )
 
 //go:embed rescue_prompt.md
 var rescueTemplate string
 
 const (
-	rescueRole    = "rescue"
-	rescueLogTail = 60
-	rescueWaitCap = 2 * time.Hour
+	rescueRole        = "rescue"
+	rescueLogTail     = 60
+	rescueWaitCap     = 2 * time.Hour
+	rescueReportLimit = 4000
 )
 
 // rescueAttempt is one session this run gave the unit, as the rescue reads it.
@@ -125,7 +127,7 @@ func (l *Loop) runRescue(ctx context.Context, p *plan.Plan, u plan.Unit, c rescu
 		if ctx.Err() != nil {
 			return rescueResult{}, ctx.Err()
 		}
-		return l.rescueFailed(c, "the session could not start: "+firstLine(err.Error())), nil
+		return l.rescueFailed(u, c, "the session could not start: "+firstLine(err.Error()), 0), nil
 	}
 	l.metered(agent, outcome)
 	l.accountSession(u, stem, agent, info, outcome, rescueRole, outcome.Reason, rescueRole)
@@ -134,22 +136,22 @@ func (l *Loop) runRescue(ctx context.Context, p *plan.Plan, u plan.Unit, c rescu
 		return rescueResult{}, ctx.Err()
 	}
 	if outcome.Exhausted != "" {
-		return l.rescueFailed(c, "the session reached the spending cap: "+outcome.Exhausted), nil
+		return l.rescueFailed(u, c, "the session reached the spending cap: "+outcome.Exhausted, outcome.CostUSD), nil
 	}
 	if outcome.RateLimit != nil {
-		return l.rescueFailed(c, "the session hit a usage limit: "+outcome.RateLimit.Reason), nil
+		return l.rescueFailed(u, c, "the session hit a usage limit: "+outcome.RateLimit.Reason, outcome.CostUSD), nil
 	}
 
 	verdict := l.judgeRescue(context.WithoutCancel(ctx), agent, head, outcome)
 	if verdict.Kind != Landed {
-		return l.rescueFailed(c, verdict.Reason), nil
+		return l.rescueFailed(u, c, verdict.Reason, outcome.CostUSD), nil
 	}
 
 	switch outcome.Marker {
 	case harness.Retry:
 		text, err := l.rescueReport(u, c.number)
 		if err != nil {
-			return l.rescueFailed(c, err.Error()), nil
+			return l.rescueFailed(u, c, err.Error(), outcome.CostUSD), nil
 		}
 		result := rescueResult{
 			action:    rescueRetry,
@@ -160,15 +162,16 @@ func (l *Loop) runRescue(ctx context.Context, p *plan.Plan, u plan.Unit, c rescu
 			wait:      reportWait(text, l.opts.Backoff),
 		}
 		if strings.TrimSpace(result.next) == "" {
-			return l.rescueFailed(c, fmt.Sprintf("the report %s has no Next attempt section", shown)), nil
+			return l.rescueFailed(u, c, fmt.Sprintf("the report %s has no Next attempt section", shown), outcome.CostUSD), nil
 		}
+		l.recordRescue(u, c, "retry", outcome.Reason, text, outcome.CostUSD)
 		l.rescueSaid(u, c.number, "RETRY", outcome.Reason)
 		return result, nil
 
 	case harness.Decided:
 		text, err := l.rescueReport(u, c.number)
 		if err != nil {
-			return l.rescueFailed(c, err.Error()), nil
+			return l.rescueFailed(u, c, err.Error(), outcome.CostUSD), nil
 		}
 		result := rescueResult{
 			action:    rescueDecided,
@@ -179,8 +182,9 @@ func (l *Loop) runRescue(ctx context.Context, p *plan.Plan, u plan.Unit, c rescu
 			next:      reportSection(text, "Next attempt"),
 		}
 		if strings.TrimSpace(result.decisions) == "" {
-			return l.rescueFailed(c, fmt.Sprintf("the report %s has no Decisions section", shown)), nil
+			return l.rescueFailed(u, c, fmt.Sprintf("the report %s has no Decisions section", shown), outcome.CostUSD), nil
 		}
+		l.recordRescue(u, c, "decided", outcome.Reason, text, outcome.CostUSD)
 		l.rescueSaid(u, c.number, "DECIDED", outcome.Reason)
 		return result, nil
 
@@ -194,11 +198,12 @@ func (l *Loop) runRescue(ctx context.Context, p *plan.Plan, u plan.Unit, c rescu
 			result.report = text
 			result.diagnosis = reportSection(text, "Diagnosis")
 		}
+		l.recordRescue(u, c, "blocked", reason, result.report, outcome.CostUSD)
 		l.rescueSaid(u, c.number, "BLOCKED", reason)
 		return result, nil
 	}
 
-	return l.rescueFailed(c, "the final message did not end with RETRY, DECIDED or BLOCKED"), nil
+	return l.rescueFailed(u, c, "the final message did not end with RETRY, DECIDED or BLOCKED", outcome.CostUSD), nil
 }
 
 // rescueFailure keeps the text the next attempt will read if the run does not
@@ -208,10 +213,33 @@ func (l *Loop) saveRescueFailure(failure string) error {
 	return l.progress.save()
 }
 
-func (l *Loop) rescueFailed(c rescueCase, why string) rescueResult {
+func (l *Loop) rescueFailed(u plan.Unit, c rescueCase, why string, cost float64) rescueResult {
 	l.record(rescueRole, fmt.Sprintf("rescue %d for %s failed: %s", c.number, c.trigger, firstLine(why)))
 	l.report.Say("rescue %d failed: %s", c.number, firstLine(why))
+	text := ""
+	if report, err := l.rescueReport(u, c.number); err == nil {
+		text = report
+	}
+	l.recordRescue(u, c, "failed", why, text, cost)
 	return rescueResult{action: rescueFailure, reason: why}
+}
+
+// recordRescue puts one rescue on the unit's record and saves it with the
+// progress that survives a crash.
+func (l *Loop) recordRescue(u plan.Unit, c rescueCase, verdict, reason, report string, cost float64) {
+	if len(report) > rescueReportLimit {
+		report = report[:rescueReportLimit]
+	}
+	l.progress.Rescues = append(l.progress.Rescues, state.Rescue{
+		Trigger: c.trigger,
+		Verdict: verdict,
+		Agent:   l.opts.Rescue.Label(),
+		Reason:  reason,
+		Report:  report,
+		Date:    l.opts.Now().Format(time.RFC3339),
+		CostUSD: cost,
+	})
+	_ = l.progress.save()
 }
 
 func (l *Loop) rescueSaid(u plan.Unit, n int, marker, reason string) {

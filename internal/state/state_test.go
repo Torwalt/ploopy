@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Torwalt/ploopy/internal/plan"
@@ -85,6 +86,56 @@ func TestStateRoundTripsAndRejectsABadStatus(t *testing.T) {
 	}
 }
 
+func TestStateRoundTripsRescues(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "PASS.state.json")
+	s, _ := Load(path)
+	s.Set("1.1", &Entry{Status: Landed, Rescues: []Rescue{{
+		Trigger: "blocked",
+		Verdict: "decided",
+		Agent:   "claude opus high",
+		Reason:  "use the existing clock",
+		Report:  "## Diagnosis\n\nThe work order leaves it open.\n\n## Decisions\n\nUse the existing clock.\n",
+		Date:    "2026-10-23T10:00:00Z",
+		CostUSD: 0.12,
+	}}})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+
+	again, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := again.Entry("1.1")
+	if entry == nil || len(entry.Rescues) != 1 {
+		t.Fatalf("round trip lost the rescues: %+v", entry)
+	}
+	rescue := entry.Rescues[0]
+	if rescue.Trigger != "blocked" || rescue.Verdict != "decided" || rescue.Agent != "claude opus high" ||
+		rescue.Reason != "use the existing clock" || rescue.Date == "" || rescue.CostUSD != 0.12 {
+		t.Fatalf("round trip changed the rescue: %+v", rescue)
+	}
+	if got := rescue.Section("Decisions"); got != "Use the existing clock." {
+		t.Fatalf("the report section is %q", got)
+	}
+}
+
+func TestAnEntryWithoutRescuesOmitsThem(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "PASS.state.json")
+	s, _ := Load(path)
+	s.Set("1.1", &Entry{Status: Landed})
+	if err := s.Save(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "rescues") {
+		t.Fatalf("an entry with no rescues wrote the field:\n%s", raw)
+	}
+}
+
 func TestAFileWithoutUnitsDoesNotLoad(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s.json")
 	if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil {
@@ -110,6 +161,9 @@ func TestACommittedFileLoadsEveryField(t *testing.T) {
 	if len(entry.Notes) != 1 || entry.Handover == "" || entry.Base == "" ||
 		entry.SessionID == "" || entry.CostUSD == 0 || entry.Harness != "claude" {
 		t.Fatalf("entry 1.1 lost fields: %+v", entry)
+	}
+	if entry.Rescues != nil {
+		t.Fatalf("an old entry gained rescues: %+v", entry.Rescues)
 	}
 	if s.Status("1.2") != Blocked || s.Entry("1.2").Reason == "" || s.Status("1.3") != Skipped {
 		t.Fatalf("units 1.2 and 1.3 are %+v and %+v", s.Entry("1.2"), s.Entry("1.3"))

@@ -30,6 +30,7 @@ func Report(p *plan.Plan, s *state.State, records []Record, current *Run) string
 	r.commands()
 	r.windows()
 	r.trouble()
+	r.rescued()
 	if r.listPrice {
 		r.line("")
 		r.line("≈ Claude's cost is the API-price equivalent, not what a subscription charges.")
@@ -435,6 +436,41 @@ func (r *report) trouble() {
 			break
 		}
 		r.line("  %s", line)
+	}
+}
+
+// rescued lists every rescue the state file records, in plan order.
+func (r *report) rescued() {
+	type item struct {
+		unit   string
+		rescue state.Rescue
+	}
+	var items []item
+	for _, ue := range r.entries() {
+		for _, rescue := range ue.entry.Rescues {
+			items = append(items, item{unit: ue.unit.ID, rescue: rescue})
+		}
+	}
+	if len(items) == 0 {
+		return
+	}
+	r.line("")
+	r.line("Rescued")
+	for _, it := range items {
+		line := it.rescue.Trigger + " → " + it.rescue.Verdict
+		if it.rescue.Reason != "" {
+			line += ": " + it.rescue.Reason
+		}
+		r.line("  %-5s %s", it.unit, line)
+		if it.rescue.Verdict != "decided" {
+			continue
+		}
+		if decisions := it.rescue.Section("Decisions"); decisions != "" {
+			r.line("        Decisions:")
+			for _, decision := range strings.Split(decisions, "\n") {
+				r.line("          %s", decision)
+			}
+		}
 	}
 }
 

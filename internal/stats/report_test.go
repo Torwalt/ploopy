@@ -110,6 +110,38 @@ func TestTheReportSaysWhatThePlanTook(t *testing.T) {
 	}
 }
 
+func TestTheReportListsEveryRescue(t *testing.T) {
+	p, s := fixture()
+	s.Entry("1.1").Rescues = []state.Rescue{{
+		Trigger: "failed", Verdict: "retry", Agent: "claude opus high",
+		Reason: "the provider returned an empty completion",
+		Report: "## Diagnosis\n\nThe provider stalled.\n\n## Next attempt\n\nTry again.\n",
+	}}
+	s.Entry("1.2").Rescues = []state.Rescue{{
+		Trigger: "blocked", Verdict: "decided", Agent: "claude opus high",
+		Reason: "use the existing clock",
+		Report: "## Diagnosis\n\nThe work order leaves the clock open.\n\n" +
+			"## Decisions\n\nUse the repository's existing clock, not a new one.\n\n" +
+			"## Next attempt\n\nWire the existing clock.\n",
+	}}
+
+	text := Report(p, s, nil, nil)
+	t.Log("\n" + text)
+	for _, want := range []string{
+		"Rescued",
+		"1.1   failed → retry: the provider returned an empty completion",
+		"1.2   blocked → decided: use the existing clock",
+		"Use the repository's existing clock, not a new one.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the report lacks %q:\n%s", want, text)
+		}
+	}
+	if strings.Index(text, "Rescued") < strings.Index(text, "What went wrong") {
+		t.Fatalf("the rescues come before what went wrong:\n%s", text)
+	}
+}
+
 // Once the checkout's .ploopy/ is gone, the state file still tells most of it.
 func TestWithoutTheLogTheStateFileTellsIt(t *testing.T) {
 	p, s := fixture()

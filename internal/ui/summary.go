@@ -103,6 +103,45 @@ func (r *Reporter) Summary(p *plan.Plan, s *state.State, run *stats.Run) {
 	if whole.listPrice {
 		fmt.Fprintln(r.out, r.dim.Render("  ≈ Claude's cost is the API-price equivalent, not what a subscription charges"))
 	}
+	r.rescues(p, s)
+}
+
+// rescues closes the run with every rescue it recorded.
+func (r *Reporter) rescues(p *plan.Plan, s *state.State) {
+	type item struct {
+		unit   string
+		rescue state.Rescue
+	}
+	var items []item
+	for _, u := range p.Units {
+		entry := s.Entry(u.ID)
+		if entry == nil {
+			continue
+		}
+		for _, rescue := range entry.Rescues {
+			items = append(items, item{unit: u.ID, rescue: rescue})
+		}
+	}
+	if len(items) == 0 {
+		return
+	}
+	fmt.Fprintf(r.out, "\n%s\n", r.unit.Render("Rescued"))
+	for _, it := range items {
+		line := fmt.Sprintf("%s  %s → %s", it.unit, it.rescue.Trigger, it.rescue.Verdict)
+		if it.rescue.Reason != "" {
+			line += ": " + it.rescue.Reason
+		}
+		fmt.Fprintf(r.out, "  %s\n", line)
+		if it.rescue.Verdict != "decided" {
+			continue
+		}
+		if decisions := it.rescue.Section("Decisions"); decisions != "" {
+			for _, decision := range strings.Split(decisions, "\n") {
+				fmt.Fprintf(r.out, "    %s\n", decision)
+			}
+		}
+	}
+	fmt.Fprintln(r.out, r.dim.Render("review these: ploopy report "+p.Name()))
 }
 
 func (t total) render(id, title string) string {
