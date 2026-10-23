@@ -83,8 +83,9 @@ func lockIndex(t *testing.T, dir string) error {
 	return os.WriteFile(filepath.Join(gitDir, "index.lock"), nil, 0o644)
 }
 
-// pushedRepo adds an origin that records each push.
-func pushedRepo(t *testing.T, e *env) string {
+// pushedRepo adds an origin that records each push. It returns the remote and
+// the log of pushes.
+func pushedRepo(t *testing.T, e *env) (string, string) {
 	t.Helper()
 	remote := t.TempDir()
 	git(t, remote, "init", "-q", "--bare")
@@ -95,18 +96,32 @@ func pushedRepo(t *testing.T, e *env) string {
 	if err := os.Chmod(filepath.Join(remote, "hooks/pre-receive"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return pushes
+	return remote, pushes
+}
+
+// fakeSystemctl puts a systemctl on PATH that records its arguments.
+func fakeSystemctl(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	log := filepath.Join(dir, "systemctl.log")
+	script := "#!/bin/sh\necho \"$*\" >> " + log + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "systemctl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return log
 }
 
 func TestAPlanWithFollowUpRunsItsReviewAndFixPlan(t *testing.T) {
 	e, tree := openPlanRepo(t, finishedPlan)
-	pushes := pushedRepo(t, e)
+	remote, pushes := pushedRepo(t, e)
+	finishes := fakeSystemctl(t)
 	h := fake.New(fixStep("plan.go", "Do the plan"),
 		findingsStep(), triageStep(t),
 		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
 	e.harnesses = harness.Set{h}
 
-	args := runArgs(triageArgs("--follow-up", "--push")...)
+	args := runArgs(triageArgs("--follow-up", "--push", "--finish", "suspend", "--grace", "0")...)
 	if err := runRun(t, e, args...); err != nil {
 		t.Fatal(err)
 	}
@@ -152,6 +167,19 @@ func TestAPlanWithFollowUpRunsItsReviewAndFixPlan(t *testing.T) {
 	}
 	if got := strings.Count(string(pushed), "push\n"); got != 1 {
 		t.Fatalf("the branch was pushed %d times, want once after the fix plan", got)
+	}
+	landed := gitOut(t, remote, "log", "--format=%s", "pass")
+	for _, want := range []string{"Do the first fix", "Do the second fix"} {
+		if !strings.Contains(landed, want) {
+			t.Fatalf("the push happened before %q:\n%s", want, landed)
+		}
+	}
+	action, err := os.ReadFile(finishes)
+	if err != nil {
+		t.Fatalf("the end action did not run: %v", err)
+	}
+	if got := strings.Count(string(action), "suspend\n"); got != 1 {
+		t.Fatalf("the end action ran %d times, want once after the fix plan", got)
 	}
 }
 
