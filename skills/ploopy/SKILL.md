@@ -36,8 +36,10 @@ worktree that still holds a copy is ignored.
 ## Reading where things stand
 
 - `ploopy status` lists every open plan with the progress of the branch that got
-  furthest, and where that is (`· pass in ../repo.worktrees/pass`). `ploopy
-  status <plan>` lists its units.
+  furthest, and where that is (`pass in ../repo.worktrees/pass`). Review and fix
+  plans sit under the plan they descend from; `●` marks a run going on, with
+  its unit, agent and how long it has run. `ploopy status <plan>` lists its
+  units.
 - `ploopy show <plan> <unit>` prints a unit's work order as a session sees it.
 - `ploopy report <plan>` and `ploopy history` say what a plan or a unit took.
 - `ploopy replay <plan> <unit>` says what a unit's session did.

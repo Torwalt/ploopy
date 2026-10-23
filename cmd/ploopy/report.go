@@ -41,10 +41,9 @@ func statusAll(ctx context.Context, e *env) error {
 	}
 	if len(entries) == 0 {
 		fmt.Printf("no plan under %s on any branch\n", e.cfg.Plans)
+		return nil
 	}
-	for _, entry := range entries {
-		fmt.Println(e.label(entry.Best))
-	}
+	ui.Plans(os.Stdout, entries, e.root, ui.Width(os.Stdout), time.Now())
 	return nil
 }
 
