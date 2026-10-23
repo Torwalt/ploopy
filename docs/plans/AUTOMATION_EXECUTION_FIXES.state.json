@@ -48,6 +48,30 @@
         "reasoning": 10491,
         "cache_read": 2121344
       }
+    },
+    "1.3": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T14:43:15+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "42aa0c9961d8dd2c04b795fc96ee67237cdb1616",
+      "commits": [
+        "5bdc99062293758a812b66d31aff75e51ca817e4 Show a file source only while its value is unchanged"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 1.3\n\n## What landed\n\n`5bdc990` — a field's \"from .ploopy.toml\" source is now recomputed on every\nboard redraw: `given` records the file's value beside the label, and the\nTriage column's `sources` map records the file's values instead of a fixed\nlabel. A source appears only while the current field value still equals the\nfile's value; changing it, or a normalize/normalizeTriage replacement, clears\nit; setting it back restores it.\n\n## Landmark drift\n\nNone. `given` and its `fromFile`/`prefilled` are in `cmd/ploopy/settings.go`,\n`chooseTriageWithSources` in `cmd/ploopy/triage.go`, and the column builders\nin `cmd/ploopy/board.go`, where the work order placed them.\n\n## Deviations from the work order\n\n- `given.fileValues` is a second map beside the existing `prefills` label map,\n  so `fill`'s presence checks and existing source-label tests keep working.\n  The board uses a new `source(key, current)` while `prefilled(key)` still\n  reports whether a file value exists.\n- `chooseTriageWithSources`' `sources` map changed from key -\u003e label to key -\u003e\n  the file's value; the board derives the label, and the pre-existing effort\n  validation now tests presence of that entry. Its only consumers are the\n  board and tests.\n\n## What the next session must know\n\n- `TestAFileSourceLeavesWhenTheRunFieldChanges` covers a `[run]` Bedrock\n  field (peak); `TestAFileSourceLeavesWhenTheRunColumnFieldChanges` covers the\n  Run column (finish); `TestAFileSourceLeavesWhenTheAutomationFieldChanges`\n  covers follow-up; `TestAFileSourceLeavesWhenTheTriageAgentChanges` covers\n  the triage agent plus normalized model and effort.\n- One existing assertion in `TestTheReviewTableBeatsTheLastTriageAndFlagsBeatTheReviewTable`\n  now expects the source map's values to be the file's values, not the label.\n- `fromFile` now takes the value as well as the key. Secondary and rescue are\n  recorded after resolution so `none` maps to the board's empty value.\n- The adjust board has no file prefills, so it still shows no source labels.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e973b9552ffeKk3mPgzp48m37p",
+      "cost_usd": 0.03676954199999999,
+      "harness": "opencode",
+      "elapsed_s": 332,
+      "session_s": 316,
+      "test_s": 16,
+      "tokens": {
+        "input": 91337,
+        "output": 9710,
+        "reasoning": 11690,
+        "cache_read": 3409664
+      }
     }
   }
 }
