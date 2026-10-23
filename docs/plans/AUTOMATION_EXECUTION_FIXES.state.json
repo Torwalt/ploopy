@@ -169,6 +169,31 @@
         "reasoning": 6157,
         "cache_read": 1601920
       }
+    },
+    "2.4": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T14:58:56+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "32ea7d06118a74116b6da89e9528487d0c3db691",
+      "commits": [
+        "3f17fab1905c4a114e6b385161e3792d66159466 Test the chain's push and end action after the fix plan"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 2.4\n\n## What landed\n\n`3f17fab` — `TestAPlanWithFollowUpRunsItsReviewAndFixPlan` now proves the\nchain's push and end action happen once, after the fix plan.\n\n- The test asks the bare remote for `pass` and asserts both fix commits\n  (\"Do the first fix\", \"Do the second fix\") arrived.\n- It runs with `--finish suspend --grace 0` and a fake `systemctl` on `PATH`,\n  then asserts `suspend` ran exactly once.\n- `pushedRepo` returns the remote as well as the push log; `fakeSystemctl`\n  lives beside it.\n\nVerified the test fails when `finishRun` is inserted after the review: the\nrun pushed twice (and would also fail the remote/end-action checks).\n\n## Landmark drift\n\nNone. `TestAPlanWithFollowUpRunsItsReviewAndFixPlan`, `pushedRepo` and\n`finishRun` are where the order placed them. The review-chain tests do not\ncurrently have a `systemctl` fake; the new helper is in `run_chain_test.go`.\n\n## Deviations from the work order\n\nNone. Test-only change; no production behaviour, README or skill text changed.\n\n## What the next session must know\n\n- The fake `systemctl` only records arguments. `ui.Finish.Execute` resolves it\n  through the test process's `PATH`, so keep the `t.Setenv` before `runRun`.\n- `endAction` skips entirely when the run is cancelled or `finish` is `none`;\n  the test needs `--finish suspend` to observe the action.\n- The remote check reads the default branch checked out at the bare repo,\n  which is `pass` after the push sets it.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e972ac10cffeIpDAWP4l9M9Q9e",
+      "cost_usd": 0.016587041999999996,
+      "harness": "opencode",
+      "elapsed_s": 170,
+      "session_s": 135,
+      "verify_s": 1,
+      "test_s": 34,
+      "tokens": {
+        "input": 56691,
+        "output": 4676,
+        "reasoning": 3332,
+        "cache_read": 1092864
+      }
     }
   }
 }
