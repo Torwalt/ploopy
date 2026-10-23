@@ -218,6 +218,30 @@
         "reasoning": 3930,
         "cache_read": 991488
       }
+    },
+    "3.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T15:03:45+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "567965554044d8feeca7c3440a91707474a62247",
+      "commits": [
+        "798b2b0dd32f14faeaf579950ee1168d2bea85c6 Keep rescue decisions when a session is cut off"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 3.2\n\n## What landed\n\n`798b2b0` — a decided rescue's decisions now survive the two failure texts\nthat bypassed `withDecisions`.\n\n- The usage-limit branch of `runUnit` builds `cutOffMidUnit` through\n  `withDecisions` before saving it.\n- `interrupted` builds `stoppedMidUnit` through `withDecisions` before saving\n  it.\n- Two tests in `internal/loop/rescue_test.go` cover a usage limit and a stopped\n  run after a DECIDED rescue; both failed before the change.\n\n## Landmark drift\n\nNone. The code was where the work order placed it (`loop.go` usage-limit branch\nand `interrupted`, `withDecisions` at the end).\n\n## Deviations from the work order\n\nAdded the stopped-run test as well as the usage-limit one, because the unit's\nGoal names both paths and the Evidence cites both assignments. The usage-limit\ntest is the one named in \"Done when\".\n\n## What the next session must know\n\n- `progress.Decisions` already survives a stop in the progress file; the defect\n  was only that the next prompt's failure text did not include it. `interrupted`\n  and the stop path now append it.\n- Applying `withDecisions` again on a later failure is not a duplication: every\n  later failure text is rebuilt from scratch by `failedAttempt`,\n  `blockedAttempt`, or the cut-off constants.\n- The stop test cancels the context inside the session's `Do` after committing,\n  so `changed` is true and `interrupted` rewrites the failure. A stop that\n  changed nothing keeps the previous failure text, which already holds the\n  decisions.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e9725ff19ffeNip0UK5pUhulR2",
+      "cost_usd": 0.013818654,
+      "harness": "opencode",
+      "elapsed_s": 147,
+      "session_s": 128,
+      "test_s": 19,
+      "tokens": {
+        "input": 42897,
+        "output": 3623,
+        "reasoning": 3528,
+        "cache_read": 1031168
+      }
     }
   }
 }
