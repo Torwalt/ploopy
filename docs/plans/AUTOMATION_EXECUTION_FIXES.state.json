@@ -23,6 +23,31 @@
         "reasoning": 3022,
         "cache_read": 965888
       }
+    },
+    "1.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T14:37:42+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "fbbe4e9474b169ea74c250dc701ea8131aefb69e",
+      "commits": [
+        "a787a0b64c8fd556a7af4881527923a6494afb59 Check file efforts against the harness the run settles on"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 1.2\n\n## What landed\n\n`a787a0b` — a `[run] effort` from `.ploopy.toml` is validated against the\nharness the run will use even when `[run] agent` is absent: the last run's\nharness when ploopy can still drive it, else the default. The error names\n`[run] effort`. An `[review] triage_effort` from the file that the settled\ntriage harness does not offer now names `[review] triage_effort` instead of\n`the triage effort for ...`.\n\n## Landmark drift\n\nNone. `givenSettings`, `fill` and `chooseSettings` in\n`cmd/ploopy/settings.go`, and `chooseTriageWithSources` / `validateTriage` in\n`cmd/ploopy/triage.go`, are where the work order placed them. Unit 1.1 had\nalready landed its `given` change as described.\n\n## Deviations from the work order\n\n- The run check stayed in `givenSettings` rather than moving after `fill` in\n  `chooseSettings`: `chooseSettings` returns to `unattended` before `fill` when\n  not interactive, so post-`fill` validation could not be reached in tests.\n  `givenSettings` now calls a small `settledHarness` helper that applies\n  `fill`'s own precedence (last run, else default) purely for the check; it\n  does not mutate the settings, so `fill` still settles the board.\n- The triage check is an adjacent guard before `validateTriage`\n  (`chooseTriageWithSources`), using the `sources` map to tell a file value\n  from a flag or last-triage value. `validateTriage` itself is unchanged, so\n  flag and last-triage errors keep their existing text.\n\n## What the next session must know\n\n- `TestAFileEffortIsCheckedAgainstTheHarnessTheRunSettlesOn` covers both the\n  last-run and default cases: claude does not offer `max`.\n- `TestAFileTriageEffortIsCheckedAgainstTheTriageHarness` covers default\n  claude (`max` invalid) and a last triage on opencode (`medium` invalid).\n- `settledHarness` guards a nil `cmd.Context()`; tests build commands without\n  `SetContext`.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e973f8155ffeqLXW7Cgl6R3Sp4",
+      "cost_usd": 0.027350982000000006,
+      "harness": "opencode",
+      "elapsed_s": 256,
+      "session_s": 234,
+      "verify_s": 1,
+      "test_s": 22,
+      "tokens": {
+        "input": 72453,
+        "output": 6374,
+        "reasoning": 10491,
+        "cache_read": 2121344
+      }
     }
   }
 }
