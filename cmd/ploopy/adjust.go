@@ -14,6 +14,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/loop"
+	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
@@ -29,6 +30,7 @@ type adjustFlags struct {
 	secondaryEff  string
 	subscriptions string
 	spendAll      bool
+	followUp      bool
 	then          string
 	away          string
 	night         string
@@ -44,7 +46,7 @@ func newAdjust(e *env) *cobra.Command {
 			"pushes, whether it stops after the current unit, the agent that takes\n" +
 			"over on a usage limit, what a unit due in peak hours does, which lent\n" +
 			"subscriptions it may use, whether it keeps a reserve, and whether a\n" +
-			"review goes on to run its fix plan.\n\n" +
+			"plan or review goes on to its follow-up.\n\n" +
 			"With nothing passed, ploopy asks. It works from any directory.",
 		Args: cobra.NoArgs,
 		// A run is adjusted from anywhere, not only from inside its repository.
@@ -65,7 +67,9 @@ func newAdjust(e *env) *cobra.Command {
 	flags.StringVar(&f.subscriptions, "subscriptions", "",
 		"lent subscriptions to use: all, none, or names such as claude,codex")
 	flags.BoolVar(&f.spendAll, "spend-all", false, "spend the subscriptions' weeks, keeping no reserve")
-	flags.StringVar(&f.then, "then", "", "after a review: stop, or fixes to run the fix plan it writes")
+	flags.BoolVar(&f.followUp, "follow-up", false, "after a plan or review completes, continue with its follow-up")
+	flags.StringVar(&f.then, "then", "", "")
+	_ = flags.MarkDeprecated("then", "use --follow-up instead")
 	flags.StringVar(&f.away, "away", "", "")
 	_ = flags.MarkDeprecated("away", "lend subscriptions with `ploopy lend`")
 	flags.StringVar(&f.night, "night", "", "")
@@ -90,7 +94,7 @@ func adjust(cmd *cobra.Command, e *env, f *adjustFlags) error {
 	}
 	if change.Empty() && !ui.Interactive() {
 		for _, live := range lives {
-			fmt.Printf("%-8d %-36s %-6s %s\n", live.PID, live.Name(), live.Unit, live.Wanted.Describe())
+			fmt.Printf("%-8d %-36s %-6s %s\n", live.PID, live.Name(), live.Unit, live.Wanted.Describe(isReviewRun(live)))
 		}
 		return nil
 	}
@@ -110,7 +114,7 @@ func apply(live control.Live, change control.Settings) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s: %s\n", updated.Name(), updated.Wanted.Describe())
+	fmt.Printf("%s: %s\n", updated.Name(), updated.Wanted.Describe(isReviewRun(live)))
 	return nil
 }
 
@@ -176,7 +180,13 @@ func runLabel(live control.Live) string {
 	if live.Unit != "" {
 		label += ", unit " + live.Unit
 	}
-	return label + " · " + live.Wanted.Describe()
+	return label + " · " + live.Wanted.Describe(isReviewRun(live))
+}
+
+// isReviewRun reports whether a live run's plan is a review.
+func isReviewRun(live control.Live) bool {
+	p, err := plan.Load(filepath.Join(live.Root, live.Plan), live.Plan)
+	return err == nil && p.Reviews() != ""
 }
 
 func changeFromFlags(cmd *cobra.Command, e *env, f *adjustFlags) (control.Settings, error) {
@@ -221,11 +231,20 @@ func changeFromFlags(cmd *cobra.Command, e *env, f *adjustFlags) (control.Settin
 	if flags.Changed("spend-all") {
 		change.SpendAll = &f.spendAll
 	}
-	if flags.Changed("then") {
-		if !validThen(f.then) {
+	if flags.Changed("follow-up") {
+		followUp := f.followUp
+		change.FollowUp = &followUp
+	} else if flags.Changed("then") {
+		var followUp bool
+		switch f.then {
+		case "fixes":
+			followUp = true
+		case "stop":
+			followUp = false
+		default:
 			return change, fmt.Errorf("--then must be stop or fixes, not %s", f.then)
 		}
-		change.Then = f.then
+		change.FollowUp = &followUp
 	}
 	return change, nil
 }

@@ -31,14 +31,14 @@ type runSettings struct {
 	SpendAll      bool           `json:"spendAll,omitempty"`
 	Push          bool           `json:"push,omitempty"`
 	Finish        string         `json:"finish,omitempty"`
-	Then          string         `json:"then,omitempty"`
+	FollowUp      bool           `json:"followUp,omitempty"`
 }
 
 // given is which settings the author already gave, as flags or in the plan's
 // front matter. The board shows those locked and says where they came from.
 type given struct {
 	harness, model, effort, secondary, peak, subscriptions, spendAll, push, finish bool
-	then                                                                           bool
+	followUp                                                                       bool
 	sources                                                                        map[string]string
 	prefills                                                                       map[string]string
 }
@@ -83,7 +83,7 @@ type chosenRun struct {
 	spendAll      bool
 	push          bool
 	finish        ui.Finish
-	then          string
+	followUp      bool
 }
 
 // chooseSettings puts everything on one board, prefilled from the last run
@@ -240,12 +240,23 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		s.Finish = e.cfg.Run.Finish
 		g.fromFile("finish")
 	}
-	if f.then != "" {
-		if !validThen(f.then) {
+	if cmd.Flags().Changed("follow-up") {
+		s.FollowUp, g.followUp = f.followUp, true
+		g.from("followUp", "from a flag")
+	} else if cmd.Flags().Changed("then") {
+		switch f.then {
+		case "fixes":
+			s.FollowUp = true
+		case "stop":
+			s.FollowUp = false
+		default:
 			return s, g, fmt.Errorf("--then must be stop or fixes, not %s", f.then)
 		}
-		s.Then, g.then = f.then, true
-		g.from("then", "from a flag")
+		g.followUp = true
+		g.from("followUp", "from --then")
+	} else if e.cfg.Automation.FollowUp != nil {
+		s.FollowUp = *e.cfg.Automation.FollowUp
+		g.fromFile("followUp")
 	}
 	if g.prefilled("effort") != "" {
 		if h := e.harnesses.Get(s.Harness); h != nil && !contains(h.Efforts(), s.Effort) {
@@ -254,17 +265,6 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 		}
 	}
 	return s, g, nil
-}
-
-// validThen reports whether v names what follows a review.
-func validThen(v string) bool { return v == "stop" || v == "fixes" }
-
-// thenValue settles an unset Then as the default: stop.
-func thenValue(v string) string {
-	if v == "fixes" {
-		return "fixes"
-	}
-	return "stop"
 }
 
 // unattended settles a run nobody is watching: it needs the harness and the
@@ -338,8 +338,11 @@ func fill(e *env, s *runSettings, g given, last *runSettings) {
 			s.Finish = last.Finish
 		}
 	}
-	if !g.then {
-		s.Then = "stop"
+	if !g.followUp && g.prefilled("followUp") == "" {
+		s.FollowUp = false
+		if last != nil {
+			s.FollowUp = last.FollowUp
+		}
 	}
 }
 
@@ -437,13 +440,6 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 	if finish == "" {
 		finish = ui.FinishNone
 	}
-	then := s.Then
-	if then == "" {
-		then = "stop"
-	}
-	if !validThen(then) {
-		return chosenRun{}, fmt.Errorf("then must be stop or fixes, not %s", then)
-	}
 	return chosenRun{
 		agent:         loop.Agent{Harness: h, Model: s.Model, Effort: s.Effort},
 		secondary:     toLoopAgent(e.harnesses, s.Secondary),
@@ -452,7 +448,7 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 		spendAll:      s.SpendAll,
 		push:          s.Push,
 		finish:        finish,
-		then:          then,
+		followUp:      s.FollowUp,
 	}, nil
 }
 
@@ -477,8 +473,8 @@ func overChosen(e *env, c chosenRun, w control.Settings) chosenRun {
 	if w.SpendAll != nil {
 		c.spendAll = *w.SpendAll
 	}
-	if w.Then != "" {
-		c.then = w.Then
+	if w.FollowUp != nil {
+		c.followUp = *w.FollowUp
 	}
 	return c
 }

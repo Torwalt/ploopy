@@ -119,7 +119,8 @@ names.
 ## Reviewing, closing, landing
 
 - `ploopy review <plan>` writes and runs the review of a plan's landed units,
-  then a triage that writes the fix plan; `--then fixes` runs that right after.
+  then a triage that writes the fix plan; `--follow-up` runs that right after
+  (`--then fixes` is its deprecated alias).
 - `ploopy land [branch]` is how finished work reaches the default branch. It
   refuses while a plan of the branch has open units.
 - `ploopy close <plan>` drops a plan from the default branch without landing

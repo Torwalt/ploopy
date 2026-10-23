@@ -45,9 +45,9 @@ func newReview(e *env) *cobra.Command {
 			"collecting sessions and a Triage column for the session that weighs the\n" +
 			"findings, remembered apart; the --triage flags answer it. A review already\n" +
 			"written runs on from where it stopped, and its triage can still be\n" +
-			"changed until it has run. --then fixes runs the fix plan the triage\n" +
-			"writes in the same invocation; --then stop, the default, ends after the\n" +
-			"review.",
+			"changed until it has run. --follow-up runs the fix plan the triage\n" +
+			"writes in the same invocation; it is off by default, and --then fixes\n" +
+			"is its deprecated alias.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error { return reviewPlan(cmd, e, args, &f) },
 	}

@@ -205,7 +205,7 @@ func TestAFixPlansOwnTestSettingOverridesTheReviewsNoTest(t *testing.T) {
 		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
 	e.harnesses = harness.Set{h}
 
-	if err := runReview(t, e, reviewArgs("--then", "fixes", "--no-test", "--test-cmd", "true")...); err != nil {
+	if err := runReview(t, e, reviewArgs("--follow-up", "--no-test", "--test-cmd", "true")...); err != nil {
 		t.Fatal(err)
 	}
 	if prompt := h.Prompts[2]; !strings.Contains(prompt, "the loop runs them after you") {
@@ -219,7 +219,7 @@ func TestAFixPlanWithoutATestSettingTakesTheReviewsNoTest(t *testing.T) {
 		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
 	e.harnesses = harness.Set{h}
 
-	if err := runReview(t, e, reviewArgs("--then", "fixes", "--no-test", "--test-cmd", "true")...); err != nil {
+	if err := runReview(t, e, reviewArgs("--follow-up", "--no-test", "--test-cmd", "true")...); err != nil {
 		t.Fatal(err)
 	}
 	if prompt := h.Prompts[2]; strings.Contains(prompt, "the loop runs them after you") {
@@ -227,12 +227,12 @@ func TestAFixPlanWithoutATestSettingTakesTheReviewsNoTest(t *testing.T) {
 	}
 }
 
-func TestAReviewWithThenStopEndsAfterTheReview(t *testing.T) {
+func TestAReviewWithFollowUpOffEndsAfterTheReview(t *testing.T) {
 	e, tree := chainRepo(t)
 	h := fake.New(findingsStep(), triageStep(t), fixStep("fix1.go", "Do the first fix"))
 	e.harnesses = harness.Set{h}
 
-	if err := runReview(t, e, reviewArgs("--then", "stop")...); err != nil {
+	if err := runReview(t, e, reviewArgs("--follow-up=false")...); err != nil {
 		t.Fatal(err)
 	}
 	if h.Started() != 2 {
@@ -242,7 +242,7 @@ func TestAReviewWithThenStopEndsAfterTheReview(t *testing.T) {
 		t.Fatal("the worktree stays for the fix plan that has not run")
 	}
 	if exists(filepath.Join(tree, "docs/plans/PASS_FIXES.state.json")) {
-		t.Fatal("the fix plan ran under then stop")
+		t.Fatal("the fix plan ran with follow-up off")
 	}
 	reviewed := branchState(t, e, "pass", "docs/plans/PASS_REVIEW.state.json")
 	if reviewed.Status("2.1") != state.Landed {
@@ -263,7 +263,7 @@ func TestAReviewStoppedBeforeTheTriageDoesNotStartItsFixPlan(t *testing.T) {
 	}
 	e.harnesses = harness.Set{h}
 
-	if err := runReview(t, e, reviewArgs("--then", "fixes")...); err != nil {
+	if err := runReview(t, e, reviewArgs("--follow-up")...); err != nil {
 		t.Fatal(err)
 	}
 	if h.Started() != 1 {
@@ -278,7 +278,7 @@ func TestAReviewStoppedBeforeTheTriageDoesNotStartItsFixPlan(t *testing.T) {
 	}
 }
 
-func TestAnAdjustmentToThenDuringAReviewIsHonoured(t *testing.T) {
+func TestAnAdjustmentToFollowUpDuringAReviewIsHonoured(t *testing.T) {
 	e, tree := chainRepo(t)
 	h := fake.New(findingsStep(), triageStep(t),
 		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
@@ -286,7 +286,7 @@ func TestAnAdjustmentToThenDuringAReviewIsHonoured(t *testing.T) {
 		if err := findingsStep().Do(dir); err != nil {
 			return err
 		}
-		_, err := control.Adjust(os.Getpid(), control.Settings{Then: "fixes"})
+		_, err := control.Adjust(os.Getpid(), control.Settings{FollowUp: boolValue(true)})
 		return err
 	}
 	e.harnesses = harness.Set{h}
@@ -306,6 +306,30 @@ func TestAnAdjustmentToThenDuringAReviewIsHonoured(t *testing.T) {
 	}
 }
 
+func TestAnAdjustmentTurningFollowUpOffStopsBeforeTheFixPlan(t *testing.T) {
+	e, tree := chainRepo(t)
+	h := fake.New(findingsStep(), triageStep(t),
+		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
+	h.Steps[1].Do = func(dir string) error {
+		if err := triageStep(t).Do(dir); err != nil {
+			return err
+		}
+		_, err := control.Adjust(os.Getpid(), control.Settings{FollowUp: boolValue(false)})
+		return err
+	}
+	e.harnesses = harness.Set{h}
+
+	if err := runReview(t, e, reviewArgs("--follow-up")...); err != nil {
+		t.Fatal(err)
+	}
+	if h.Started() != 2 {
+		t.Fatalf("the run started %d sessions, want the review and its triage only", h.Started())
+	}
+	if exists(filepath.Join(tree, "docs/plans/PASS_FIXES.state.json")) {
+		t.Fatal("the fix plan ran after follow-up was turned off")
+	}
+}
+
 func TestAStopAfterTheTriageDoesNotStartTheFixPlan(t *testing.T) {
 	e, tree := chainRepo(t)
 	stop := true
@@ -319,7 +343,7 @@ func TestAStopAfterTheTriageDoesNotStartTheFixPlan(t *testing.T) {
 	}
 	e.harnesses = harness.Set{h}
 
-	if err := runReview(t, e, reviewArgs("--then", "fixes")...); err != nil {
+	if err := runReview(t, e, reviewArgs("--follow-up")...); err != nil {
 		t.Fatal(err)
 	}
 	if h.Started() != 2 {
@@ -365,7 +389,7 @@ func TestTheFixPlanInheritsTheReviewsSpendAllAdjustment(t *testing.T) {
 	h.Steps[3] = captureSettings(h.Steps[3], "docs/plans/PASS_FIXES.md", &fix)
 	e.harnesses = harness.Set{h}
 
-	if err := runReview(t, e, reviewArgs("--then", "fixes")...); err != nil {
+	if err := runReview(t, e, reviewArgs("--follow-up")...); err != nil {
 		t.Fatal(err)
 	}
 	if fix.SpendAll == nil {
@@ -409,7 +433,7 @@ func TestAFixPlansFrontMatterWinsForAgentEffortAndSubscriptions(t *testing.T) {
 	fixHarness.Steps[1] = captureSettings(fixHarness.Steps[1], "docs/plans/PASS_FIXES.md", &fix)
 	e.harnesses = harness.Set{reviewHarness, fixHarness}
 
-	if err := runReview(t, e, reviewArgs("--then", "fixes")...); err != nil {
+	if err := runReview(t, e, reviewArgs("--follow-up")...); err != nil {
 		t.Fatal(err)
 	}
 	if reviewHarness.Started() != 2 {
@@ -429,7 +453,7 @@ func TestAFixPlansFrontMatterWinsForAgentEffortAndSubscriptions(t *testing.T) {
 	}
 }
 
-func TestAReviewWithoutThenStartsNoFixPlan(t *testing.T) {
+func TestAReviewWithoutFollowUpStartsNoFixPlan(t *testing.T) {
 	e, tree := chainRepo(t)
 	h := fake.New(findingsStep(), triageStep(t), fixStep("fix1.go", "Do the first fix"))
 	e.harnesses = harness.Set{h}
@@ -441,7 +465,7 @@ func TestAReviewWithoutThenStartsNoFixPlan(t *testing.T) {
 		t.Fatalf("the run started %d sessions, want the review and its triage only", h.Started())
 	}
 	if exists(filepath.Join(tree, "docs/plans/PASS_FIXES.state.json")) {
-		t.Fatal("the fix plan ran without --then fixes")
+		t.Fatal("the fix plan ran without --follow-up")
 	}
 }
 
@@ -461,7 +485,7 @@ func TestAPushHappensOnceAfterTheFixPlan(t *testing.T) {
 		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
 	e.harnesses = harness.Set{h}
 
-	if err := runReview(t, e, reviewArgs("--then", "fixes", "--push")...); err != nil {
+	if err := runReview(t, e, reviewArgs("--follow-up", "--push")...); err != nil {
 		t.Fatal(err)
 	}
 	if h.Started() != 4 {

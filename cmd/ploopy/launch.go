@@ -143,7 +143,7 @@ var chosenFlags = map[string]bool{
 	"plan": true, "all": true, "agent": true, "model": true, "effort": true,
 	"secondary": true, "secondary-model": true, "secondary-effort": true,
 	"peak": true, "subscriptions": true, "spend-all": true, "push": true,
-	"finish": true, "then": true, "detach": true, "here": true, launchedFlag: true,
+	"finish": true, "follow-up": true, "detach": true, "here": true, launchedFlag: true,
 }
 
 // launchArgs is the `ploopy run` that carries the chosen settings: every
@@ -169,7 +169,7 @@ func launchArgs(cmd *cobra.Command, f *runFlags, p *plan.Plan, pick chosenRun) [
 		"--push="+strconv.FormatBool(pick.push),
 		"--finish", string(pick.finish))
 	if p.Reviews() != "" {
-		args = append(args, "--then", pick.then)
+		args = append(args, "--follow-up="+strconv.FormatBool(pick.followUp))
 	}
 
 	runOnly := runFlagNames()

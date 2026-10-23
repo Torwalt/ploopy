@@ -43,7 +43,7 @@ type Settings struct {
 	Secondary     *Agent `json:"secondary,omitempty"`     // an empty harness means none
 	Subscriptions string `json:"subscriptions,omitempty"` // "", all, none, or harness names
 	SpendAll      *bool  `json:"spendAll,omitempty"`
-	Then          string `json:"then,omitempty"` // "", stop or fixes
+	FollowUp      *bool  `json:"followUp,omitempty"`
 }
 
 // Over lays a change over base settings.
@@ -70,8 +70,8 @@ func (s Settings) Over(base Settings) Settings {
 	if s.SpendAll != nil {
 		out.SpendAll = s.SpendAll
 	}
-	if s.Then != "" {
-		out.Then = s.Then
+	if s.FollowUp != nil {
+		out.FollowUp = s.FollowUp
 	}
 	return out
 }
@@ -93,8 +93,10 @@ func (s Settings) SecondaryAgent() *Agent {
 	return s.Secondary
 }
 
-// Describe renders the settings for a person.
-func (s Settings) Describe() string {
+// Describe renders the settings for a person. review says whether the plan is
+// a review, where follow-up means the fix plan rather than another review.
+func (s Settings) Describe(review ...bool) string {
+	onReview := len(review) > 0 && review[0]
 	var parts []string
 	if s.Finish != "" && s.Finish != "none" {
 		parts = append(parts, "then "+s.Finish)
@@ -113,11 +115,15 @@ func (s Settings) Describe() string {
 	if s.SpendAll != nil && *s.SpendAll {
 		parts = append(parts, "spending all of the week")
 	}
-	switch s.Then {
-	case "fixes":
-		parts = append(parts, "then run the fix plan")
-	case "stop":
-		parts = append(parts, "then stop")
+	if s.FollowUp != nil {
+		switch {
+		case *s.FollowUp && onReview:
+			parts = append(parts, "then run the fix plan")
+		case *s.FollowUp:
+			parts = append(parts, "then review and fix")
+		case onReview:
+			parts = append(parts, "then stop")
+		}
 	}
 	if agent := s.SecondaryAgent(); agent != nil {
 		parts = append(parts, agent.Label()+" on a usage limit")

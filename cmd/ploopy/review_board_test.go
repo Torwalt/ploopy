@@ -188,15 +188,15 @@ func TestAReviewWhoseTriageRanHasALockedTriageColumn(t *testing.T) {
 	}
 }
 
-func TestTheReviewBoardOffersThenAfterTheReview(t *testing.T) {
+func TestTheReviewBoardOffersFollowUpAfterTheReview(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	e, _ := worktreeRepo(t, nil)
 	p := plan.Parse("---\nreviews: docs/plans/PASS.md\n---\n", "docs/plans/PASS_REVIEW.md")
 	board := reviewBoard(t, e, p, defaultTriage, nil, "")
-	at, run := columnByTitle(t, board.board, "Run")
-	field := fieldByKey(t, run, 'n')
-	if got := *field.Value; got != "stop" {
-		t.Fatalf("then starts as %q, want stop", got)
+	at, automation := columnByTitle(t, board.board, "Automation")
+	field := fieldByKey(t, automation, 'n')
+	if got := *field.Value; got != "no" {
+		t.Fatalf("follow-up starts as %q, want no", got)
 	}
 	key(board.board, rune('1'+at))
 	chosen, err := board.start(func() error {
@@ -207,10 +207,10 @@ func TestTheReviewBoardOffersThenAfterTheReview(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if chosen.then != "fixes" {
-		t.Fatalf("the board chose then %q, want fixes", chosen.then)
+	if !chosen.followUp {
+		t.Fatal("the board did not turn follow-up on")
 	}
-	if got := *field.Value; got != "fixes" {
-		t.Fatalf("then cycles to %q, want fixes", got)
+	if got := *field.Value; got != "yes" {
+		t.Fatalf("follow-up cycles to %q, want yes", got)
 	}
 }

@@ -35,6 +35,7 @@ type Config struct {
 	Agents      map[string]Agent `toml:"agents"`           // picker choices and usage-limit routes
 	Run         Run              `toml:"run"`              // how a run starts
 	Review      Review           `toml:"review"`           // who weighs a review's findings
+	Automation  Automation       `toml:"automation"`       // what a run does on its own
 }
 
 // Run mirrors the flags that start a run.
@@ -58,6 +59,12 @@ type Review struct {
 	TriageModel  string   `toml:"triage_model"`
 	TriageEffort string   `toml:"triage_effort"`
 	TriageBudget *float64 `toml:"triage_budget"`
+}
+
+// Automation is what a run does without the author: follow-up for now, and
+// the rescue later.
+type Automation struct {
+	FollowUp *bool `toml:"follow_up"`
 }
 
 type Agent struct {

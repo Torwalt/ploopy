@@ -170,3 +170,47 @@ func TestTheTriageBoardShowsAFileValueAsPrefilled(t *testing.T) {
 		}
 	}
 }
+
+func TestTheAutomationTableSetsFollowUpWithoutLockingIt(t *testing.T) {
+	e := boardEnv(t)
+	e.harnesses = allHarnesses()
+	e.cfg.Automation = config.Automation{FollowUp: boolValue(true)}
+	cmd, f := settingsCommand(t)
+	p := plan.Parse(finishedPlan, "docs/plans/PASS.md")
+	s, g, err := givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.FollowUp {
+		t.Fatal("the file's follow_up did not reach the run")
+	}
+	if g.why("followUp") != "" || g.prefilled("followUp") != "from .ploopy.toml" {
+		t.Fatalf("follow-up is locked with %q and prefilled from %q", g.why("followUp"), g.prefilled("followUp"))
+	}
+	fill(e, &s, g, &runSettings{Harness: "claude", FollowUp: false})
+	if !s.FollowUp {
+		t.Fatal("the last run beat the file's follow_up")
+	}
+	board := newSettingsBoard(context.Background(), e, p, g, &s, "pass", 0)
+	_, automation := columnByTitle(t, board.board, "Automation")
+	field := fieldByKey(t, automation, 'n')
+	if got := *field.Value; got != "yes" {
+		t.Fatalf("the board shows follow-up %q, want yes", got)
+	}
+	if field.Locked != "" || field.Source != "from .ploopy.toml" {
+		t.Fatalf("follow-up is locked %q with source %q", field.Locked, field.Source)
+	}
+
+	cmd, f = settingsCommand(t, "--follow-up=false")
+	s, g, err = givenSettings(cmd, e, p, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fill(e, &s, g, nil)
+	if s.FollowUp {
+		t.Fatal("the flag did not beat the file's follow_up")
+	}
+	if g.why("followUp") != "from a flag" {
+		t.Fatalf("the flag source is %q", g.why("followUp"))
+	}
+}

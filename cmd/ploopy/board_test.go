@@ -67,7 +67,8 @@ func TestASubscriptionOutsideTheSetIsDimmedAndSaysSo(t *testing.T) {
 	fill(e, &s, g, nil)
 	board := newSettingsBoard(context.Background(), e, p, g, &s, "pass", 3)
 
-	focusRun := func() { board.board.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'3'}}) }
+	run, _ := columnByTitle(t, board.board, "Run")
+	focusRun := func() { board.board.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{rune('1' + run)}}) }
 	cycleRun := func() { board.board.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}}) }
 	focusRun()
 	for i := 0; i < len(subscriptionChoices(e.harnesses, s.Harness)); i++ {
@@ -181,7 +182,7 @@ func TestTheAdjustBoardLocksTheBedrockAndOffersStop(t *testing.T) {
 	}
 }
 
-func TestTheAdjustBoardOffersThenOnAReviewRun(t *testing.T) {
+func TestTheAdjustBoardOffersFollowUpOnAReviewRun(t *testing.T) {
 	e := boardEnv(t)
 	path := filepath.Join(e.root, "docs/plans/PASS_REVIEW.md")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -193,14 +194,16 @@ func TestTheAdjustBoardOffersThenOnAReviewRun(t *testing.T) {
 	live := liveRunPlan(t, e, control.Settings{}, "docs/plans/PASS_REVIEW.md")
 	board := newAdjustBoard(context.Background(), e, live)
 
-	run := board.board.Columns[len(board.board.Columns)-1]
-	if run.Title != "Run" {
+	if run := board.board.Columns[len(board.board.Columns)-1]; run.Title != "Run" {
 		t.Fatalf("the last column is %q", run.Title)
 	}
-	fieldByKey(t, run, 'n')
+	at, automation := columnByTitle(t, board.board, "Automation")
+	if got := *fieldByKey(t, automation, 'n').Value; got != "no" {
+		t.Fatalf("follow-up starts as %q, want no", got)
+	}
 
 	if err := board.applyBoard(live, time.Now(), func() error {
-		key(board.board, rune('1'+len(board.board.Columns)-1))
+		key(board.board, rune('1'+at))
 		key(board.board, 'n')
 		board.board.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		return nil
@@ -212,8 +215,8 @@ func TestTheAdjustBoardOffersThenOnAReviewRun(t *testing.T) {
 	if err != nil || len(lives) != 1 {
 		t.Fatalf("listed %v, %v", lives, err)
 	}
-	if got := lives[0].Wanted.Then; got != "fixes" {
-		t.Fatalf("then applied as %q, want fixes", got)
+	if got := lives[0].Wanted.FollowUp; got == nil || !*got {
+		t.Fatalf("follow-up applied as %v, want on", got)
 	}
 }
 
@@ -238,11 +241,12 @@ func TestTheAdjustBoardAppliesItsSettingsAndLeases(t *testing.T) {
 	board := newAdjustBoard(context.Background(), e, live)
 
 	now := time.Now()
+	runAt, _ := columnByTitle(t, board.board, "Run")
 	err := board.applyBoard(live, now, func() error {
-		// Column 1 is the bedrock, column 3 Run, column 2 claude.
+		// Column 1 is the bedrock, the next claude, and Run after Automation.
 		key(board.board, '1')
 		key(board.board, 'l')
-		key(board.board, '3')
+		key(board.board, rune('1'+runAt))
 		key(board.board, 's')
 		key(board.board, 'f')
 		key(board.board, 'x')
@@ -368,17 +372,30 @@ func TestTheRunBoardWritesNoLeaseOnCancel(t *testing.T) {
 	}
 }
 
-func TestThenIsAnAdjustFlag(t *testing.T) {
+func TestFollowUpIsAnAdjustFlagAndThenIsItsDeprecatedAlias(t *testing.T) {
 	e := boardEnv(t)
-	f := &adjustFlags{}
-	cmd := &cobra.Command{Use: "adjust"}
-	cmd.Flags().StringVar(&f.then, "then", "", "")
-	if err := cmd.ParseFlags([]string{"--then", "fixes"}); err != nil {
-		t.Fatal(err)
-	}
-	change, err := changeFromFlags(cmd, e, f)
-	if err != nil || change.Then != "fixes" {
-		t.Fatalf("--then fixes changed %+v, error %v", change, err)
+	for _, tc := range []struct {
+		name string
+		args []string
+		want bool
+	}{
+		{"--follow-up=false", []string{"--follow-up=false"}, false},
+		{"--then fixes", []string{"--then", "fixes"}, true},
+		{"--then stop", []string{"--then", "stop"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &adjustFlags{}
+			cmd := &cobra.Command{Use: "adjust"}
+			cmd.Flags().BoolVar(&f.followUp, "follow-up", false, "")
+			cmd.Flags().StringVar(&f.then, "then", "", "")
+			if err := cmd.ParseFlags(tc.args); err != nil {
+				t.Fatal(err)
+			}
+			change, err := changeFromFlags(cmd, e, f)
+			if err != nil || change.FollowUp == nil || *change.FollowUp != tc.want {
+				t.Fatalf("%s changed %+v, error %v", tc.name, change, err)
+			}
+		})
 	}
 }
 

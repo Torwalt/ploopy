@@ -44,7 +44,7 @@ type settingsBoard struct {
 	spend     string
 	push      string
 	stop      string
-	then      string
+	followUp  string
 	lastAgent string
 	board     *ui.Board
 }
@@ -115,7 +115,7 @@ func newSettingsBoard(ctx context.Context, e *env, p *plan.Plan, g given, s *run
 	sb := &settingsBoard{
 		ctx: ctx, env: e, plan: p, branch: branch, open: open, root: e.root, given: g, s: s,
 		secondary: encodeAgent(s.Secondary), spend: spendLabel(s.SpendAll), push: yesNo(s.Push),
-		then: thenValue(s.Then), lastAgent: s.Harness, canPush: repo.New(e.root, nil).CanPush(ctx, branch) == nil,
+		followUp: yesNo(s.FollowUp), lastAgent: s.Harness, canPush: repo.New(e.root, nil).CanPush(ctx, branch) == nil,
 	}
 	sb.records = loadHistory(ctx, sb.root)
 	sb.drafts, sb.leaseErr = loadLeaseDrafts(ctx, e, sb.records, time.Now())
@@ -138,7 +138,7 @@ func newAdjustBoard(ctx context.Context, e *env, live control.Live) *settingsBoa
 		SpendAll:      wanted.SpendAll != nil && *wanted.SpendAll,
 		Push:          wanted.Pushes(),
 		Finish:        wanted.Finish,
-		Then:          wanted.Then,
+		FollowUp:      wanted.FollowUp != nil && *wanted.FollowUp,
 	}
 	if fields := strings.Fields(live.Agent); len(fields) > 0 {
 		s.Harness = fields[0]
@@ -177,7 +177,7 @@ func newAdjustBoard(ctx context.Context, e *env, live control.Live) *settingsBoa
 		ctx: ctx, env: e, plan: p, branch: live.Branch, open: open, root: live.Root,
 		adjust: true, given: g, s: &s,
 		secondary: encodeAgent(wanted.SecondaryAgent()), spend: spendLabel(s.SpendAll),
-		push: yesNo(s.Push), stop: yesNo(wanted.Stops()), then: thenValue(wanted.Then), lastAgent: s.Harness,
+		push: yesNo(s.Push), stop: yesNo(wanted.Stops()), followUp: yesNo(s.FollowUp), lastAgent: s.Harness,
 		canPush: repo.New(live.Root, nil).CanPush(ctx, live.Branch) == nil,
 	}
 	sb.records = loadHistory(ctx, sb.root)
@@ -283,6 +283,7 @@ func (sb *settingsBoard) columns() []ui.Column {
 	if sb.triage != nil {
 		columns = append(columns, sb.triageColumn())
 	}
+	columns = append(columns, sb.automationColumn())
 	columns = append(columns, sb.runColumn())
 	return columns
 }
@@ -370,6 +371,14 @@ func (sb *settingsBoard) subscriptionColumn(d *leaseDraft) ui.Column {
 	}
 }
 
+func (sb *settingsBoard) automationColumn() ui.Column {
+	return ui.Column{Title: "Automation", Fields: []ui.BoardField{
+		{Key: 'n', Label: "follow up", Value: &sb.followUp,
+			Choices: func() []ui.Choice { return yesNoChoices(sb.followUp == "yes") },
+			Locked:  sb.given.why("followUp"), Source: sb.given.prefilled("followUp")},
+	}}
+}
+
 func (sb *settingsBoard) runColumn() ui.Column {
 	s := sb.s
 	fields := []ui.BoardField{
@@ -386,10 +395,6 @@ func (sb *settingsBoard) runColumn() ui.Column {
 	}
 	fields = append(fields, ui.BoardField{Key: 'f', Label: "end", Value: &s.Finish,
 		Choices: func() []ui.Choice { return ui.Finishes }, Locked: sb.given.why("finish"), Source: sb.given.prefilled("finish")})
-	if sb.triage != nil || (sb.adjust && sb.plan.Reviews() != "") {
-		fields = append(fields, ui.BoardField{Key: 'n', Label: "then", Value: &sb.then,
-			Choices: func() []ui.Choice { return thenChoices }, Locked: sb.given.why("then")})
-	}
 	if sb.adjust {
 		fields = append(fields, ui.BoardField{Key: 'x', Label: "stop", Value: &sb.stop,
 			Choices: func() []ui.Choice { return yesNoChoices(sb.stop == "yes") }})
@@ -509,7 +514,7 @@ func (sb *settingsBoard) read() {
 	sb.s.Secondary = decodeAgent(sb.secondary)
 	sb.s.SpendAll = sb.spend == "all"
 	sb.s.Push = sb.push == "yes"
-	sb.s.Then = thenValue(sb.then)
+	sb.s.FollowUp = sb.followUp == "yes"
 }
 
 // adjustChange is everything the adjust board shows, as a change. Every field
@@ -520,6 +525,7 @@ func (sb *settingsBoard) adjustChange() control.Settings {
 		secondary = &control.Agent{}
 	}
 	stop := sb.stop == "yes"
+	followUp := sb.followUp == "yes"
 	return control.Settings{
 		Finish:        sb.s.Finish,
 		Peak:          sb.s.Peak,
@@ -528,13 +534,8 @@ func (sb *settingsBoard) adjustChange() control.Settings {
 		Secondary:     secondary,
 		Subscriptions: sb.s.Subscriptions,
 		SpendAll:      &sb.s.SpendAll,
-		Then:          thenValue(sb.then),
+		FollowUp:      &followUp,
 	}
-}
-
-var thenChoices = []ui.Choice{
-	{Label: "stop", Value: "stop"},
-	{Label: "run the fix plan", Value: "fixes"},
 }
 
 // applyAdjust writes the changed leases and lays the board's settings over
@@ -547,7 +548,7 @@ func (sb *settingsBoard) applyAdjust(live control.Live, now time.Time) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s: %s\n", updated.Name(), updated.Wanted.Describe())
+	fmt.Printf("%s: %s\n", updated.Name(), updated.Wanted.Describe(isReviewRun(live)))
 	return nil
 }
 

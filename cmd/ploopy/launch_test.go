@@ -23,7 +23,7 @@ func chosenForLaunch(e *env) chosenRun {
 		subscriptions: "claude codex",
 		push:          true,
 		finish:        ui.FinishSuspend,
-		then:          "fixes",
+		followUp:      true,
 	}
 }
 
@@ -54,7 +54,7 @@ func TestALaunchedRunStartsWithTheSettingsChosenForIt(t *testing.T) {
 	f.subscriptions, _ = child.Flags().GetString("subscriptions")
 	f.push, _ = child.Flags().GetBool("push")
 	f.finish, _ = child.Flags().GetString("finish")
-	f.then, _ = child.Flags().GetString("then")
+	f.followUp, _ = child.Flags().GetBool("follow-up")
 	s, _, err := givenSettings(child, e, p, &f)
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ func TestALaunchedRunStartsWithTheSettingsChosenForIt(t *testing.T) {
 	if s.Secondary == nil || s.Secondary.Harness != "codex" || s.Secondary.Effort != "medium" {
 		t.Errorf("the launched run falls back to %+v, want codex at medium", s.Secondary)
 	}
-	if s.Subscriptions != "claude codex" || !s.Push || s.Finish != "suspend" || s.Then != "fixes" {
+	if s.Subscriptions != "claude codex" || !s.Push || s.Finish != "suspend" || !s.FollowUp {
 		t.Errorf("the launched run has %+v", s)
 	}
 	if f.planName != p.Path {

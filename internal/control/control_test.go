@@ -9,6 +9,7 @@ import (
 )
 
 func yes() *bool { v := true; return &v }
+func no() *bool  { v := false; return &v }
 
 func register(t *testing.T) *Run {
 	t.Helper()
@@ -160,18 +161,21 @@ func TestClosingWithdrawsTheRun(t *testing.T) {
 	}
 }
 
-func TestThenIsLaidOverAndDescribed(t *testing.T) {
-	base := Settings{Then: "stop"}
-	if got := (Settings{Then: "fixes"}).Over(base); got.Then != "fixes" {
-		t.Fatalf("then laid over as %q", got.Then)
+func TestFollowUpIsLaidOverAndDescribed(t *testing.T) {
+	base := Settings{FollowUp: yes()}
+	if got := (Settings{FollowUp: no()}).Over(base); got.FollowUp == nil || *got.FollowUp {
+		t.Fatalf("follow-up laid over as %v", got.FollowUp)
 	}
-	if got := (Settings{}).Over(base); got.Then != "stop" {
-		t.Fatalf("an unset change cleared then: %q", got.Then)
+	if got := (Settings{}).Over(base); got.FollowUp == nil || !*got.FollowUp {
+		t.Fatalf("an unset change cleared follow-up: %v", got.FollowUp)
 	}
-	if desc := (Settings{Then: "fixes"}).Describe(); !strings.Contains(desc, "then run the fix plan") {
-		t.Fatalf("fixes is described as %q", desc)
+	if desc := (Settings{FollowUp: yes()}).Describe(); !strings.Contains(desc, "then review and fix") {
+		t.Fatalf("follow-up on an ordinary plan is described as %q", desc)
 	}
-	if desc := (Settings{Then: "stop"}).Describe(); !strings.Contains(desc, "then stop") {
-		t.Fatalf("stop is described as %q", desc)
+	if desc := (Settings{FollowUp: yes()}).Describe(true); !strings.Contains(desc, "then run the fix plan") {
+		t.Fatalf("follow-up on a review is described as %q", desc)
+	}
+	if desc := (Settings{FollowUp: no()}).Describe(true); !strings.Contains(desc, "then stop") {
+		t.Fatalf("follow-up off on a review is described as %q", desc)
 	}
 }

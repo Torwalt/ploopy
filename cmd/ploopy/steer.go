@@ -20,14 +20,15 @@ type steering struct {
 	base      control.Settings
 	harnesses harness.Set
 	leases    *lendingLoader
+	review    bool
 	changed   chan struct{}
 	stop      chan struct{}
 }
 
 // announce registers the run. Without a runtime directory the run goes on
 // unannounced, keeping what it started with.
-func announce(status control.Status, harnesses harness.Set, leases *lendingLoader, report *ui.Reporter) *steering {
-	s := &steering{base: status.Settings, harnesses: harnesses, leases: leases, changed: make(chan struct{}, 1)}
+func announce(status control.Status, review bool, harnesses harness.Set, leases *lendingLoader, report *ui.Reporter) *steering {
+	s := &steering{base: status.Settings, harnesses: harnesses, leases: leases, review: review, changed: make(chan struct{}, 1)}
 	run, err := control.Register(status)
 	if err != nil {
 		report.Say("`ploopy adjust` cannot reach this run: %v", err)
@@ -35,7 +36,7 @@ func announce(status control.Status, harnesses harness.Set, leases *lendingLoade
 	}
 	s.run, s.stop = run, make(chan struct{})
 	go run.Watch(s.stop, watchEvery, func(now control.Settings) {
-		report.Say("adjusted: %s", now.Describe())
+		report.Say("adjusted: %s", now.Describe(s.review))
 		select {
 		case s.changed <- struct{}{}:
 		default:

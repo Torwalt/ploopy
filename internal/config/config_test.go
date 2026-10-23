@@ -170,6 +170,9 @@ triage_agent = "claude"
 triage_model = "opus"
 triage_effort = "high"
 triage_budget = 2.5
+
+[automation]
+follow_up = true
 `)
 	cfg, err := Load(root)
 	if err != nil {
@@ -196,6 +199,9 @@ triage_budget = 2.5
 	}
 	if review.TriageBudget == nil || *review.TriageBudget != 2.5 {
 		t.Fatalf("triage budget %v", review.TriageBudget)
+	}
+	if cfg.Automation.FollowUp == nil || !*cfg.Automation.FollowUp {
+		t.Fatalf("automation follow up %v", cfg.Automation.FollowUp)
 	}
 	if err := cfg.Validate(fileHarnesses()); err != nil {
 		t.Fatal(err)

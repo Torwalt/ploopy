@@ -63,7 +63,7 @@ func showCopy(e *env, c catalog.Copy) {
 		fmt.Printf("%s is on %s\n", c.Plan.Path, c.Where(e.root))
 	}
 	if c.Live != nil {
-		fmt.Printf("running unit %s · %s\n", c.Live.Unit, c.Live.Wanted.Describe())
+		fmt.Printf("running unit %s · %s\n", c.Live.Unit, c.Live.Wanted.Describe(c.Plan.Reviews() != ""))
 	}
 	ui.NewReporter(os.Stdout, os.Stderr).Summary(c.Plan, c.State, nil)
 }

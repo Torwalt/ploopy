@@ -53,6 +53,7 @@ type runFlags struct {
 	peak          string
 	subscriptions string
 	spendAll      bool
+	followUp      bool
 	then          string
 	quiet         bool
 	grace         time.Duration
@@ -106,7 +107,9 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	_ = flags.MarkDeprecated(allowDirty, "uncommitted changes always go to the session")
 	flags.BoolVar(&f.worktree, "worktree", false, "")
 	_ = flags.MarkDeprecated("worktree", "every run goes to a worktree of its branch")
-	flags.StringVar(&f.then, "then", "", "after a review: stop, or fixes to run the fix plan it writes")
+	flags.BoolVar(&f.followUp, "follow-up", false, "after a plan or review completes, continue with its follow-up")
+	flags.StringVar(&f.then, "then", "", "")
+	_ = flags.MarkDeprecated("then", "use --follow-up instead")
 	flags.BoolVar(&f.detach, "detach", false, "run in a tmux window of its own, as launch = \"tmux\" in .ploopy.toml does")
 	flags.BoolVar(&f.here, "here", false, "run in this terminal, whatever launch in .ploopy.toml says")
 	flags.BoolVar(&f.launched, launchedFlag, false, "")
@@ -282,19 +285,15 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 	branch, _ := repo.New(root, nil).Branch(ctx)
 	opts.Branch = branch
 	opts.Lending = leases.load(time.Now(), pick.subscriptions, pick.spendAll)
-	then := pick.then
-	if p.Reviews() == "" {
-		then = ""
-	}
 	steer := announce(control.Status{
 		Root: root, Plan: p.Path, Branch: branch,
 		Agent: pick.agent.Label(),
 		Settings: control.Settings{
 			Finish: string(pick.finish), Peak: peakName(pick.waitOffPeak), Push: &pick.push,
 			Secondary:     toControlAgent(pick.secondary),
-			Subscriptions: pick.subscriptions, SpendAll: &pick.spendAll, Then: then,
+			Subscriptions: pick.subscriptions, SpendAll: &pick.spendAll, FollowUp: &pick.followUp,
 		},
-	}, e.harnesses, leases, report)
+	}, p.Reviews() != "", e.harnesses, leases, report)
 	defer steer.close()
 	opts.Steering = steer.loopSteering()
 
@@ -355,14 +354,14 @@ func announceSubscriptions(report *ui.Reporter, e *env, p *plan.Plan, pick chose
 	}
 }
 
-// chainedFixPlan is the fix plan a complete review hands over to, when Then
-// says so and the triage wrote one.
+// chainedFixPlan is the fix plan a complete review hands over to, when
+// follow-up says so and the triage wrote one.
 func chainedFixPlan(ctx context.Context, r *planRun) (string, bool) {
 	if ctx.Err() != nil || r.p == nil || r.p.Reviews() == "" || !r.complete ||
 		r.result.Stopped || r.wanted.Stops() {
 		return "", false
 	}
-	if thenValue(r.wanted.Then) != "fixes" {
+	if r.wanted.FollowUp == nil || !*r.wanted.FollowUp {
 		return "", false
 	}
 	fixes := review.FixesPath(r.p.Reviews())
