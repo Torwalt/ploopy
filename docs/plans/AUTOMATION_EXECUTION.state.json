@@ -73,6 +73,31 @@
         "reasoning": 30246,
         "cache_read": 6938496
       }
+    },
+    "3.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T12:38:15+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "45f260589a3995e06e70d12328b99ea304df87a7",
+      "commits": [
+        "865d3bba8f33a01eb5b27e34bd883fed69602c52 Add a rescue session to the plan loop"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- `865d3bb` adds the rescue session to `internal/loop`: `Options.Rescue` and\n  `Options.Rescues` (2 by default), the embedded `rescue_prompt.md`, and\n  `skills/unit-rescue/SKILL.md` shipped through `embed.go` and `ploopy skills`.\n- A rescue runs before the run stops at retries spent, the transient limit, or\n  a confirmed block. It is read-only, its report is parsed for `Diagnosis`,\n  `Decisions`, `Next attempt` and `Wait:`, and `RETRY`, `DECIDED` and `BLOCKED`\n  drive the next attempt or a blocked settlement.\n- `harness.ParseMarker` now reads `RETRY` and `DECIDED`; every unit, review and\n  triage judge maps them back to no marker. Rescue sessions carry\n  `role: \"rescue\"` in `stats.jsonl` and `history.jsonl`, and\n  `history.Estimates` skips them.\n\n**Landmark drift**\n\n- `failedAttempt` no longer returns the \"failed after N attempt(s)\" error. It\n  prepares the retry, and `runUnit` decides whether the counters are spent and\n  a rescue gets the stop.\n- `account` now delegates to `accountSession`; unit sessions pass an empty\n  role, rescue sessions pass `rescue`.\n- The rescue's skill is read through `config.RepoRescueSkill` and\n  `ploopy.UnitRescueSkill`, wired as `Options.RescueSkill` in `cmd/ploopy`\n  exactly like `TriageSkill`.\n\n**Deviations from the work order**\n\n- Decisions are also kept in `progress.Decisions`, not only in the failure\n  text, so `failedAttempt` and `blockedAttempt` can prepend them to every later\n  attempt after a `DECIDED` rescue.\n- `Rescues` is defaulted to 2 in `Options.Defaults`; a test cannot express an\n  explicit zero through the option.\n- The rescue's doctor also rejects a `RETRY`/`DECIDED` report with no\n  `Next attempt` (and a `DECIDED` report with no `Decisions`) as a failed\n  rescue. §6 does not spell this out, but the loop cannot use such an answer.\n- The report lives at `.ploopy/\u003cplan\u003e/handover/\u003cunit\u003e.rescue-\u003cn\u003e.md`, matching\n  §7's `\u003chandovers\u003e/\u003cunit\u003e.rescue-\u003cn\u003e.md`.\n\n**What the next session must know**\n\n- `rescueResult` already carries the report text, diagnosis, decisions and next\n  section. 3.2 can collect rescues into `progress`/`state.Entry` without\n  re-reading the report.\n- A rescue's cost is added to the unit's `cost_usd`; its time is not added to\n  `session_s`. `stats.Report` still counts rescue sessions in its ordinary\n  session and agent lines until 3.2 adds the *Rescued* section.\n- Failed-rescue evidence currently goes only to `run.log` and the run error.\n  For the blocked trigger the unit settles blocked as before; for the other\n  two triggers it stays pending, as it did without a rescue.\n- `runUnit` records every unit attempt (including rate-limited and transient\n  ones) in a per-unit `attempts` slice for the prompt; it is not persisted.\n\n**Open problems**\n\n- No user-facing way to set the rescue yet (flags, board, `.ploopy.toml`,\n  `adjust` are 3.3). `Options.Rescue` is only reachable from tests for now.\n- The lifecycle text in `README.md` and `skills/ploopy` still says nothing\n  about rescue; that remains the pending docs pass.\n- `rescueAttempt.Info` and `.Tail` are currently unused by the prompt builder;\n  harmless, but 3.2 may find a use or remove them.",
+      "session_id": "ses_e97b46ca3ffeqQOUiXyFByJfjn",
+      "cost_usd": 0.10204544400000001,
+      "harness": "opencode",
+      "elapsed_s": 751,
+      "session_s": 723,
+      "verify_s": 1,
+      "test_s": 27,
+      "tokens": {
+        "input": 180058,
+        "output": 29091,
+        "reasoning": 35512,
+        "cache_read": 12091648
+      }
     }
   }
 }
