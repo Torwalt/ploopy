@@ -119,6 +119,26 @@
         "reasoning": 57682,
         "cache_read": 5880064
       }
+    },
+    "1.7": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T14:08:27+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "08dab8461460bdd09f09b15736d5962502451ff9",
+      "attempts": 1,
+      "handover": "# Findings: unit 4.1 Skills and README\n\nReviewed: 2eee6f87ead5..2415b4269182, 3 files. Steps: all done.\n\nNo findings.\n\nI checked hardest the two explicit *Done when* clauses (the `--then` grep and the `[run]`/`[automation]` examples) and every Goal item against the shipped settings, flags and rescue behaviour, including the unattended `--plan`-only path, the `[automation]` keys, the three rescue triggers, and the state/report/summary record of a `DECIDED` rescue.",
+      "session_id": "ses_e975ad064ffeu0rZSDPFOx0sCl",
+      "cost_usd": 0.03540767399999999,
+      "harness": "opencode",
+      "elapsed_s": 291,
+      "session_s": 291,
+      "tokens": {
+        "input": 90975,
+        "output": 2804,
+        "reasoning": 27042,
+        "cache_read": 1284608
+      }
     }
   }
 }
