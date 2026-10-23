@@ -290,6 +290,30 @@
         "reasoning": 7434,
         "cache_read": 1624576
       }
+    },
+    "3.5": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T15:12:23+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "b83f9eacd05d3d03859748ed75b67527349d96ea",
+      "commits": [
+        "232b8a502ac0492749f260c40a666939cea6417a Keep a decided rescue's decisions past the report cut"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 3.5\n\n## What landed\n\n`232b8a5` adds `state.Rescue.Decisions` (`json:\"decisions,omitempty\"`).\n`recordRescue` fills it from the full report's `## Decisions` section before\nthe 4000-byte cut is applied, and only for `decided` rescues. The *Rescued*\nsection of `ploopy report` and the closing summary read the new field and fall\nback to `Rescue.Section(\"Decisions\")` when it is empty.\n\nTests: a loop test with a 6000-byte diagnosis shows the full decisions on the\nentry while the stored report is exactly 4000 bytes and lacks them (it failed\nbefore the change); new report and summary tests show stored decisions from a\ncut record, while the existing tests keep covering the report-only fallback; the\nstate round-trip carries decisions and an old rescue JSON loads with an empty\nfield and a usable section.\n\n## Landmark drift\n\nNone. All the landmarks named in the work order were at the stated places.\n\n## Deviations from the work order\n\nNone. `recordRescue` derives the decisions inside itself from the uncut report,\nso all its call sites stay unchanged.\n\n## What the next session must know\n\n- `recordRescue` decides what to store by `verdict == \"decided\"`; a blocked\n  rescue's report may still contain a Decisions section but it is not copied.\n- The stored `Decisions` is trimmed by `reportSection`, same as the report\n  readers' fallback `Section`.\n- README and `skills/ploopy` already promised decisions in the state file and\n  in full, so no document change was needed.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e971e8de9ffe44l7KGG62OiQeW",
+      "cost_usd": 0.019555644,
+      "harness": "opencode",
+      "elapsed_s": 177,
+      "session_s": 157,
+      "test_s": 20,
+      "tokens": {
+        "input": 55438,
+        "output": 6749,
+        "reasoning": 4342,
+        "cache_read": 1528448
+      }
     }
   }
 }
