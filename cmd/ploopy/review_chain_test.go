@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -370,6 +372,113 @@ func captureSettings(step fake.Step, planPath string, into *control.Settings) fa
 		return do(dir)
 	}
 	return step
+}
+
+// captureWanted records what a run wants now while this step runs.
+func captureWanted(step fake.Step, planPath string, into *control.Settings, found *bool) fake.Step {
+	do := step.Do
+	step.Do = func(dir string) error {
+		lives, err := control.List()
+		if err != nil {
+			return err
+		}
+		for _, live := range lives {
+			if live.Plan == planPath {
+				*into = live.Wanted
+				*found = true
+			}
+		}
+		return do(dir)
+	}
+	return step
+}
+
+func TestAChainedFixPlanAnnouncesNoFollowUp(t *testing.T) {
+	e, _ := chainRepo(t)
+	h := fake.New(findingsStep(), triageStep(t),
+		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
+	var fix control.Settings
+	found := false
+	h.Steps[2] = captureWanted(h.Steps[2], "docs/plans/PASS_FIXES.md", &fix, &found)
+	e.harnesses = harness.Set{h}
+
+	if err := runReview(t, e, reviewArgs("--follow-up")...); err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("the fix plan never announced itself")
+	}
+	if got := fix.Describe(); strings.Contains(got, "review and fix") {
+		t.Fatalf("the running fix plan's status says %q, but a fix plan never chains", got)
+	}
+}
+
+// captureStdout collects what a run writes to standard output.
+func captureStdout(t *testing.T, run func() error) (string, error) {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = w
+	var buf bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(&buf, r)
+		close(done)
+	}()
+	runErr := run()
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	os.Stdout = old
+	<-done
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.String(), runErr
+}
+
+func TestAFinishedReviewSaysWhetherItRunsTheFixPlanNext(t *testing.T) {
+	cases := []struct {
+		name     string
+		args     []string
+		wantNext bool
+	}{
+		{"follow-up", reviewArgs("--follow-up"), true},
+		{"no follow-up", reviewArgs("--follow-up=false"), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			e, _ := chainRepo(t)
+			h := fake.New(findingsStep(), triageStep(t),
+				fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
+			e.harnesses = harness.Set{h}
+
+			out, err := captureStdout(t, func() error {
+				return runReview(t, e, c.args...)
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.wantNext {
+				if strings.Contains(out, "run it with") {
+					t.Fatalf("the chained review tells the author to run its fix plan:\n%s", out)
+				}
+				if !strings.Contains(out, "running it next") {
+					t.Fatalf("the review does not say its fix plan runs next:\n%s", out)
+				}
+			} else {
+				if !strings.Contains(out, "run it with") {
+					t.Fatalf("a review that ends tells the author nothing to run:\n%s", out)
+				}
+				if strings.Contains(out, "running it next") {
+					t.Fatalf("a review that ends says its fix plan runs next:\n%s", out)
+				}
+			}
+		})
+	}
 }
 
 func TestTheFixPlanInheritsTheReviewsSpendAllAdjustment(t *testing.T) {

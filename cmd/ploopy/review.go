@@ -323,15 +323,20 @@ func writeTriage(ctx context.Context, e *env, root string, p *plan.Plan, chosen 
 }
 
 // reviewOutcome shows what a finished review left for the author: the section
-// the triage wrote for them, and the fix plan to run.
-func reviewOutcome(root string, p *plan.Plan) {
+// the triage wrote for them, and the fix plan to run. runsNext says the chain
+// takes the fix plan now, so there is nothing for the author to start.
+func reviewOutcome(root string, p *plan.Plan, runsNext bool) {
 	if text, err := os.ReadFile(filepath.Join(root, p.Path)); err == nil {
 		if section := review.AuthorSection(string(text)); section != "" {
 			fmt.Printf("\n%s\n", section)
 		}
 	}
 	if fixes := review.FixesPath(p.Reviews()); isFile(filepath.Join(root, fixes)) {
-		fmt.Printf("\nthe fix plan is %s: run it with `ploopy run --plan %s`\n", fixes, fixes)
+		if runsNext {
+			fmt.Printf("\nthe fix plan is %s: running it next\n", fixes)
+		} else {
+			fmt.Printf("\nthe fix plan is %s: run it with `ploopy run --plan %s`\n", fixes, fixes)
+		}
 	} else {
 		fmt.Println("\nno fix plan: no finding held for the loop to fix")
 	}

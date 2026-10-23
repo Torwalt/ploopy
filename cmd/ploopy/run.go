@@ -339,6 +339,11 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 	branch, _ := repo.New(root, nil).Branch(ctx)
 	opts.Branch = branch
 	opts.Lending = leases.load(time.Now(), pick.subscriptions, pick.spendAll)
+	limited := f.until != "" || f.units > 0
+	followUp := &pick.followUp
+	if review.IsFix(p.Path) {
+		followUp = nil
+	}
 	steer := announce(control.Status{
 		Root: root, Plan: p.Path, Branch: branch,
 		Agent: pick.agent.Label(),
@@ -346,7 +351,7 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 			Finish: string(pick.finish), Peak: peakName(pick.waitOffPeak), Push: &pick.push,
 			Secondary:     toControlAgent(pick.secondary),
 			Rescue:        toControlAgent(pick.rescue),
-			Subscriptions: pick.subscriptions, SpendAll: &pick.spendAll, FollowUp: &pick.followUp,
+			Subscriptions: pick.subscriptions, SpendAll: &pick.spendAll, FollowUp: followUp,
 		},
 	}, p.Reviews() != "", e.harnesses, leases, report)
 	defer steer.close()
@@ -360,7 +365,7 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 	report.Say("%s with %s%s at %s effort%s%s%s%s%s", p.Path, pick.agent.Harness.Name(),
 		modelSuffix(pick.agent.Model), pick.agent.Effort, secondarySuffix(pick.secondary),
 		peakSuffix(pick), pushSuffix(pick.push), finishSuffix(pick.finish),
-		followUpSuffix(pick.followUp, p, f.until != "" || f.units > 0))
+		followUpSuffix(pick.followUp, p, limited))
 	if fallback := harness.FallbackModel(pick.agent.Harness, pick.agent.Model); fallback != "" {
 		report.Say("on a usage limit, %s continues with %s before waiting or switching harness", pick.agent.Model, fallback)
 	}
@@ -380,7 +385,12 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 			fmt.Println()
 			fmt.Print(reportOf(catalog.Copy{Plan: p, State: s, Root: root}))
 			if p.Reviews() != "" {
-				reviewOutcome(root, p)
+				pending := &planRun{
+					root: root, p: p, result: result, complete: true,
+					limited: limited, wanted: steer.wanted(),
+				}
+				_, next := chainedFixPlan(ctx, pending)
+				reviewOutcome(root, p, next)
 			}
 		} else {
 			report.Summary(p, s, &result.Stats)
@@ -390,7 +400,7 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 
 	return &planRun{
 		root: root, branch: branch, cfg: cfg, p: p, runner: runner, report: report,
-		result: result, complete: complete, limited: f.until != "" || f.units > 0,
+		result: result, complete: complete, limited: limited,
 		wanted: steer.wanted(), chosen: pick,
 	}, nil
 }
