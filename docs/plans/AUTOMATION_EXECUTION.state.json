@@ -122,6 +122,30 @@
         "reasoning": 11370,
         "cache_read": 2198528
       }
+    },
+    "3.3": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T12:54:03+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "499183539bfcbe60173c7e477b3c9223443c55d3",
+      "commits": [
+        "05bf915a19489049c7b535905061cd3ad2a384e0 Let the author choose the rescue agent"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n\n- The rescue is a run setting everywhere the secondary is: `--rescue`,\n  `--rescue-model` and `--rescue-effort` on `run` (and therefore `review`)\n  and `adjust`, and `[automation] rescue`, `rescue_model` and `rescue_effort`.\n- The choice is remembered in `last-run.json`, prefilled from the last run,\n  carried into a detached launch, and laid over the chain by `overChosen`.\n- The board's Automation column now has the rescue agent, model and effort\n  beside follow-up. `control.Settings` carries `Rescue`, and `Describe` names\n  it.\n- The loop reads the rescue through `steer()` at the stop point rather than\n  only from `Options.Rescue`, so `ploopy adjust --rescue none` (or a new\n  agent) applies to the rest of the run. With no steering the option behaves\n  as before.\n\n**Landmark drift**\n\n- `Loop.canRescue` and `Loop.runRescue` now use a new `Loop.rescue()`, which\n  reads `Steer.Rescue`; `Steer` gained the field and its default carries\n  `Options.Rescue`.\n- `rescueCase` carries the agent that actually ran the rescue, so a later\n  `adjust` cannot relabel its record.\n- `newAdjustBoard` seeds `runSettings.Rescue`, and its automation column\n  writes the rescue back on apply.\n\n**Deviations from the work order**\n\n- The file's rescue, like the secondary, is not a plan front-matter key; only\n  flags, file, last run and the default choose it, as §3 and §8 say.\n- `--rescue-model` / `--rescue-effort` are honoured together with `--rescue`,\n  mirroring `--secondary-model` / `--secondary-effort`.\n- The rescue is not added to the run-start suffix; `control.Describe`, the\n  board and the loop's own rescue lines name it.\n\n**What the next session must know**\n\n- `validRescue` deliberately allows the run's own harness, unlike\n  `validSecondary`. It still rejects an unknown harness or effort.\n- Interactive runs use `fill` and therefore the last run; unattended runs\n  still skip `fill`, so their rescue comes only from a flag or the file.\n- `rescueHarnessChoices` lists `none` plus every harness. Model and effort\n  fields have no choices while the rescue is none.\n- A test at `cmd/ploopy/run_chain_test.go` drives a file rescue through a real\n  fake-harness run, proving `Options.Rescue` is populated. Its report uses\n  `Wait: 1ms` so the run does not really sleep for the default backoff.\n\n**Open problems**\n\n- README, `skills/ploopy` and AGENTS.md still omit the rescue lifecycle; that\n  is Stage 4.1.\n- The interactive rescue fields have no dedicated visual emphasis beyond the\n  existing Automation column; no user asked for one.",
+      "session_id": "ses_e97a556e1ffePeR5Bv0xPckdRl",
+      "cost_usd": 0.08075760000000001,
+      "harness": "opencode",
+      "elapsed_s": 711,
+      "session_s": 696,
+      "test_s": 14,
+      "tokens": {
+        "input": 168948,
+        "output": 19665,
+        "reasoning": 19158,
+        "cache_read": 10707200
+      }
     }
   }
 }
