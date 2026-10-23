@@ -314,6 +314,31 @@
         "reasoning": 4342,
         "cache_read": 1528448
       }
+    },
+    "3.6": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T15:18:08+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "cbf35beb58bc3853fbca2f2e65f2056fea25095b",
+      "commits": [
+        "c184461717c4d7cc11055a8407fa48b3c8384942 List an unsettled unit's rescues in the run summary"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 3.6\n\n## What landed\n\n`c184461` adds `Unit` and `Rescues` to `loop.Result`. `Run` fills them from\n`l.unit` and `progress.Rescues` when `runUnit` stops on an unsettled unit,\nboth on failure and on an author-requested stop. `Reporter.Summary` takes the\nrun's `*loop.Result` as a fourth argument and `rescues` appends its entries\nafter the state entries; `runOnce` passes `\u0026result`, while `ploopy report`\npasses nil and is unchanged.\n\nTests: a loop test with a markerless rescue on the `failed` trigger finds it in\n`Result.Unit`/`Result.Rescues`; a summary test given such a rescue prints its\nline under *Rescued* and the `review these` pointer.\n\n## Landmark drift\n\nNone. All the landmarks named in the work order were at the stated places.\n\n## Deviations from the work order\n\n- The summary also carries rescues of a unit stopped by the author (`Stopped`),\n  not only failed/transient stops, because §9 says every rescue of the run and\n  the summary prints for stopped runs too. `withRescues` only attaches when the\n  current progress belongs to the stopped unit, so stale progress from a crash\n  or a previous unit cannot leak in.\n- `Summary` gained a `*loop.Result` parameter rather than a bespoke type; `ui`\n  already imports `loop` in `report.go`, so no new dependency direction.\n\n## What the next session must know\n\n- `settle` clears `progress.Rescues` after writing them to the entry, so a\n  blocked unit is not double-listed; a settled unit's rescues still come from\n  the state entry.\n- `ploopy report` intentionally passes nil: it reads state entries only, as the\n  unit requires.\n- The summary still lists rescues from earlier runs' entries alongside this\n  run's; that is existing behaviour and was not changed.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e971bd8f1ffeZo9dq9FMsK32xp",
+      "cost_usd": 0.036412044000000005,
+      "harness": "opencode",
+      "elapsed_s": 344,
+      "session_s": 308,
+      "verify_s": 1,
+      "test_s": 35,
+      "tokens": {
+        "input": 142538,
+        "output": 6144,
+        "reasoning": 7362,
+        "cache_read": 2309248
+      }
     }
   }
 }
