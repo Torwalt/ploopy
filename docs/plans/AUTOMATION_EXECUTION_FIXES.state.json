@@ -1,0 +1,28 @@
+{
+  "units": {
+    "1.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T14:33:26+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "1d0a14e19b9482b92d8dc7a0f04fc84349734776",
+      "commits": [
+        "8d96e35f477ca81e849a4413d3b516f4f879430e Treat file agent, model and effort as prefills, not givens"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 1.1\n\n## What landed\n\n`8d96e35` — `givenSettings` now marks the harness, model and effort as given\nonly when they came from a flag or the plan's front matter. A value from\n`.ploopy.toml` still prefills the board, but is no longer locked. The new board\ntest `TestChangingTheAgentResetsAFileModelAndEffort` shows that changing the\nagent resets a file model and effort to the new harness's defaults.\n\n## Landmark drift\n\nNone. `cmd/ploopy/settings.go` and `cmd/ploopy/board.go` were as the work order\ndescribed.\n\n## Deviations from the work order\n\nNone. The defect was the single assignment that set `g.harness`, `g.model` and\n`g.effort` from non-empty values; the booleans are now set in the flag and plan\nbranches instead, and the assignment is gone.\n\n## What the next session must know\n\n- `fill` already preserved a file prefill through `g.prefilled(...)`, so removing\n  the \"non-empty means given\" rule does not lose the file value on first show.\n- `normalize` in `board.go` resets model and effort when `!given.model` /\n  `!given.effort` and the agent changed, which is what the new test exercises.\n- `TestChangingTheAgentKeepsAGivenModelOrEffort` (flags) still passes, as does\n  the whole `cmd/ploopy` suite.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e97415ceaffenst8gTLnWJMqaV",
+      "cost_usd": 0.012779064,
+      "harness": "opencode",
+      "elapsed_s": 122,
+      "session_s": 107,
+      "test_s": 14,
+      "tokens": {
+        "input": 41424,
+        "output": 3091,
+        "reasoning": 3022,
+        "cache_read": 965888
+      }
+    }
+  }
+}
