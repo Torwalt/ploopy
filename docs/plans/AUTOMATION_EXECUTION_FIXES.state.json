@@ -96,6 +96,30 @@
         "reasoning": 2561,
         "cache_read": 908288
       }
+    },
+    "2.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T14:49:23+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "26b69ef132c7075cec5e1f93415e3315a4342525",
+      "commits": [
+        "a4297a126f8a5ea9749fc50cfd64d07b46b50fd2 Stop follow-up after a limited or failed run"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 2.1\n\n## What landed\n\n`a4297a1` — `followsUp` now requires `loop.Result.Status == \"done\"` and refuses a\nrun whose `planRun.limited` is set. `planRun` carries `limited`, set from\n`--until`/`--units` in `runOnce`; `runChainedPlan` clears both flags, so a\nchained plan is never limited. The start line passes the same limit to\n`followUpSuffix`, which now takes a `limited` argument and stays silent for it.\nThe README `follow_up` bullet and the *Automation* text of\n`skills/ploopy/SKILL.md` say `--until`/`--units` and a failed run end the chain.\n\nTests added in `cmd/ploopy/run_chain_test.go`: a finished one-unit plan run with\n`--follow-up --until 1.1` and with `--units 1` starts no review and writes no\nreview file; a run whose state commit fails after the last unit landed starts no\nreview and exits with the loop's \"Resume with\" error; `followUpSuffix` covers an\nordinary plan, a review, a fix plan, limited runs and follow-up off. Both\nbehaviour tests were confirmed to fail with the old `followsUp` and pass after\nthe change.\n\n## Landmark drift\n\nNone. `followsUp` and `followUpSuffix` were at the cited places in\n`cmd/ploopy/run.go`; the `--until`/`--units` returns in `internal/loop/loop.go`\nare as described.\n\n## Deviations from the work order\n\n- `limited` is derived from the run flags in `runOnce` rather than stored on\n  `Loop.Options`. The loop already exposes the flags, but the chain decision is\n  `cmd/ploopy`'s and the flags are what the author typed.\n- The failure test faults the state commit with an `index.lock` created after\n  the unit's own commit, rather than a git-hook or reload failure. The on-disk\n  state file then says the last unit landed while `loop.Run` returns `failed`,\n  which is exactly the cited case.\n\n## What the next session must know\n\n- `planRun.limited` is recomputed from `runFlags` at `runOnce`'s return. If a\n  later unit changes how `--until`/`--units` are cleared for chained plans,\n  keep `runChainedPlan`'s `next.from, next.until, next.units = \"\", \"\", 0`.\n- `--until`/`--units` are also on the `review` command's run flags; a review\n  started with them will now not chain to its fix plan, per F-D1.\n- `followUpSuffix` has three call sites' worth of contract in its test; it is\n  still used only by the start line.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e97344069ffe1teMbM2xH4ZwGv",
+      "cost_usd": 0.027569568000000003,
+      "harness": "opencode",
+      "elapsed_s": 219,
+      "session_s": 201,
+      "test_s": 17,
+      "tokens": {
+        "input": 105680,
+        "output": 6368,
+        "reasoning": 6936,
+        "cache_read": 1245056
+      }
     }
   }
 }
