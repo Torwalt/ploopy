@@ -278,6 +278,7 @@ const RepoSkill = ".agents/skills/plan-unit/SKILL.md"
 const (
 	RepoReviewSkill = ".agents/skills/plan-review/SKILL.md"
 	RepoTriageSkill = ".agents/skills/review-triage/SKILL.md"
+	RepoRescueSkill = ".agents/skills/unit-rescue/SKILL.md"
 	RepoLandSkill   = ".agents/skills/land-repair/SKILL.md"
 	RepoChecklist   = ".agents/review-checklist.md"
 )

@@ -19,6 +19,7 @@ import (
 // Record is one session.
 type Record struct {
 	Plan      string          `json:"plan"`
+	Role      string          `json:"role,omitempty"`
 	Branch    string          `json:"branch,omitempty"`
 	Run       string          `json:"run"`
 	Unit      string          `json:"unit"`

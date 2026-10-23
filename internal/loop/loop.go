@@ -61,10 +61,12 @@ type Options struct {
 	BaseContext []string
 	Skill       string // the plan-unit skill, inlined in every prompt
 
-	// The skills of a review plan's units, and the repository's own review
-	// checklist, which collecting units are given beside their skill.
+	// The skills of a review plan's units and of a rescue, and the
+	// repository's own review checklist, which collecting units are given
+	// beside their skill.
 	ReviewSkill string
 	TriageSkill string
+	RescueSkill string
 	Checklist   string
 
 	// Harnesses is every harness a unit's own `Agent:` may name.
@@ -85,6 +87,11 @@ type Options struct {
 	// of the run waiting it out. The run goes back to the primary at the first
 	// unit after the limit resets.
 	Secondary *Agent
+
+	// Rescue diagnoses a unit the run would stop on. Rescues is how many it
+	// may run for one unit in one run.
+	Rescue  *Agent
+	Rescues int
 
 	// WaitOffPeak holds a unit due to start in the harness's peak hours until
 	// they end. The author decides it before the run; nothing is asked during it.
@@ -139,6 +146,9 @@ func (o *Options) Defaults() {
 	}
 	if o.LimitWaits == 0 {
 		o.LimitWaits = 12
+	}
+	if o.Rescues == 0 {
+		o.Rescues = 2
 	}
 	if o.StateCommit == "" {
 		o.StateCommit = config.Default().StateCommit
@@ -821,8 +831,9 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 
 	l.report.Say("unit %s — %s", u.ID, u.Title)
 
-	attempt, transient, waits, blocks := 0, 0, 0, 0
+	attempt, transient, waits, blocks, rescues := 0, 0, 0, 0, 0
 	priorBlock := ""
+	attempts := []rescueAttempt{}
 	for {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -831,6 +842,7 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 		var outcome harness.Outcome
 		var stem, tail string
 		var info sessionInfo
+		given := failure
 		if replay == nil {
 			l.readMeters(ctx)
 		}
@@ -899,7 +911,7 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 				return err
 			}
 
-			if ctx.Err() != nil && outcome.Marker == harness.None {
+			if ctx.Err() != nil && unitMarker(outcome.Marker) == harness.None {
 				if err := l.interrupted(after, u, stem, agent, info, outcome, changed); err != nil {
 					return err
 				}
@@ -912,6 +924,8 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 			}
 			if outcome.RateLimit != nil {
 				l.account(u, stem, agent, info, outcome, "limit", outcome.RateLimit.Reason)
+				l.noteAttempt(&attempts, agent, given, stem, tail,
+					"usage limit: "+outcome.RateLimit.Reason, outcome, info)
 				if changed {
 					failure = cutOffMidUnit
 					l.progress.Failure = failure
@@ -944,6 +958,8 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 			}
 			if outcome.Exit != 0 && !outcome.TimedOut && !changed {
 				l.account(u, stem, agent, info, outcome, "transient", fmt.Sprintf("exited %d", outcome.Exit))
+				l.noteAttempt(&attempts, agent, given, stem, tail,
+					fmt.Sprintf("exited %d without touching the repository", outcome.Exit), outcome, info)
 				// A lent subscription that cannot run hands over rather than cost the unit its tries.
 				if lent {
 					l.benched(agent, fmt.Sprintf("exited %d without touching the repository", outcome.Exit))
@@ -955,8 +971,51 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 				l.report.Say("session exited %d and changed nothing; treating it as transient (%d of %d)",
 					outcome.Exit, transient, l.opts.TransientLimit)
 				if transient >= l.opts.TransientLimit {
-					return fmt.Errorf("unit %s: %d sessions in a row ended without touching the "+
+					reason := fmt.Sprintf("unit %s: %d sessions in a row ended without touching the "+
 						"repository (last exit %d)", u.ID, transient, outcome.Exit)
+					if l.canRescue(rescues) {
+						rescues++
+						result, err := l.runRescue(ctx, p, u, rescueCase{
+							trigger: "transient", failure: orDefault(failure, reason),
+							attempts: attempts, tail: tail, base: base, number: rescues,
+						})
+						if err != nil {
+							return err
+						}
+						switch result.action {
+						case rescueRetry:
+							attempt, transient, blocks, priorBlock = 0, 0, 0, ""
+							failure = diagnosed(orDefault(failure, reason), result.next)
+							if err := l.saveRescueFailure(failure); err != nil {
+								return err
+							}
+							if _, err := l.pause(ctx, "rescue", result.wait); err != nil {
+								return err
+							}
+							if err := l.peakGate(ctx); err != nil {
+								return err
+							}
+							continue
+						case rescueDecided:
+							attempt, transient, blocks, priorBlock = 0, 0, 0, ""
+							l.progress.Decisions = result.decisions
+							failure = decided(result.decisions, result.next)
+							l.progress.Failure, l.progress.Session = failure, nil
+							if err := l.progress.save(); err != nil {
+								return err
+							}
+							continue
+						case rescueBlocked:
+							blocked := Verdict{Kind: Blocked, Reason: result.reason, Marker: harness.Blocked}
+							if _, err := l.settle(after, p, u, agent, blocked, base, attempt, outcome, tail); err != nil {
+								return err
+							}
+							return fmt.Errorf("unit %s is blocked: %s", u.ID, result.reason)
+						case rescueFailure:
+							return fmt.Errorf("%s. The rescue failed: %s", reason, firstLine(result.reason))
+						}
+					}
+					return fmt.Errorf("%s", reason)
 				}
 				if _, err := l.pause(ctx, "backoff", l.opts.Backoff); err != nil {
 					return err
@@ -980,6 +1039,8 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 		judgeCtx := context.WithoutCancel(ctx)
 		verdict := l.judge(judgeCtx, p, u, agent, base, outcome, stem)
 		l.account(u, stem, agent, info, outcome, verdict.Kind, verdict.Reason)
+		l.noteAttempt(&attempts, agent, given, stem, tail,
+			verdict.Kind+": "+firstLine(verdict.Reason), outcome, info)
 
 		if verdict.Fatal {
 			l.progress.Session = nil
@@ -1005,6 +1066,43 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 				verdict.Notes = append(verdict.Notes,
 					"a previous session blocked with: "+priorBlock)
 			}
+			if l.canRescue(rescues) {
+				rescues++
+				result, err := l.runRescue(ctx, p, u, rescueCase{
+					trigger: "blocked", failure: failure, attempts: attempts, tail: tail,
+					base: base, priorBlock: priorBlock, blockReason: verdict.Reason, number: rescues,
+				})
+				if err != nil {
+					return err
+				}
+				switch result.action {
+				case rescueRetry:
+					attempt, transient, blocks, priorBlock = 0, 0, 0, ""
+					failure = diagnosed(failure, result.next)
+					if err := l.saveRescueFailure(failure); err != nil {
+						return err
+					}
+					if _, err := l.pause(ctx, "rescue", result.wait); err != nil {
+						return err
+					}
+					if err := l.peakGate(ctx); err != nil {
+						return err
+					}
+					continue
+				case rescueDecided:
+					attempt, transient, blocks, priorBlock = 0, 0, 0, ""
+					l.progress.Decisions = result.decisions
+					failure = decided(result.decisions, result.next)
+					l.progress.Failure, l.progress.Session = failure, nil
+					if err := l.progress.save(); err != nil {
+						return err
+					}
+					continue
+				case rescueBlocked:
+					verdict = Verdict{Kind: Blocked, Reason: result.reason, Marker: harness.Blocked,
+						Notes: verdict.Notes}
+				}
+			}
 		}
 
 		settled, err := l.settle(judgeCtx, p, u, agent, verdict, base, attempt+blocks, outcome, tail)
@@ -1024,6 +1122,60 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
+		}
+
+		if attempt > l.opts.Retries {
+			rescueWhy := ""
+			if l.canRescue(rescues) {
+				rescues++
+				result, err := l.runRescue(ctx, p, u, rescueCase{
+					trigger: "failed", failure: failure, attempts: attempts, tail: tail,
+					base: base, number: rescues,
+				})
+				if err != nil {
+					return err
+				}
+				switch result.action {
+				case rescueRetry:
+					attempt, transient, blocks, priorBlock = 0, 0, 0, ""
+					failure = diagnosed(failure, result.next)
+					if err := l.saveRescueFailure(failure); err != nil {
+						return err
+					}
+					if _, err := l.pause(ctx, "rescue", result.wait); err != nil {
+						return err
+					}
+					if err := l.peakGate(ctx); err != nil {
+						return err
+					}
+					continue
+				case rescueDecided:
+					attempt, transient, blocks, priorBlock = 0, 0, 0, ""
+					l.progress.Decisions = result.decisions
+					failure = decided(result.decisions, result.next)
+					l.progress.Failure, l.progress.Session = failure, nil
+					if err := l.progress.save(); err != nil {
+						return err
+					}
+					continue
+				case rescueBlocked:
+					blocked := Verdict{Kind: Blocked, Reason: result.reason, Marker: harness.Blocked,
+						Notes: verdict.Notes}
+					if _, err := l.settle(judgeCtx, p, u, agent, blocked, base, attempt, outcome, tail); err != nil {
+						return err
+					}
+					return fmt.Errorf("unit %s is blocked: %s", u.ID, result.reason)
+				case rescueFailure:
+					rescueWhy = result.reason
+				}
+			}
+			first, _, _ := strings.Cut(verdict.Reason, "\n")
+			message := fmt.Sprintf("unit %s failed after %d attempt(s): %s",
+				u.ID, attempt, strings.TrimSuffix(first, ":"))
+			if rescueWhy != "" {
+				message += ". The rescue failed: " + firstLine(rescueWhy)
+			}
+			return errors.New(message)
 		}
 	}
 }
@@ -1304,26 +1456,31 @@ func (l *Loop) settle(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agen
 	return true, nil
 }
 
-// failedAttempt prepares the retry, and gives up when the retries run out.
+// failedAttempt prepares the retry. Whether the retries have run out, and
+// whether a rescue gets the stop, is the run's to decide.
 func (l *Loop) failedAttempt(ctx context.Context, u plan.Unit, verdict Verdict, attempt int) (int, string, error) {
 	attempt++
 	l.report.Say("check failed: %s", verdict.Reason)
 	failure := fmt.Sprintf("Attempt %d failed the loop check:\n\n%s\n\n"+
 		"The repository is as that attempt left it, and commits it made still count "+
 		"toward this unit. Fix this before anything else.", attempt, verdict.Reason)
+	failure = l.withDecisions(failure)
 
 	dirt, _ := l.repo.DirtLines(ctx)
 	l.progress.Failure, l.progress.Session, l.progress.LeftDirty = failure, nil, len(dirt) > 0
 	if err := l.progress.save(); err != nil {
 		return attempt, failure, err
 	}
-
-	if attempt > l.opts.Retries {
-		first, _, _ := strings.Cut(verdict.Reason, "\n")
-		return attempt, failure, fmt.Errorf("unit %s failed after %d attempt(s): %s",
-			u.ID, attempt, strings.TrimSuffix(first, ":"))
-	}
 	return attempt, failure, nil
+}
+
+// withDecisions keeps what a rescue decided in front of every later attempt.
+func (l *Loop) withDecisions(text string) string {
+	if strings.TrimSpace(l.progress.Decisions) == "" {
+		return text
+	}
+	return text + "\n\nThe decisions a rescue made for this unit are settled; do not reopen them, " +
+		"and record them in the handover:\n\n" + l.progress.Decisions
 }
 
 // blockedAttempt sends a block back for a second opinion. A block is the one
@@ -1341,6 +1498,7 @@ func (l *Loop) blockedAttempt(ctx context.Context, verdict Verdict) (string, err
 		"repository before you accept it: if it is wrong, implement the unit; if it "+
 		"holds, finish BLOCKED with the same reason and say in the handover what you "+
 		"checked.", verdict.Reason, leftBehind(len(verdict.Commits), len(dirt)))
+	failure = l.withDecisions(failure)
 
 	l.progress.Failure, l.progress.Session, l.progress.LeftDirty = failure, nil, len(dirt) > 0
 	return failure, l.progress.save()

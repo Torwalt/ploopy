@@ -32,6 +32,7 @@ type progress struct {
 	Unit      string         `json:"unit,omitempty"`
 	Base      string         `json:"base,omitempty"`
 	Failure   string         `json:"failure,omitempty"`
+	Decisions string         `json:"decisions,omitempty"`
 	Session   *sessionRecord `json:"session,omitempty"`
 	LeftDirty bool           `json:"left_dirty,omitempty"`
 	Spent     spent          `json:"spent"`
@@ -67,6 +68,7 @@ func (p *progress) save() error {
 func (p *progress) reset(unit, base, failure string, session *sessionRecord) error {
 	if p.Unit != unit {
 		p.Spent = spent{}
+		p.Decisions = ""
 		// The next unit starts from a clean tree or from dirt the loop did not
 		// leave; either way, it is not this unit's earlier attempt.
 		p.LeftDirty = false

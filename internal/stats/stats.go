@@ -43,6 +43,7 @@ type Degraded struct {
 // whole run.
 type Record struct {
 	Kind    string          `json:"kind"` // session, check, wait, tool or run
+	Role    string          `json:"role,omitempty"`
 	Run     string          `json:"run"`
 	Unit    string          `json:"unit,omitempty"`
 	Stem    string          `json:"stem,omitempty"`

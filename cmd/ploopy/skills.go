@@ -40,6 +40,8 @@ A rule here wins over the skill. A section left empty adds nothing.
 
 ## review-triage
 
+## unit-rescue
+
 ## land-repair
 `
 

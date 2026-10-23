@@ -115,6 +115,9 @@ func Estimates(records []Record) []Estimate {
 	open := map[string]*sample{}
 	byAgent := map[string][]*sample{}
 	for _, r := range ran {
+		if r.Role == "rescue" {
+			continue
+		}
 		key := r.Plan + "\x00" + r.Branch + "\x00" + r.Unit
 		s := open[key]
 		if s == nil {

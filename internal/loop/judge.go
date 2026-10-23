@@ -35,10 +35,20 @@ type Verdict struct {
 
 const checkTailLines = 40
 
+// unitMarker is the marker a unit, review or triage session is judged by.
+// RETRY and DECIDED mean something only to a rescue.
+func unitMarker(marker harness.Marker) harness.Marker {
+	if marker == harness.Retry || marker == harness.Decided {
+		return harness.None
+	}
+	return marker
+}
+
 // judge decides from the repository whether a unit landed. The order of these
 // checks is the contract; a session's own account of itself only ever opens
 // the question.
 func (l *Loop) judge(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agent, base string, outcome harness.Outcome, stem string) Verdict {
+	outcome.Marker = unitMarker(outcome.Marker)
 	if outcome.Marker == harness.Blocked {
 		return l.blocked(ctx, outcome, base)
 	}

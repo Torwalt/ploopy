@@ -22,6 +22,8 @@ const (
 	Done        Marker = "DONE"
 	NothingToDo Marker = "NOTHING-TO-DO"
 	Blocked     Marker = "BLOCKED"
+	Retry       Marker = "RETRY"
+	Decided     Marker = "DECIDED"
 )
 
 // EventKind distinguishes what a session just did.
@@ -212,7 +214,7 @@ var (
 	ansiRe = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
 	// A marker may be wrapped in the list bullets, emphasis or quoting a
 	// harness adds around a final message.
-	markerRe = regexp.MustCompile(`^[\s*\x60>#-]*(DONE|NOTHING-TO-DO|BLOCKED)\b[\s:—*\x60-]*(.*?)[\s*\x60]*$`)
+	markerRe = regexp.MustCompile(`^[\s*\x60>#-]*(DONE|NOTHING-TO-DO|BLOCKED|RETRY|DECIDED)\b[\s:—*\x60-]*(.*?)[\s*\x60]*$`)
 	limitRe  = regexp.MustCompile(`(?i)\b(?:hit|reached|exceeded) (?:your|the)\b.*?\blimit\b`)
 	resetRe  = regexp.MustCompile(`(?i)\bresets?(?: at)?\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)?(?:\s*\(([^)]+)\))?`)
 )

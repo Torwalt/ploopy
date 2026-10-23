@@ -35,6 +35,7 @@ func showPrompt(cmd *cobra.Command, e *env, c catalog.Copy, u plan.Unit) error {
 		Skill:       skill.unit,
 		ReviewSkill: skill.review,
 		TriageSkill: skill.triage,
+		RescueSkill: skill.rescue,
 		Checklist:   skill.checklist,
 		Harnesses:   e.harnesses,
 		BaseContext: cfg.Context,

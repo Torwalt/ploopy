@@ -327,6 +327,7 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 		Skill:        skill.unit,
 		ReviewSkill:  skill.review,
 		TriageSkill:  skill.triage,
+		RescueSkill:  skill.rescue,
 		Checklist:    skill.checklist,
 		Harnesses:    e.harnesses,
 		VerifyCmd:    verify,

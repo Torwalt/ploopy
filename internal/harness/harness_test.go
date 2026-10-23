@@ -13,6 +13,22 @@ func TestTheLastMarkerNearTheEndWins(t *testing.T) {
 	}
 }
 
+func TestTheRescueMarkersAreRead(t *testing.T) {
+	for _, want := range []struct {
+		line   string
+		marker Marker
+		reason string
+	}{
+		{"RETRY the provider stalled", Retry, "the provider stalled"},
+		{"DECIDED use the existing clock", Decided, "use the existing clock"},
+	} {
+		marker, reason := ParseMarker(want.line)
+		if marker != want.marker || reason != want.reason {
+			t.Fatalf("%q parsed as %q %q", want.line, marker, reason)
+		}
+	}
+}
+
 func TestAMarkerSurvivesTheDecorationAHarnessAddsToIt(t *testing.T) {
 	for _, line := range []string{"DONE", "**DONE**", "- DONE", "> `DONE`", "#### DONE"} {
 		if marker, _ := ParseMarker(line); marker != Done {

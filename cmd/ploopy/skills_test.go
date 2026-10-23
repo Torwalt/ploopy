@@ -25,7 +25,7 @@ func TestSkillsAreWrittenBesideTheLocalOne(t *testing.T) {
 	if err := writeSkills(dir, "", false); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"ploopy", "plan-writing", "plan-unit", "plan-review", "review-triage", "land-repair"} {
+	for _, name := range []string{"ploopy", "plan-writing", "plan-unit", "plan-review", "review-triage", "unit-rescue", "land-repair"} {
 		text := read(t, filepath.Join(dir, name, "SKILL.md"))
 		if !strings.HasPrefix(text, "---\nname: "+name+"\n") || !generated(text) {
 			t.Fatalf("%s should keep its front matter first and be marked as ploopy's:\n%.300s", name, text)

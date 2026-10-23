@@ -41,18 +41,29 @@ func (l *Loop) log(r stats.Record) {
 // account books a session against its unit, the run and the stats log. The
 // unit's clock runs from when it started, waits for a usage limit included.
 func (l *Loop) account(u plan.Unit, stem string, agent Agent, info sessionInfo, outcome harness.Outcome, verdict, reason string) {
+	l.accountSession(u, stem, agent, info, outcome, verdict, reason, "")
+}
+
+// accountSession books a session with a role. A rescue's cost is part of the
+// unit's cost, but its time is not part of its session time.
+func (l *Loop) accountSession(u plan.Unit, stem string, agent Agent, info sessionInfo, outcome harness.Outcome, verdict, reason, role string) {
 	now := l.opts.Now()
-	verify, test := l.checked["verify"], l.checked["test"]
-	l.checked = map[string]time.Duration{}
+	var verify, test time.Duration
+	if role == "" {
+		verify, test = l.checked["verify"], l.checked["test"]
+		l.checked = map[string]time.Duration{}
+	}
 
 	s := &l.progress.Spent
-	s.Elapsed += now.Sub(l.mark)
-	l.mark = now
-	s.Session += info.Took
-	s.Verify += verify
-	s.Test += test
+	if role == "" {
+		s.Elapsed += now.Sub(l.mark)
+		l.mark = now
+		s.Session += info.Took
+		s.Verify += verify
+		s.Test += test
+		s.Tokens = s.Tokens.Add(outcome.Tokens)
+	}
 	s.CostUSD += outcome.CostUSD
-	s.Tokens = s.Tokens.Add(outcome.Tokens)
 	_ = l.progress.save()
 
 	l.stats.Sessions++
@@ -61,7 +72,7 @@ func (l *Loop) account(u plan.Unit, stem string, agent Agent, info sessionInfo, 
 	l.stats.Tokens = l.stats.Tokens.Add(outcome.Tokens)
 
 	r := stats.Record{
-		Kind: "session", Unit: u.ID, Stem: stem, Agent: agent.Label(),
+		Kind: "session", Role: role, Unit: u.ID, Stem: stem, Agent: agent.Label(),
 		Started: info.Started, Seconds: info.Took.Seconds(),
 		Verify: verify.Seconds(), Test: test.Seconds(),
 		CostUSD: outcome.CostUSD, Turns: outcome.Turns, Tools: info.Tools,
@@ -81,7 +92,7 @@ func (l *Loop) account(u plan.Unit, stem string, agent Agent, info sessionInfo, 
 		return
 	}
 	_ = history.Append(l.opts.History, history.Record{
-		Plan: l.name, Branch: l.opts.Branch, Run: l.runID, Unit: u.ID, Stem: stem,
+		Plan: l.name, Role: role, Branch: l.opts.Branch, Run: l.runID, Unit: u.ID, Stem: stem,
 		Agent: agent.Label(), Harness: agent.Harness.Name(),
 		Started: info.Started, Seconds: info.Took.Seconds(), Verdict: verdict,
 		Tokens: tokens, CostUSD: outcome.CostUSD, Before: outcome.BudgetBefore, After: outcome.Budget,
