@@ -30,10 +30,8 @@ type rescueAttempt struct {
 	Given   string // the failure text that attempt started from
 	Result  string // what the loop concluded about it
 	Outcome harness.Outcome
-	Info    sessionInfo
 	Stem    string
 	Log     string
-	Tail    string
 }
 
 // rescueCase is everything a rescue session is told about the stop.
@@ -61,8 +59,6 @@ const (
 type rescueResult struct {
 	action    rescueAction
 	reason    string
-	report    string
-	diagnosis string
 	decisions string
 	next      string
 	wait      time.Duration
@@ -90,11 +86,11 @@ func (l *Loop) rescueStem(u plan.Unit, n int) string {
 
 // noteAttempt records a session for the rescue's report, before the loop may
 // forget about it.
-func (l *Loop) noteAttempt(attempts *[]rescueAttempt, agent Agent, given, stem, tail, result string, outcome harness.Outcome, info sessionInfo) {
+func (l *Loop) noteAttempt(attempts *[]rescueAttempt, agent Agent, given, stem, result string, outcome harness.Outcome) {
 	log, _ := filepath.Rel(l.root, filepath.Join(l.logs, stem+".log"))
 	*attempts = append(*attempts, rescueAttempt{
 		Agent: agent.Label(), Given: given, Result: result, Outcome: outcome,
-		Info: info, Stem: stem, Log: log, Tail: tail,
+		Stem: stem, Log: log,
 	})
 }
 
@@ -160,12 +156,10 @@ func (l *Loop) runRescue(ctx context.Context, p *plan.Plan, u plan.Unit, c rescu
 			return l.rescueFailed(u, c, err.Error(), outcome.CostUSD), nil
 		}
 		result := rescueResult{
-			action:    rescueRetry,
-			reason:    outcome.Reason,
-			report:    text,
-			diagnosis: reportSection(text, "Diagnosis"),
-			next:      reportSection(text, "Next attempt"),
-			wait:      reportWait(text, l.opts.Backoff),
+			action: rescueRetry,
+			reason: outcome.Reason,
+			next:   reportSection(text, "Next attempt"),
+			wait:   reportWait(text, l.opts.Backoff),
 		}
 		if strings.TrimSpace(result.next) == "" {
 			return l.rescueFailed(u, c, fmt.Sprintf("the report %s has no Next attempt section", shown), outcome.CostUSD), nil
@@ -182,8 +176,6 @@ func (l *Loop) runRescue(ctx context.Context, p *plan.Plan, u plan.Unit, c rescu
 		result := rescueResult{
 			action:    rescueDecided,
 			reason:    outcome.Reason,
-			report:    text,
-			diagnosis: reportSection(text, "Diagnosis"),
 			decisions: reportSection(text, "Decisions"),
 			next:      reportSection(text, "Next attempt"),
 		}
@@ -200,11 +192,8 @@ func (l *Loop) runRescue(ctx context.Context, p *plan.Plan, u plan.Unit, c rescu
 			reason = "the rescue blocked without a reason"
 		}
 		result := rescueResult{action: rescueBlocked, reason: reason}
-		if text, err := l.rescueReport(u, c.number); err == nil {
-			result.report = text
-			result.diagnosis = reportSection(text, "Diagnosis")
-		}
-		l.recordRescue(u, c, "blocked", reason, result.report, outcome.CostUSD)
+		text, _ := l.rescueReport(u, c.number)
+		l.recordRescue(u, c, "blocked", reason, text, outcome.CostUSD)
 		l.rescueSaid(u, c.number, "BLOCKED", reason)
 		return result, nil
 	}

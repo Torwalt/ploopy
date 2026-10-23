@@ -950,8 +950,8 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 			}
 			if outcome.RateLimit != nil {
 				l.account(u, stem, agent, info, outcome, "limit", outcome.RateLimit.Reason)
-				l.noteAttempt(&attempts, agent, given, stem, tail,
-					"usage limit: "+outcome.RateLimit.Reason, outcome, info)
+				l.noteAttempt(&attempts, agent, given, stem,
+					"usage limit: "+outcome.RateLimit.Reason, outcome)
 				if changed {
 					failure = l.withDecisions(cutOffMidUnit)
 					l.progress.Failure = failure
@@ -984,8 +984,8 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 			}
 			if outcome.Exit != 0 && !outcome.TimedOut && !changed {
 				l.account(u, stem, agent, info, outcome, "transient", fmt.Sprintf("exited %d", outcome.Exit))
-				l.noteAttempt(&attempts, agent, given, stem, tail,
-					fmt.Sprintf("exited %d without touching the repository", outcome.Exit), outcome, info)
+				l.noteAttempt(&attempts, agent, given, stem,
+					fmt.Sprintf("exited %d without touching the repository", outcome.Exit), outcome)
 				// A lent subscription that cannot run hands over rather than cost the unit its tries.
 				if lent {
 					l.benched(agent, fmt.Sprintf("exited %d without touching the repository", outcome.Exit))
@@ -1065,8 +1065,8 @@ func (l *Loop) runUnit(ctx context.Context, unit plan.Unit) error {
 		judgeCtx := context.WithoutCancel(ctx)
 		verdict := l.judge(judgeCtx, p, u, agent, base, outcome, stem)
 		l.account(u, stem, agent, info, outcome, verdict.Kind, verdict.Reason)
-		l.noteAttempt(&attempts, agent, given, stem, tail,
-			verdict.Kind+": "+firstLine(verdict.Reason), outcome, info)
+		l.noteAttempt(&attempts, agent, given, stem,
+			verdict.Kind+": "+firstLine(verdict.Reason), outcome)
 
 		if verdict.Fatal {
 			l.progress.Session = nil
