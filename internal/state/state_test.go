@@ -90,13 +90,14 @@ func TestStateRoundTripsRescues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "PASS.state.json")
 	s, _ := Load(path)
 	s.Set("1.1", &Entry{Status: Landed, Rescues: []Rescue{{
-		Trigger: "blocked",
-		Verdict: "decided",
-		Agent:   "claude opus high",
-		Reason:  "use the existing clock",
-		Report:  "## Diagnosis\n\nThe work order leaves it open.\n\n## Decisions\n\nUse the existing clock.\n",
-		Date:    "2026-10-23T10:00:00Z",
-		CostUSD: 0.12,
+		Trigger:   "blocked",
+		Verdict:   "decided",
+		Agent:     "claude opus high",
+		Reason:    "use the existing clock",
+		Report:    "## Diagnosis\n\nThe work order leaves it open.\n\n## Decisions\n\nUse the existing clock.\n",
+		Decisions: "Use the existing clock.",
+		Date:      "2026-10-23T10:00:00Z",
+		CostUSD:   0.12,
 	}}})
 	if err := s.Save(); err != nil {
 		t.Fatal(err)
@@ -115,8 +116,31 @@ func TestStateRoundTripsRescues(t *testing.T) {
 		rescue.Reason != "use the existing clock" || rescue.Date == "" || rescue.CostUSD != 0.12 {
 		t.Fatalf("round trip changed the rescue: %+v", rescue)
 	}
+	if rescue.Decisions != "Use the existing clock." {
+		t.Fatalf("round trip changed the decisions: %+v", rescue)
+	}
 	if got := rescue.Section("Decisions"); got != "Use the existing clock." {
 		t.Fatalf("the report section is %q", got)
+	}
+}
+
+func TestAnOldRescueWithoutDecisionsLoadsUnchanged(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "PASS.state.json")
+	raw := `{"units":{"1.1":{"status":"landed","outcome":"done","rescues":[` +
+		`{"trigger":"blocked","verdict":"decided","report":"## Diagnosis\n\nOld.\n\n## Decisions\n\nUse the clock.\n"}]}}}`
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rescue := s.Entry("1.1").Rescues[0]
+	if rescue.Decisions != "" {
+		t.Fatalf("an old rescue gained decisions: %+v", rescue)
+	}
+	if got := rescue.Section("Decisions"); got != "Use the clock." {
+		t.Fatalf("the old report's section is %q", got)
 	}
 }
 

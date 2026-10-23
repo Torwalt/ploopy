@@ -142,6 +142,29 @@ func TestTheReportListsEveryRescue(t *testing.T) {
 	}
 }
 
+func TestTheReportShowsStoredDecisionsPastTheCut(t *testing.T) {
+	p, s := fixture()
+	decisions := "Use the repository's existing clock, not a new one.\nRecord it in the handover."
+	s.Entry("1.2").Rescues = []state.Rescue{{
+		Trigger: "blocked", Verdict: "decided", Agent: "claude opus high",
+		Reason:    "use the existing clock",
+		Report:    ("## Diagnosis\n\n" + strings.Repeat("diagnosis line\n", 400))[:4000],
+		Decisions: decisions,
+	}}
+
+	text := Report(p, s, nil, nil)
+	t.Log("\n" + text)
+	for _, want := range []string{
+		"1.2   blocked → decided: use the existing clock",
+		"Use the repository's existing clock, not a new one.",
+		"Record it in the handover.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the report lacks %q:\n%s", want, text)
+		}
+	}
+}
+
 // Once the checkout's .ploopy/ is gone, the state file still tells most of it.
 func TestWithoutTheLogTheStateFileTellsIt(t *testing.T) {
 	p, s := fixture()

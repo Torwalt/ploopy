@@ -112,3 +112,36 @@ func TestTheSummaryClosesWithEveryRescue(t *testing.T) {
 		t.Fatalf("the summary does not end with the report pointer:\n%s", text)
 	}
 }
+
+func TestTheSummaryShowsStoredDecisionsPastTheCut(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "PASS.md")
+	if err := os.WriteFile(path, []byte(twoStages), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := plan.Load(path, "docs/plans/PASS.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	decisions := "Use the repository's existing clock.\nRecord it in the handover."
+	s := &state.State{Units: map[string]*state.Entry{
+		"1.2": {Status: state.Landed, Outcome: "done", Rescues: []state.Rescue{{
+			Trigger: "blocked", Verdict: "decided", Reason: "use the existing clock",
+			Report:    ("## Diagnosis\n\n" + strings.Repeat("diagnosis line\n", 400))[:4000],
+			Decisions: decisions,
+		}}},
+	}}
+
+	var out bytes.Buffer
+	NewReporter(&out, &out).Summary(p, s, nil)
+	text := out.String()
+	t.Log("\n" + text)
+	for _, want := range []string{
+		"1.2  blocked → decided: use the existing clock",
+		"Use the repository's existing clock.",
+		"Record it in the handover.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the summary lacks %q:\n%s", want, text)
+		}
+	}
+}

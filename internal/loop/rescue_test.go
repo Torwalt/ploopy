@@ -129,6 +129,44 @@ func TestARescueDecisionLandsTheUnitAndKeepsTheDecisions(t *testing.T) {
 	}
 }
 
+func TestADecidedRescueKeepsItsDecisionsPastTheReportCut(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the premise is wrong"}},
+		fake.Step{Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the premise is still wrong"}},
+		fake.Step{Outcome: done()}, // DONE without a commit fails, then retries
+		fake.Step{Do: commits("one.go", "first"), Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	f.opts.Retries = 1
+	decisions := "Use the repository's existing clock, not a new one."
+	other := rescuer(t, f, fake.Step{
+		Do: rescue("1.1", 1, rescueReport(strings.Repeat("diagnosis line\n", 400),
+			decisions, "wire the existing clock", "")),
+		Outcome: harness.Outcome{Marker: harness.Decided, Reason: "use the existing clock"},
+	})
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+	if other.Started() != 1 {
+		t.Fatalf("%d rescues ran, want 1", other.Started())
+	}
+	entry := f.state().Entry("1.1")
+	if entry == nil || len(entry.Rescues) != 1 {
+		t.Fatalf("unit 1.1 is %+v", entry)
+	}
+	rescue := entry.Rescues[0]
+	if rescue.Decisions != decisions {
+		t.Fatalf("the rescue kept decisions %q, want %q", rescue.Decisions, decisions)
+	}
+	if len(rescue.Report) != rescueReportLimit {
+		t.Fatalf("the report is %d bytes, want the cut at %d", len(rescue.Report), rescueReportLimit)
+	}
+	if strings.Contains(rescue.Report, decisions) {
+		t.Fatalf("the diagnosis did not push the decisions past the cut:\n%s", rescue.Report)
+	}
+}
+
 func TestRescueDecisionsSurviveAUsageLimitCut(t *testing.T) {
 	f := setup(t, twoUnits,
 		fake.Step{Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the premise is wrong"}},

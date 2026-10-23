@@ -465,7 +465,11 @@ func (r *report) rescued() {
 		if it.rescue.Verdict != "decided" {
 			continue
 		}
-		if decisions := it.rescue.Section("Decisions"); decisions != "" {
+		decisions := it.rescue.Decisions
+		if decisions == "" {
+			decisions = it.rescue.Section("Decisions")
+		}
+		if decisions != "" {
 			r.line("        Decisions:")
 			for _, decision := range strings.Split(decisions, "\n") {
 				r.line("          %s", decision)

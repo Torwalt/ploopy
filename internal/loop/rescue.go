@@ -233,17 +233,22 @@ func (l *Loop) rescueFailed(u plan.Unit, c rescueCase, why string, cost float64)
 // recordRescue puts one rescue on the unit's record and saves it with the
 // progress that survives a crash.
 func (l *Loop) recordRescue(u plan.Unit, c rescueCase, verdict, reason, report string, cost float64) {
+	decisions := ""
+	if verdict == "decided" {
+		decisions = reportSection(report, "Decisions")
+	}
 	if len(report) > rescueReportLimit {
 		report = report[:rescueReportLimit]
 	}
 	l.progress.Rescues = append(l.progress.Rescues, state.Rescue{
-		Trigger: c.trigger,
-		Verdict: verdict,
-		Agent:   c.agent.Label(),
-		Reason:  reason,
-		Report:  report,
-		Date:    l.opts.Now().Format(time.RFC3339),
-		CostUSD: cost,
+		Trigger:   c.trigger,
+		Verdict:   verdict,
+		Agent:     c.agent.Label(),
+		Reason:    reason,
+		Report:    report,
+		Decisions: decisions,
+		Date:      l.opts.Now().Format(time.RFC3339),
+		CostUSD:   cost,
 	})
 	_ = l.progress.save()
 }

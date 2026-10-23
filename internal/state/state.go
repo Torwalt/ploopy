@@ -59,13 +59,14 @@ type Entry struct {
 
 // Rescue is one diagnosis session the run gave a unit.
 type Rescue struct {
-	Trigger string  `json:"trigger,omitempty"`
-	Verdict string  `json:"verdict,omitempty"`
-	Agent   string  `json:"agent,omitempty"`
-	Reason  string  `json:"reason,omitempty"`
-	Report  string  `json:"report,omitempty"`
-	Date    string  `json:"date,omitempty"`
-	CostUSD float64 `json:"cost_usd,omitempty"`
+	Trigger   string  `json:"trigger,omitempty"`
+	Verdict   string  `json:"verdict,omitempty"`
+	Agent     string  `json:"agent,omitempty"`
+	Reason    string  `json:"reason,omitempty"`
+	Report    string  `json:"report,omitempty"`
+	Decisions string  `json:"decisions,omitempty"`
+	Date      string  `json:"date,omitempty"`
+	CostUSD   float64 `json:"cost_usd,omitempty"`
 }
 
 // Section is the body under a `## Name` heading in a rescue's report.

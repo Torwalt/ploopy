@@ -135,7 +135,11 @@ func (r *Reporter) rescues(p *plan.Plan, s *state.State) {
 		if it.rescue.Verdict != "decided" {
 			continue
 		}
-		if decisions := it.rescue.Section("Decisions"); decisions != "" {
+		decisions := it.rescue.Decisions
+		if decisions == "" {
+			decisions = it.rescue.Section("Decisions")
+		}
+		if decisions != "" {
 			for _, decision := range strings.Split(decisions, "\n") {
 				fmt.Fprintf(r.out, "    %s\n", decision)
 			}
