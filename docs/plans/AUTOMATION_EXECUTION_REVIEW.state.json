@@ -99,6 +99,26 @@
         "reasoning": 31301,
         "cache_read": 2659456
       }
+    },
+    "1.6": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T14:03:36+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "465d03e92a5fdf976d2c35ad8914f6e2d737a375",
+      "attempts": 1,
+      "handover": "# Findings: unit 3.3 Choosing the rescue\n\nReviewed: 499183539bfc..05bf915a1948, 17 files. Steps: all done.\n\n## F1 — No test shows the chosen rescue reaching `loop.Options.Rescue`\n\n- Class: gap\n- Confidence: high\n- Where: `cmd/ploopy/run.go:348` is the only assignment to `loop.Options.Rescue`; the settings tests stop at the intermediate `cmd/ploopy/settings_file_test.go:236-275` (`chosen.rescue`), and the end-to-end rescue test is `cmd/ploopy/run_chain_test.go:252-278`.\n- Situation: delete `Rescue: pick.rescue` from the `loop.Options` literal in `runOnce` (or otherwise leave `Options.Rescue` nil) while leaving the control status settings alone, then run the unit's tests, including `TestARescueFromTheFileRunsAtTheStopPoint`.\n- Happens: everything still passes. In a real run `opts.Steering` is set whenever `announce` registers the run (`cmd/ploopy/run.go:372-383`), and `Loop.steer()` then ignores `Options.Rescue` and reads `steering.Steer()`, which builds the rescue from `control.Settings` (`cmd/ploopy/steer.go:84`, fed at `cmd/ploopy/run.go:378`). The run-chain test therefore proves only the steering path: with line 378 removed it fails, with line 348 removed it passes. The flag and last-run cases never reach a `Loop` at all. The handover's claim that the run-chain test proves `Options.Rescue` is populated does not hold.\n- Should: the order's *Done when* says tests show that a rescue from the file, from a flag or from the last run reaches `loop.Options.Rescue`. Add a test that inspects the `loop.Options` built by `runOnce` for each source, or drives a loop fixture with `Steering == nil`, so the `Rescue: pick.rescue` link is covered rather than the parallel steering path.\n- Test: none exists; `TestARescueFromTheFileRunsAtTheStopPoint` is the closest and passes with `Options.Rescue` left nil.",
+      "session_id": "ses_e9764f186ffezQ0Rcn5QmWCRr7",
+      "cost_usd": 0.097287942,
+      "harness": "opencode",
+      "elapsed_s": 663,
+      "session_s": 663,
+      "tokens": {
+        "input": 271245,
+        "output": 7253,
+        "reasoning": 57682,
+        "cache_read": 5880064
+      }
     }
   }
 }
