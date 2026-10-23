@@ -23,6 +23,31 @@
         "reasoning": 24675,
         "cache_read": 5145472
       }
+    },
+    "2.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T12:16:58+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "58153d509c084ea6e8755932bf71259ebc155584",
+      "commits": [
+        "bb08e4ad348a065c7cb7da63215ed21caf2f9478 Replace then with a follow-up setting"
+      ],
+      "attempts": 1,
+      "handover": "**What landed**\n- `bb08e4a` replaces `then` with follow-up throughout: `runSettings.FollowUp`,\n  `chosenRun.followUp`, `control.Settings.FollowUp`, `--follow-up` on run,\n  review and adjust, `[automation] follow_up`, and `followUp` in `last-run.json`.\n- `--then` remains a deprecated alias (`fixes` → on, `stop` → off) on both the\n  start and adjust flags. Old `then` in JSON is ignored.\n- The board has an Automation column on every run with the follow-up field.\n  A review with follow-up still chains its fix plan; an ordinary plan's\n  follow-up is stored but does nothing yet.\n- `Describe` now distinguishes \"then review and fix\" from \"then run the fix\n  plan\"; the README and `skills/ploopy` name `--then fixes` only as deprecated.\n\n**Landmark drift**\n- None; the units' landmarks were where the order placed them.\n\n**Deviations from the work order**\n- `control.Settings.Describe` takes an optional variadic bool (`Describe()` or\n  `Describe(true)` for a review). The command layer derives it from the live\n  plan (`isReviewRun` loads the plan and checks `Reviews()`); report already has\n  the parsed plan.\n- `config.Automation.FollowUp` is `*bool`, matching `spend_all` and `[run]\n  push`, so an explicit false is distinguishable from an unset key.\n- `launchArgs` passes `--follow-up` only for review plans, mirroring the old\n  review-only `--then`; ordinary follow-up has no effect in this stage.\n\n**What the next session must know**\n- `chainedFixPlan` now reads `r.wanted.FollowUp != nil \u0026\u0026 *r.wanted.FollowUp`;\n  it is still gated on `p.Reviews() != \"\"`, so 2.2 must add the ordinary-plan\n  review branch and must not let a fix plan chain.\n- File precedence is in `givenSettings`; the last run and default false are in\n  `fill`. Unattended runs never call `fill`, so they only take follow-up from a\n  flag or the file.\n- Board columns are now Bedrock, subscriptions, Triage when present, Automation,\n  Run. Tests that hardcoded Run's column number needed updating; prefer\n  `columnByTitle`.\n- `--then` is hidden by pflag's deprecated marking. `launchArgs` deliberately\n  does not copy it; the chosen review follow-up is passed explicitly.\n\n**Open problems**\n- Stage 4's fuller docs pass is still pending. Only the direct `--then`\n  references in the README and `skills/ploopy` were updated here; the\n  `[automation]` example and the rest of the follow-up/rescue prose are not yet\n  written.",
+      "session_id": "ses_e97c3aa97ffeIFMl71UjuTJfvY",
+      "cost_usd": 0.05997845399999999,
+      "harness": "opencode",
+      "elapsed_s": 473,
+      "session_s": 448,
+      "verify_s": 1,
+      "test_s": 24,
+      "tokens": {
+        "input": 140565,
+        "output": 15212,
+        "reasoning": 16967,
+        "cache_read": 6528768
+      }
     }
   }
 }
