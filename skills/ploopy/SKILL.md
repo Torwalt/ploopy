@@ -169,7 +169,9 @@ rescue_effort = "high"
 With `[run] agent` and `effort` set, a detached run needs no flags beyond
 `--plan`: `ploopy run --plan <plan> --detach`. `[run] push` is the documented
 push key; the old top-level `push` still works, and `[run] push` wins when both
-are given.
+are given. `[automation]` sets the follow-up and the rescue agent, model and
+effort; setting `rescue = "none"` turns the rescue off. When `rescue` is absent,
+a run uses the last run's rescue, and then none.
 
 ## Worktrees
 

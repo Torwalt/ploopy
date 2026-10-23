@@ -204,8 +204,9 @@ rescue_effort = "high"
 `ploopy run --plan X --detach` starts from them. `[run] push` is the documented
 push key; the old top-level `push` still works, and `[run] push` wins when both
 are given. `[review]` is the triage's agent, model, effort and spending cap.
-`[automation]` is the follow-up and the rescue agent, model and effort; leaving
-`rescue` out, or setting it to `none`, turns the rescue off.
+`[automation]` is the follow-up and the rescue agent, model and effort; setting
+`rescue = "none"` turns the rescue off. When `rescue` is absent, a run uses the
+last run's rescue, and then none.
 
 ## Try it
 
