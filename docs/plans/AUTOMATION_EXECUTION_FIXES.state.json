@@ -387,6 +387,29 @@
         "reasoning": 1101,
         "cache_read": 551680
       }
+    },
+    "4.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T15:23:23+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "c8ef885b24ba7912ae8282657da3995162d9d4c9",
+      "commits": [
+        "4105697f889936a938fed3605c1b4ef9234b75ae Document how an absent rescue setting resolves"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 4.1\n\n## What landed\n\n`4105697` corrects the rescue setting documentation in both places:\n\n- `README.md` now says `rescue = \"none\"` turns the rescue off, and that an\n  absent `rescue` falls back to the last run's rescue and then to none.\n- `skills/ploopy/SKILL.md` says the same beside the `[automation]` example in\n  *Repository settings*, where it describes the key.\n\nNo code changed. `rg -n 'leaving .rescue. out' README.md skills` is empty.\n\n## Landmark drift\n\n- `README.md:206-207` (the old \"leaving it out\" sentence) is now the final\n  paragraph of *Settings*; the replacement is at `README.md:207-209`.\n- `cmd/ploopy/settings.go:353-354` still holds the `fill` fallback, now at\n  lines 390-392; unchanged by this unit.\n- The skill had no sentence about the key's absence; one was added after the\n  push-key paragraph instead of editing an existing claim.\n\n## Deviations from the work order\n\nNone.\n\n## What the next session must know\n\n- The wording follows the actual precedence: only an absent key (`\"\"`) reaches\n  the last-run fallback in `fill`; `rescue = \"none\"` is a file value, so it\n  prefills the board and suppresses the fallback, leaving no rescue.\n- Flags still win over the file and the last run; this unit documents only the\n  file key, as the work order asked.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e97127ef5ffegVTJeVThJN8CUz",
+      "cost_usd": 0.00587775,
+      "harness": "opencode",
+      "elapsed_s": 46,
+      "session_s": 46,
+      "tokens": {
+        "input": 22085,
+        "output": 1772,
+        "reasoning": 935,
+        "cache_read": 313600
+      }
     }
   }
 }
