@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/Torwalt/ploopy/internal/harness"
+	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/stats"
@@ -33,8 +34,10 @@ func (t *total) add(e *state.Entry) {
 }
 
 // Summary renders what a plan took, unit by unit and stage by stage, from its
-// state file. Given a run's stats, it closes with what that run took.
-func (r *Reporter) Summary(p *plan.Plan, s *state.State, run *stats.Run) {
+// state file. Given a run's stats, it closes with what that run took. A run
+// that stopped on an unsettled unit passes its Result, whose rescues no entry
+// holds yet.
+func (r *Reporter) Summary(p *plan.Plan, s *state.State, run *stats.Run, stopped *loop.Result) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -103,11 +106,12 @@ func (r *Reporter) Summary(p *plan.Plan, s *state.State, run *stats.Run) {
 	if whole.listPrice {
 		fmt.Fprintln(r.out, r.dim.Render("  ≈ Claude's cost is the API-price equivalent, not what a subscription charges"))
 	}
-	r.rescues(p, s)
+	r.rescues(p, s, stopped)
 }
 
-// rescues closes the run with every rescue it recorded.
-func (r *Reporter) rescues(p *plan.Plan, s *state.State) {
+// rescues closes the run with every rescue it recorded, including those on a
+// unit the run stopped on before it settled.
+func (r *Reporter) rescues(p *plan.Plan, s *state.State, stopped *loop.Result) {
 	type item struct {
 		unit   string
 		rescue state.Rescue
@@ -120,6 +124,11 @@ func (r *Reporter) rescues(p *plan.Plan, s *state.State) {
 		}
 		for _, rescue := range entry.Rescues {
 			items = append(items, item{unit: u.ID, rescue: rescue})
+		}
+	}
+	if stopped != nil && stopped.Unit != "" {
+		for _, rescue := range stopped.Rescues {
+			items = append(items, item{unit: stopped.Unit, rescue: rescue})
 		}
 	}
 	if len(items) == 0 {

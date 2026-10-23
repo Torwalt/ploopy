@@ -65,7 +65,7 @@ func showCopy(e *env, c catalog.Copy) {
 	if c.Live != nil {
 		fmt.Printf("running unit %s · %s\n", c.Live.Unit, c.Live.Wanted.Describe(c.Plan.Reviews() != ""))
 	}
-	ui.NewReporter(os.Stdout, os.Stderr).Summary(c.Plan, c.State, nil)
+	ui.NewReporter(os.Stdout, os.Stderr).Summary(c.Plan, c.State, nil, nil)
 }
 
 func newReport(e *env) *cobra.Command {

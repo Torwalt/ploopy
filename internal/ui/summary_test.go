@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Torwalt/ploopy/internal/harness"
+	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/stats"
@@ -57,7 +58,7 @@ func TestTheSummaryTotalsUnitsStagesAndThePlan(t *testing.T) {
 	stats := &stats.Run{Started: time.Unix(0, 0), Ended: time.Unix(3600+600, 0), Sessions: 3, CostUSD: 0.75}
 
 	var out bytes.Buffer
-	NewReporter(&out, &out).Summary(p, s, stats)
+	NewReporter(&out, &out).Summary(p, s, stats, nil)
 	text := out.String()
 	t.Log("\n" + text)
 
@@ -93,7 +94,7 @@ func TestTheSummaryClosesWithEveryRescue(t *testing.T) {
 	}}
 
 	var out bytes.Buffer
-	NewReporter(&out, &out).Summary(p, s, nil)
+	NewReporter(&out, &out).Summary(p, s, nil, nil)
 	text := out.String()
 	t.Log("\n" + text)
 	for _, want := range []string{
@@ -110,6 +111,37 @@ func TestTheSummaryClosesWithEveryRescue(t *testing.T) {
 	}
 	if !strings.HasSuffix(strings.TrimSpace(text), "review these: ploopy report PASS") {
 		t.Fatalf("the summary does not end with the report pointer:\n%s", text)
+	}
+}
+
+func TestTheSummaryShowsARescueOnAUnitTheRunStoppedOn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "PASS.md")
+	if err := os.WriteFile(path, []byte(twoStages), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := plan.Load(path, "docs/plans/PASS.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &state.State{Units: map[string]*state.Entry{
+		"1.1": {Status: state.Landed, Outcome: "done"},
+	}}
+	stopped := &loop.Result{Unit: "1.2", Rescues: []state.Rescue{{
+		Trigger: "failed", Verdict: "failed", Reason: "the rescue hit a usage limit",
+	}}}
+
+	var out bytes.Buffer
+	NewReporter(&out, &out).Summary(p, s, nil, stopped)
+	text := out.String()
+	t.Log("\n" + text)
+	for _, want := range []string{
+		"Rescued",
+		"1.2  failed → failed: the rescue hit a usage limit",
+		"review these: ploopy report PASS",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the summary lacks %q:\n%s", want, text)
+		}
 	}
 }
 
@@ -132,7 +164,7 @@ func TestTheSummaryShowsStoredDecisionsPastTheCut(t *testing.T) {
 	}}
 
 	var out bytes.Buffer
-	NewReporter(&out, &out).Summary(p, s, nil)
+	NewReporter(&out, &out).Summary(p, s, nil, nil)
 	text := out.String()
 	t.Log("\n" + text)
 	for _, want := range []string{

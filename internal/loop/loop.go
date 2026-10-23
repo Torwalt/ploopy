@@ -179,6 +179,11 @@ type Result struct {
 	Message string
 	Stopped bool // the author asked it to stop
 	Stats   stats.Run
+
+	// Unit and Rescues are the rescues of a unit the run stopped on without
+	// settling it. No entry holds them yet, so the summary reads them here.
+	Unit    string
+	Rescues []state.Rescue
 }
 
 // Loop is one run of one plan.
@@ -419,6 +424,17 @@ func (l *Loop) finish(message string) Result {
 	return Result{Status: "done", Message: message, Stats: l.ended("done")}
 }
 
+// withRescues hands the closing summary the rescues of a unit the run stopped
+// on without settling it, which the state file does not hold.
+func (l *Loop) withRescues(result Result) Result {
+	if l.unit == "" || !l.progress.forUnit(l.unit) || len(l.progress.Rescues) == 0 {
+		return result
+	}
+	result.Unit = l.unit
+	result.Rescues = append([]state.Rescue(nil), l.progress.Rescues...)
+	return result
+}
+
 // Run walks the plan's open units.
 func (l *Loop) Run(ctx context.Context) Result {
 	l.stats = stats.Run{Started: l.opts.Now()}
@@ -475,9 +491,9 @@ func (l *Loop) Run(ctx context.Context) Result {
 				l.report.Say("stopping during %s, as asked; it stays open", unit.ID)
 				result := l.finish("stopped during " + unit.ID + " as asked")
 				result.Stopped = true
-				return result
+				return l.withRescues(result)
 			}
-			return l.failRun(fmt.Sprintf("%s. Resume with: ploopy run --plan %s", err, l.opts.PlanPath))
+			return l.withRescues(l.failRun(fmt.Sprintf("%s. Resume with: ploopy run --plan %s", err, l.opts.PlanPath)))
 		}
 		completed++
 

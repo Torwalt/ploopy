@@ -477,6 +477,26 @@ func TestARescueDoesNotFailForDirtTheUnitLeftBeforeIt(t *testing.T) {
 	}
 }
 
+func TestARescueOnAnUnsettledUnitIsInTheResult(t *testing.T) {
+	f := setup(t, twoUnits, fake.Step{Outcome: done()})
+	f.opts.Retries = 0
+	rescuer(t, f, fake.Step{
+		Do:      rescue("1.1", 1, rescueReport("the provider failed", "", "start again", "")),
+		Outcome: harness.Outcome{},
+	})
+
+	result := f.run()
+	if result.Status != "failed" {
+		t.Fatalf("run %+v", result)
+	}
+	if result.Unit != "1.1" || len(result.Rescues) != 1 {
+		t.Fatalf("the result holds unit %q with rescues %+v", result.Unit, result.Rescues)
+	}
+	if r := result.Rescues[0]; r.Trigger != "failed" || r.Verdict != "failed" {
+		t.Fatalf("the result's rescue is %+v", r)
+	}
+}
+
 func TestARescueWithNoMarkerStopsTheRun(t *testing.T) {
 	f := setup(t, twoUnits, fake.Step{Outcome: done()})
 	f.opts.Retries = 0

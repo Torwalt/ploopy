@@ -404,7 +404,7 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 				reviewOutcome(root, p, next)
 			}
 		} else {
-			report.Summary(p, s, &result.Stats)
+			report.Summary(p, s, &result.Stats, &result)
 		}
 	}
 	report.Degraded(result.Stats.Degraded)
