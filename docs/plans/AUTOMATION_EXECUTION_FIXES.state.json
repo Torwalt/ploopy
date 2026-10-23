@@ -266,6 +266,30 @@
         "reasoning": 8627,
         "cache_read": 792320
       }
+    },
+    "3.4": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T15:09:26+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "1d719996a33e017e48a698ce0db9c43eba95c688",
+      "commits": [
+        "f39b68d6681bdadecc0692bb718dae14f90ebf32 Keep earlier rescues when a unit settles again"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 3.4\n\n## What landed\n\n`f39b68d` keeps the rescues an entry already had when the unit is written\nagain. `settle` reads the entry it reloaded, hands its rescues to `entry`, and\n`entry` stores them ahead of this run's `progress.Rescues`. Both the blocked and\nthe landed settlements go through it.\n\nA test settles a unit blocked through a BLOCKED rescue, resumes the run, gets a\nRETRY rescue and lands it, then finds both records on the landed entry. It\nfailed before the change with one rescue (the second) and now sees two.\n\n## Landmark drift\n\nNone. `entry` and `settle` were where the work order placed them.\n\n## Deviations from the work order\n\nThe test reaches run B's rescue through the blocked trigger (two blocking\nsessions), not a spent-retry trigger. Resuming a blocked unit keeps the base\nrecorded when it first ran, so run A's state commit already counts as work; a\nDONE-without-commit session therefore lands rather than failing. Two blocking\nsessions are judged before commits and reach the rescue as intended.\n\n## What the next session must know\n\n- `entry` now takes `earlier []state.Rescue`; both calls are in `settle`.\n- The merge is a plain concatenation, earlier first, this run second. There is\n  no deduplication; a crash between `commitState` and the progress save could in\n  principle record the same rescue twice. The plan asks only for earlier plus\n  this run's, so this was left alone.\n- `progress.Rescues` is still cleared after a blocked settlement; the state\n  entry is now the source of earlier rescues.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e9721a402ffeH8aT51pxdWi7H3",
+      "cost_usd": 0.020193678,
+      "harness": "opencode",
+      "elapsed_s": 202,
+      "session_s": 184,
+      "test_s": 18,
+      "tokens": {
+        "input": 53509,
+        "output": 4722,
+        "reasoning": 7434,
+        "cache_read": 1624576
+      }
     }
   }
 }
