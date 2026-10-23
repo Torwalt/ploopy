@@ -60,16 +60,18 @@ session's self-report where the repository can be asked instead.
 - `internal/land` — put a finished branch on the default branch: rebase,
   checks, fast-forward, and a repair session where git or a check refuses.
   Must not import `loop`.
-- `internal/loop` — sequencing, judgement, retry and wait policy, the prompt.
+- `internal/loop` — sequencing, judgement, retry and wait policy, the prompt,
+  and the read-only rescue that diagnoses a unit the run would stop on.
   Depends on everything above; knows no adapter by name.
 - `internal/ui` — the selection form and board, the run renderer, the end
   actions.
   Nothing else writes to the terminal.
 
-`skills/` holds the skills the binary ships; `ploopy skills` writes them into a
-repository, and a run hands each session the binary's copy plus the
-repository's `ploopy-local` section for it. A change to the lifecycle, a command
-or a session's contract updates the skill that describes it.
+`skills/` holds the skills the binary ships, among them `unit-rescue` for a
+rescue session; `ploopy skills` writes them into a repository, and a run hands
+each session the binary's copy plus the repository's `ploopy-local` section for
+it. A change to the lifecycle, a command or a session's contract updates the
+skill that describes it.
 
 ## Conventions
 

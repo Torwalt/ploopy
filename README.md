@@ -53,6 +53,21 @@ flag or in the plan's front matter shows locked. Every answer is also a flag:
   included. A plan's review and fix plans run in its window. Windows stay until
   you close them; `--here` runs in this terminal instead.
 
+**Automation.** `[automation]` in `.ploopy.toml` sets what a run does on its
+own.
+- `follow_up` reviews an ordinary plan that completes and runs the fix plan its
+  triage writes, in the same invocation; on a review it runs that fix plan. A
+  fix plan is never reviewed. `--follow-up` overrides it; `--then fixes` is its
+  deprecated alias.
+- `rescue` names a stronger agent that steps in where a run would stop on a
+  unit: retries spent, sessions in a row that touch nothing, or a block the
+  second opinion confirmed. It only diagnoses and answers `RETRY`, `DECIDED` or
+  `BLOCKED`; it never edits, commits or lands. At most two rescues run per unit
+  per run.
+- A `DECIDED` rescue decided for you. Its decisions are on the unit in the state
+  file, under *Rescued* in `ploopy report`, and in the run's closing summary;
+  review them before landing.
+
 **Lifecycle.** A plan exists while master holds it; its progress lives on its
 branch.
 - Starting a plan commits it on master as last edited, then runs it on a branch
@@ -81,11 +96,8 @@ sessions only while lent.
 
 **Review.** `ploopy review <NAME>` writes and runs `<NAME>_REVIEW.md`: one
 read-only session per landed unit and one for the seams, then a triage that
-writes `<NAME>_FIXES.md`.
-- With `--follow-up`, or `n` on the board, an ordinary plan that completes is
-  reviewed and the fix plan the triage writes runs right after, in the same
-  worktree; on a review it runs that fix plan. A fix plan is never reviewed.
-  `--then fixes` is its deprecated alias.
+writes `<NAME>_FIXES.md`. With follow-up on, the fix plan runs right after, in
+the same worktree.
 - A repository adds its own checklist at `.agents/review-checklist.md`.
 
 **Land.** `ploopy land [BRANCH]` rebases the branch onto the default branch,
@@ -96,8 +108,8 @@ runs the checks, closes the branch's plans and fast-forwards.
 
 **Skills.** `ploopy skills` writes the skills ploopy ships into
 `.agents/skills` (linked into `.claude/skills` when there is a `.claude`):
-`ploopy`, `plan-writing`, `plan-unit`, `plan-review`, `review-triage` and
-`land-repair`.
+`ploopy`, `plan-writing`, `plan-unit`, `plan-review`, `review-triage`,
+`unit-rescue` and `land-repair`.
 - Rerunning it brings them up to date with the binary; runs always use the
   binary's copy.
 - The repository's own rules go in `ploopy-local`, a section per skill; runs
@@ -179,12 +191,20 @@ triage_agent = "claude"
 triage_model = "opus"
 triage_effort = "high"
 triage_budget = 0.0
+
+[automation]
+follow_up = true
+rescue = "claude"                        # or "none"
+rescue_model = "opus"
+rescue_effort = "high"
 ```
 
 `[run] agent` and `effort` are enough for an unattended run:
 `ploopy run --plan X --detach` starts from them. `[run] push` is the documented
 push key; the old top-level `push` still works, and `[run] push` wins when both
 are given. `[review]` is the triage's agent, model, effort and spending cap.
+`[automation]` is the follow-up and the rescue agent, model and effort; leaving
+`rescue` out, or setting it to `none`, turns the rescue off.
 
 ## Try it
 

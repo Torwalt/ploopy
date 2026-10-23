@@ -1,6 +1,6 @@
 ---
 name: ploopy
-description: Work with ploopy in this repository — where plans live and how they move from written to landed, reading progress, starting a run detached from the agent session, the worktrees ploopy makes and how they are set up, reviewing, closing and landing. Use whenever the author mentions ploopy, a plan's progress, starting, stopping or landing a plan, or a worktree for a plan.
+description: Work with ploopy in this repository — where plans live and how they move from written to landed, reading progress, starting a run detached from the agent session, the worktrees ploopy makes and how they are set up, repository settings, automation with follow-up and rescue, reviewing, closing and landing. Use whenever the author mentions ploopy, a plan's progress, starting, stopping or landing a plan, or a worktree for a plan.
 ---
 
 # Working with ploopy
@@ -59,11 +59,13 @@ Without tmux, ask the author to start it.
 ploopy run --detach --plan <plan> --agent <agent> <flags>
 ```
 
-Nobody answers a question in a detached window, so pass every choice as a flag:
-at least `--plan` and `--agent`, plus whatever the author asked for (`--model`,
-`--effort`, `--units`, `--until`, `--finish`, `--push`, …; `ploopy run --help`
-lists them). If the author did not say which agent, ask before starting. Run
-`ploopy lint` and `ploopy status` first. Start it from the main checkout:
+Nobody answers a question in a detached window, so pass every choice as a flag
+or set it in `.ploopy.toml`: `--plan` is required, and `--agent` unless
+`[run]` names an agent and an effort. Add whatever the author asked for
+(`--model`, `--effort`, `--units`, `--until`, `--finish`, `--push`, …; `ploopy
+run --help` lists them). If the author did not say which agent and the
+repository does not set one, ask before starting. Run `ploopy lint` and
+`ploopy status` first. Start it from the main checkout:
 ploopy finds or makes the worktree itself. `ploopy review <plan> --detach`
 starts a review the same way. A plan, its reviews and its fix plans share one
 window; a window busy with something else is refused.
@@ -102,6 +104,72 @@ Claude and Codex still run only as selected or lent, keep their existing
 reserves, and have no API fallback by default. Existing leases retain their
 explicit model and effort.
 
+## Automation
+
+`follow_up`, or `--follow-up` on a run, reviews an ordinary plan that completes
+and then runs the fix plan its triage writes, in the same invocation; on a
+review it runs that fix plan. A fix plan is never reviewed. `--then fixes` is
+its deprecated alias.
+
+`rescue`, `--rescue <harness|none>`, with `rescue_model` and `rescue_effort`,
+names a stronger agent for the three places a run would otherwise stop on a
+unit: its retries spent, sessions in a row that touch nothing, or a block the
+second opinion confirmed. The rescue is read-only: it diagnoses, and it never
+edits, commits or lands. At most two rescues run per unit per run. It answers:
+
+- `RETRY` when the cause was outside the unit's work order, such as a provider
+  failure or a stall. The unit runs again, told what was diagnosed.
+- `DECIDED` when the unit stopped on a question the author would answer. The
+  rescue decided it, and the next attempt keeps the decisions and records them
+  in its handover.
+- `BLOCKED` when only the author can unblock it. The unit is recorded blocked
+  and the run stops.
+
+A `DECIDED` rescue stood in for the author. Review its decisions before
+landing: they are on the unit in `<PLAN>.state.json`, under *Rescued* in
+`ploopy report <plan>` with the decisions in full, and in the run's closing
+summary. Revisit one if the documents do not support it.
+
+## Repository settings
+
+`.ploopy.toml` at the repository root configures a repository once. Every key
+is optional and unknown keys are refused. A flag wins over the plan's front
+matter, then the file, then the last run, then the default. A value from the
+file prefills the board and can still be changed there; the board says where a
+prefilled value came from.
+
+```toml
+[run]
+agent = "opencode"
+model = "opencode-go/deepseek-v4.1-flash"
+effort = "high"
+secondary = "claude"                     # or "none"
+secondary_model = "sonnet"
+secondary_effort = "high"
+peak = "wait"                            # wait | run
+subscriptions = "all"                    # all | none | names
+spend_all = false
+push = true
+finish = "none"                          # none | suspend | poweroff
+
+[review]
+triage_agent = "claude"
+triage_model = "opus"
+triage_effort = "high"
+triage_budget = 0.0
+
+[automation]
+follow_up = true
+rescue = "claude"                        # or "none"
+rescue_model = "opus"
+rescue_effort = "high"
+```
+
+With `[run] agent` and `effort` set, a detached run needs no flags beyond
+`--plan`: `ploopy run --plan <plan> --detach`. `[run] push` is the documented
+push key; the old top-level `push` still works, and `[run] push` wins when both
+are given.
+
 ## Worktrees
 
 ploopy makes the worktree a plan runs in. Do not make one for a plan yourself,
@@ -119,11 +187,8 @@ names.
 ## Reviewing, closing, landing
 
 - `ploopy review <plan>` writes and runs the review of a plan's landed units,
-  then a triage that writes the fix plan.
-- `--follow-up` on a run reviews an ordinary plan that completes and then runs
-  the fix plan the triage writes, in the same invocation; on a review it runs
-  that fix plan. A fix plan is never reviewed. `--then fixes` is its
-  deprecated alias.
+  then a triage that writes the fix plan. With follow-up on, that fix plan runs
+  in the same invocation.
 - `ploopy land [branch]` is how finished work reaches the default branch. It
   refuses while a plan of the branch has open units.
 - `ploopy close <plan>` drops a plan from the default branch without landing
