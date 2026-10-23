@@ -19,6 +19,26 @@
         "reasoning": 52838,
         "cache_read": 4605696
       }
+    },
+    "1.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T13:22:17+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "05f44184f7c95fffdce7404301067d0be230e04a",
+      "attempts": 1,
+      "handover": "# Findings: unit 2.1 `then` becomes the follow-up setting\n\nReviewed: 58153d509c08..bb08e4ad348a, 19 files. Steps: all done.\n\n## F1 — A chained fix plan advertises \"then review and fix\", though a fix plan is never reviewed\n\n- Class: slip\n- Confidence: high\n- Where: `cmd/ploopy/run.go:294` (HEAD `:379`), `cmd/ploopy/run.go:296` (HEAD `:381`), `cmd/ploopy/settings.go:476-477` (HEAD `:529-530`), `internal/control/control.go:118-124` (HEAD `:130-135`); the same value is printed through `cmd/ploopy/adjust.go:97,117,183` and `cmd/ploopy/report.go:66`.\n- Situation: `ploopy review PASS --follow-up` (or follow-up turned on on the review board); the triage writes `PASS_FIXES.md`; the chain starts the fix plan. While a fix-plan unit runs, the author runs `ploopy adjust` or `ploopy status`.\n- Happens: `overChosen` copies the review's follow-up into the fix plan's `chosenRun`, `runOnce` registers the fix plan with `FollowUp: \u0026pick.followUp` and `review=false`, and `Describe` takes its ordinary-plan branch and appends `then review and fix`. Reproduced on the reviewed commit and on HEAD: the live status of a chained fix plan reads `no end action · then review and fix`. The fix plan does not go on to a review (D3; §5 item 3), and HEAD's own `followUpSuffix` already omits the follow-up text for `review.IsFix` plans, so the two descriptions disagree.\n- Should: the fix plan's live status should carry no follow-up, or say \"then stop\"; pass `FollowUp` nil for a fix plan (or teach `Describe` the fix-plan case). A fix plan always ends the chain.\n- Test: none exists. The fix-plan chain tests check which sessions start; none reads `control.List`/`Wanted.Describe` while a fix unit runs. A test that runs a review with follow-up and inspects the live status during its first fix session would show the string.\n\n## F2 — Follow-up's explicit file false and its last-run prefill have no test\n\n- Class: gap\n- Confidence: high\n- Where: `cmd/ploopy/settings.go:257-259` and `:341-345` (HEAD `:295-297`, `:382-386`); `cmd/ploopy/settings_file_test.go:174-216` (HEAD `:177-218`).\n- Situation: `[automation] follow_up = false` is written explicitly (the reason the handover makes the field `*bool`), while `last-run.json` holds `followUp: true`; or nothing sets follow-up but the last run had it on.\n- Happens: the new test covers file true and flag false only. Neither an explicit file false beating a last-run true, nor a last-run true being used when nothing else sets it, is exercised. Treating the explicit false as an absent key (e.g. checking `!= nil \u0026\u0026 *…`) or dropping the `prefilled(\"followUp\")` guard in `fill` would still pass the whole suite; the first would let the last run override an explicit off, the second would forget the last run.\n- Should: tests mirroring the existing \"file beats last run\" and \"flag beats file\" cases for follow-up, with an explicit false and with a last-run true, per §3's precedence and the handover's `*bool` rationale.\n- Test: none exists.\n\n## F3 — The Automation field keeps saying \"from .ploopy.toml\" after the author changes it\n\n- Class: slip\n- Confidence: high\n- Where: `cmd/ploopy/board.go:374-379` (HEAD `:408-412`); the source comes from `given.prefills` (`cmd/ploopy/settings.go:63-68`), which the board's `OnChange` (`cmd/ploopy/board.go:218-221` at HEAD) never updates.\n- Situation: `.ploopy.toml` has `[automation] follow_up = true`; the board opens showing `yes · from .ploopy.toml`; the author presses `n` to turn follow-up off.\n- Happens: the re-rendered field shows `no · from .ploopy.toml`; the source string is computed once from `given.prefilled(\"followUp\")` and is not cleared when the value changes. Reproduced with a test on HEAD. The same stale-source mechanism already affects the Run and Triage columns (1.1 F3); this unit added another field that inherits it.\n- Should: clear the file source when the author changes the field (or when normalization replaces the prefilled value), so the board never claims the file supplied a value it did not.\n- Test: none exists; the new file test only inspects the source before any edit.",
+      "session_id": "ses_e978d76a3ffeRTGWgvQCmvFHVh",
+      "cost_usd": 0.08313705600000001,
+      "harness": "opencode",
+      "elapsed_s": 840,
+      "session_s": 840,
+      "tokens": {
+        "input": 170356,
+        "output": 8307,
+        "reasoning": 55852,
+        "cache_read": 6362752
+      }
     }
   }
 }
