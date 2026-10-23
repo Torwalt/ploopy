@@ -72,6 +72,30 @@
         "reasoning": 11690,
         "cache_read": 3409664
       }
+    },
+    "1.4": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-10-23T14:45:44+02:00",
+      "agent": "opencode opencode-go/deepseek-v4.1-flash high",
+      "base": "4ccb72eb985db0becd8f09c71aac9d0c7caa2584",
+      "commits": [
+        "b7b320d705d78e1cf18bed08212acc970581d9f4 Test the chosen rescue reaching the loop options"
+      ],
+      "attempts": 1,
+      "handover": "# Handover for unit 1.4\n\n## What landed\n\n`b7b320d` — the `loop.Options` literal in `runOnce` moved into\n`runOptions` (`cmd/ploopy/run.go`), taking the plan, config, skills, flags and\nthe settled `chosenRun`. A new test,\n`TestTheChosenRescueReachesTheLoopOptions` in `cmd/ploopy/settings_file_test.go`,\ncalls it with a `chosenRun` holding a rescue and finds `Options.Rescue` set to\nthat agent, and with no rescue finds it nil. Deleting `Rescue: pick.rescue`\nfrom `runOptions` makes the test fail (verified, then restored).\n\n## Landmark drift\n\nNone. The literal was still at `cmd/ploopy/run.go:319`, and `Loop.steer` still\nreads `Options.Rescue` only for a nil `Options.Steering` as the work order\ndescribes.\n\n## Deviations from the work order\n\n- The whole literal moved into `runOptions`, not just the rescue assignment.\n  The unit's start hint allowed this; it is the simplest way for the test to\n  build the real options rather than a copy of one field.\n- The function takes the resolved verify and test commands as arguments, so\n  `runOnce` keeps its command/flag fallback and `--test` validation before the\n  call.\n\n## What the next session must know\n\n- `runOptions` is a pure constructor: later in `runOnce`, `opts` is still\n  mutated for dry run, fresh-worktree setup, branch, lending and steering.\n  Anything added to the literal belongs in `runOptions`; anything computed\n  from the checkout after it stays in `runOnce`.\n- `TestTheChosenRescueReachesTheLoopOptions` uses `boardEnv` and a zero\n  `runFlags`, so it checks only the rescue field, not the flag plumbing. The\n  existing file/flag/last-run rescue test still covers the plumbing into\n  `chosenRun.rescue`.\n- Both required checks are green: `go build -o /dev/null ./... \u0026\u0026 go vet ./...\n  \u0026\u0026 test -z \"$(gofmt -l .)\"` and `go test ./...`.\n\n## Open problems\n\nNone.",
+      "session_id": "ses_e97368828ffe3KYh5Y0r4SNwAf",
+      "cost_usd": 0.011998464,
+      "harness": "opencode",
+      "elapsed_s": 149,
+      "session_s": 132,
+      "test_s": 17,
+      "tokens": {
+        "input": 36564,
+        "output": 3754,
+        "reasoning": 2561,
+        "cache_read": 908288
+      }
     }
   }
 }
