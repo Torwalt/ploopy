@@ -208,6 +208,49 @@ func TestARescueBlockStopsTheRunWithItsReason(t *testing.T) {
 	}
 }
 
+func TestALandedUnitKeepsTheRescuesFromAnEarlierBlockedSettlement(t *testing.T) {
+	f := setup(t, twoUnits,
+		fake.Step{Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the premise is wrong"}},
+		fake.Step{Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the premise is still wrong"}},
+		fake.Step{Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "still no credential"}},
+		fake.Step{Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "still no credential, again"}},
+		fake.Step{Do: commits("one.go", "first"), Outcome: done()},
+		fake.Step{Do: commits("two.go", "second"), Outcome: done()},
+	)
+	rescuer(t, f,
+		fake.Step{
+			Do: rescue("1.1", 1, rescueReport("the work needs a credential nobody has",
+				"", "ask the author for the credential", "")),
+			Outcome: harness.Outcome{Marker: harness.Blocked, Reason: "the author must supply the credential"},
+		},
+		fake.Step{
+			Do:      rescue("1.1", 1, rescueReport("the provider failed", "", "start again", "")),
+			Outcome: harness.Outcome{Marker: harness.Retry, Reason: "provider failed"},
+		},
+	)
+
+	if result := f.run(); result.Status != "failed" {
+		t.Fatalf("first run %+v", result)
+	}
+	if entry := f.state().Entry("1.1"); entry == nil || len(entry.Rescues) != 1 {
+		t.Fatalf("the blocked unit recorded %+v", entry)
+	}
+
+	if result := f.run(); result.Status != "done" {
+		t.Fatalf("second run %+v", result)
+	}
+	entry := f.state().Entry("1.1")
+	if entry == nil || entry.Status != state.Landed {
+		t.Fatalf("unit 1.1 is %+v", entry)
+	}
+	if len(entry.Rescues) != 2 {
+		t.Fatalf("the landed unit recorded %d rescues, want 2: %+v", len(entry.Rescues), entry.Rescues)
+	}
+	if entry.Rescues[0].Verdict != "blocked" || entry.Rescues[1].Verdict != "retry" {
+		t.Fatalf("the unit kept %+v", entry.Rescues)
+	}
+}
+
 func TestARescueBlockRecordsWhatTheSessionCommitted(t *testing.T) {
 	f := setup(t, twoUnits,
 		fake.Step{Do: commits("one.go", "half of it"), Outcome: harness.Outcome{

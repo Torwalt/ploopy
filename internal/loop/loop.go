@@ -1349,7 +1349,7 @@ func (l *Loop) handover(u plan.Unit, tail string, notes *[]string) string {
 	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
-func (l *Loop) entry(agent Agent, verdict Verdict, base string, attempts int, handover string, outcome harness.Outcome) *state.Entry {
+func (l *Loop) entry(agent Agent, verdict Verdict, base string, attempts int, handover string, outcome harness.Outcome, earlier []state.Rescue) *state.Entry {
 	status := state.Landed
 	if verdict.Kind != Landed {
 		status = state.Blocked
@@ -1384,7 +1384,7 @@ func (l *Loop) entry(agent Agent, verdict Verdict, base string, attempts int, ha
 		VerifyS:   seconds(spent.Verify),
 		TestS:     seconds(spent.Test),
 		Tokens:    tokens,
-		Rescues:   l.progress.Rescues,
+		Rescues:   append(append([]state.Rescue(nil), earlier...), l.progress.Rescues...),
 	}
 }
 
@@ -1432,10 +1432,14 @@ func (l *Loop) settle(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agen
 
 	var notes []string
 	handover := l.handover(u, tail, &notes)
+	var earlier []state.Rescue
+	if prior := s.Entry(u.ID); prior != nil {
+		earlier = prior.Rescues
+	}
 
 	if verdict.Kind == Blocked {
 		verdict.Notes = append(verdict.Notes, notes...)
-		s.Set(u.ID, l.entry(agent, verdict, base, attempt+1, handover, outcome))
+		s.Set(u.ID, l.entry(agent, verdict, base, attempt+1, handover, outcome, earlier))
 		if err := l.commitState(ctx, p, s); err != nil {
 			return false, err
 		}
@@ -1449,7 +1453,7 @@ func (l *Loop) settle(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agen
 	}
 
 	verdict.Notes = append(verdict.Notes, notes...)
-	s.Set(u.ID, l.entry(agent, verdict, base, attempt+1, handover, outcome))
+	s.Set(u.ID, l.entry(agent, verdict, base, attempt+1, handover, outcome, earlier))
 	if err := l.commitState(ctx, p, s); err != nil {
 		return false, err
 	}
