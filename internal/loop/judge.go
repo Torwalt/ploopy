@@ -59,7 +59,7 @@ func (l *Loop) judge(ctx context.Context, p *plan.Plan, u plan.Unit, agent Agent
 	switch u.Role() {
 	case plan.Collect, plan.Seams:
 		return l.judgeCollect(ctx, u, agent, base, outcome)
-	case plan.Triage:
+	case plan.Triage, plan.Direct:
 		return l.judgeTriage(ctx, p, u, agent, base, outcome)
 	}
 

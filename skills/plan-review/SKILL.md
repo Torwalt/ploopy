@@ -132,3 +132,12 @@ than in full when it is large.
 Write the findings file. Check that `git status --short` shows nothing you made.
 End with `DONE`. `BLOCKED` only when the order cannot be carried out at all: the
 commits do not exist, or the range is empty.
+
+## Required versus optional
+
+For each evidenced finding, propose whether it is required by correctness,
+repository rules or the plan, or an optional improvement the completed work is
+acceptable without. Give the reason. Triage makes the final decision. Do not
+inflate optional work into a defect, treat a missing test alone as a defect,
+or invent findings to fill the review. Unsupported concerns and taste are not
+optional findings worth collecting. No findings is a successful result.

@@ -25,20 +25,21 @@ import (
 // and the run's own settings. It keeps the leases as drafts until the author
 // starts the run, so a cancel changes nothing.
 type settingsBoard struct {
-	ctx      context.Context
-	env      *env
-	plan     *plan.Plan
-	branch   string
-	open     int
-	root     string
-	adjust   bool
-	given    given
-	s        *runSettings
-	triage   *triageDraft
-	drafts   []*leaseDraft
-	records  []history.Record
-	canPush  bool
-	leaseErr error
+	ctx            context.Context
+	env            *env
+	plan           *plan.Plan
+	branch         string
+	open           int
+	root           string
+	adjust         bool
+	given          given
+	s              *runSettings
+	triage         *triageDraft
+	reviewModeLock string
+	drafts         []*leaseDraft
+	records        []history.Record
+	canPush        bool
+	leaseErr       error
 
 	secondary    string
 	rescue       string
@@ -201,6 +202,11 @@ func newAdjustBoard(ctx context.Context, e *env, live control.Live) *settingsBoa
 // the Run column.
 func newReviewBoard(ctx context.Context, e *env, p *plan.Plan, g given, s *runSettings, branch string, open int, t review.Triage, givens map[string]bool, sources map[string]string, locked string) *settingsBoard {
 	sb := newSettingsBoard(ctx, e, p, g, s, branch, open)
+	sb.s.ReviewMode = review.ModeOf(p)
+	sb.reviewModeLock = "the review is already written"
+	if locked != "" {
+		sb.reviewModeLock = locked
+	}
 	sb.triage = &triageDraft{
 		agent: t.Agent, model: t.Model, effort: t.Effort,
 		budget: strconv.FormatFloat(t.Budget, 'f', -1, 64),
@@ -219,10 +225,14 @@ func (sb *settingsBoard) rebuild() {
 	sb.board.OnChange = func() {
 		sb.normalize()
 		sb.board.SetColumns(sb.columns())
+		sb.board.Title = sb.title()
 	}
 }
 
 func (sb *settingsBoard) title() string {
+	if sb.triage != nil && sb.s.ReviewMode != review.ModeOf(sb.plan) {
+		return fmt.Sprintf("ploopy · %s on %s · %s review", sb.plan.Name(), sb.branch, sb.s.ReviewMode)
+	}
 	return fmt.Sprintf("ploopy · %s on %s · %d open units", sb.plan.Name(), sb.branch, sb.open)
 }
 
@@ -325,7 +335,13 @@ func (sb *settingsBoard) columns() []ui.Column {
 
 func (sb *settingsBoard) triageColumn() ui.Column {
 	d := sb.triage
-	return ui.Column{Title: "Triage", Fields: []ui.BoardField{
+	title := "Triage"
+	if sb.s.ReviewMode == review.Direct {
+		title = "Reviewer"
+	}
+	return ui.Column{Title: title, Fields: []ui.BoardField{
+		{Key: 'v', Label: "mode", Value: &sb.s.ReviewMode, Choices: reviewModeChoices,
+			Locked: sb.reviewModeLock, Source: sb.given.source("reviewMode", sb.s.ReviewMode)},
 		{Key: 'a', Label: "agent", Value: &d.agent, Choices: func() []ui.Choice {
 			return labelled(sb.env.harnesses.Names())
 		}, Locked: d.lock("agent"), Source: d.source("agent", d.agent)},
@@ -407,7 +423,7 @@ func (sb *settingsBoard) subscriptionColumn(d *leaseDraft) ui.Column {
 }
 
 func (sb *settingsBoard) automationColumn() ui.Column {
-	return ui.Column{Title: "Automation", Fields: []ui.BoardField{
+	fields := []ui.BoardField{
 		{Key: 'n', Label: "follow up", Value: &sb.followUp,
 			Choices: func() []ui.Choice { return yesNoChoices(sb.followUp == "yes") },
 			Locked:  sb.given.why("followUp"), Source: sb.given.source("followUp", sb.followUp)},
@@ -430,7 +446,16 @@ func (sb *settingsBoard) automationColumn() ui.Column {
 				return nil
 			},
 			Locked: sb.given.why("rescueEffort"), Source: sb.given.source("rescueEffort", sb.rescueEffort)},
-	}}
+	}
+	if sb.triage == nil && sb.plan.Reviews() == "" && !review.IsFix(sb.plan.Path) && !sb.adjust {
+		fields = append(fields, ui.BoardField{Key: 'v', Label: "review mode", Value: &sb.s.ReviewMode,
+			Choices: reviewModeChoices, Locked: sb.given.why("reviewMode"), Source: sb.given.source("reviewMode", sb.s.ReviewMode)})
+	}
+	return ui.Column{Title: "Automation", Fields: fields}
+}
+
+func reviewModeChoices() []ui.Choice {
+	return []ui.Choice{{Label: "collected", Value: review.Collected}, {Label: "direct", Value: review.Direct}}
 }
 
 func rescueHarnessChoices(harnesses harness.Set) []ui.Choice {

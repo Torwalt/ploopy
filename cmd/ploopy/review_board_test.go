@@ -117,7 +117,7 @@ func TestAWrittenReviewsPendingTriageIsPrefilledAndChangesCommit(t *testing.T) {
 	board := reviewBoardFrom(t, e, p, tri, givens, sources, "")
 	at, column := columnByTitle(t, board.board, "Triage")
 	for _, field := range column.Fields {
-		if field.Locked != "" {
+		if field.Key != 'v' && field.Locked != "" {
 			t.Fatalf("%c is locked with %q before the triage has run", field.Key, field.Locked)
 		}
 	}
@@ -212,5 +212,53 @@ func TestTheReviewBoardOffersFollowUpAfterTheReview(t *testing.T) {
 	}
 	if got := *field.Value; got != "yes" {
 		t.Fatalf("follow-up cycles to %q, want yes", got)
+	}
+}
+
+func TestANewReviewsModeCanChangeOnTheBoardBeforeItRuns(t *testing.T) {
+	e, tree := chainRepo(t)
+	rp, err := plan.Load(filepath.Join(tree, "docs/plans/PASS.md"), "docs/plans/PASS.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs, err := state.Load(filepath.Join(tree, "docs/plans/PASS.state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := strings.TrimSpace(gitOut(t, tree, "rev-parse", "HEAD"))
+	text, err := review.Generate(rp, rs, review.Options{Head: head, Triage: defaultTriage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := plan.Parse(text, review.Path(rp.Path))
+	write(t, tree, p.Path, text)
+	git(t, tree, "add", p.Path)
+	git(t, tree, "commit", "-q", "-m", "write review")
+	board := reviewBoard(t, e, p, defaultTriage, nil, "")
+	board.reviewModeLock = ""
+	board.rebuild()
+	at, _ := columnByTitle(t, board.board, "Triage")
+	key(board.board, rune('1'+at))
+	chosen, err := board.start(func() error {
+		key(board.board, 'v')
+		board.board.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if chosen.reviewMode != review.Direct {
+		t.Fatalf("mode %q", chosen.reviewMode)
+	}
+	columnByTitle(t, board.board, "Reviewer")
+	if err := rewriteReviewMode(context.Background(), e, tree, p, chosen.reviewMode, "", defaultTriage); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := plan.Load(filepath.Join(tree, p.Path), p.Path)
+	if err != nil || review.ModeOf(changed) != review.Direct || len(changed.Units) != 1 {
+		t.Fatalf("rewritten review: %+v, %v", changed, err)
+	}
+	if changed.Settings["review-head"] != head {
+		t.Fatal("mode change moved the reviewed revision")
 	}
 }

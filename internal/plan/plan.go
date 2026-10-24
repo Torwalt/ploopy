@@ -31,7 +31,7 @@ var UnitFields = []string{"Test", "Context", "Review", "Agent", "Model", "Effort
 
 // Settings are the front-matter keys a plan may set. `reviews` makes the plan
 // a review of the plan it names.
-var Settings = []string{"authority", "context", "test", "agent", "effort", "model", "reviews", "subscriptions"}
+var Settings = []string{"authority", "context", "test", "agent", "effort", "model", "reviews", "subscriptions", "review-base", "review-head"}
 
 // Roles a unit plays. A unit of an ordinary plan implements; the units of a
 // review plan collect findings on one landed unit, look at the seams between
@@ -41,6 +41,7 @@ const (
 	Collect   = "collect"
 	Seams     = "seams"
 	Triage    = "triage"
+	Direct    = "direct"
 )
 
 const workOrderNote = "The unit below is the only work authorized by this order. Later\n" +
@@ -86,7 +87,7 @@ func (u Unit) Role() string {
 	switch review := strings.TrimSpace(u.Fields["Review"]); review {
 	case "":
 		return Implement
-	case Seams, Triage:
+	case Seams, Triage, Direct:
 		return review
 	default:
 		return Collect

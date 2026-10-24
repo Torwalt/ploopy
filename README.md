@@ -95,11 +95,47 @@ sessions only while lent.
 - Windows about to reset go first, 20% of each week stays yours (`--keep`), and
   a subscription at its limit hands over without waiting.
 
-**Review.** `ploopy review <NAME>` writes and runs `<NAME>_REVIEW.md`: one
-read-only session per landed unit and one for the seams, then a triage that
-writes `<NAME>_FIXES.md`. With follow-up on, the fix plan runs right after, in
-the same worktree.
-- A repository adds its own checklist at `.agents/review-checklist.md`.
+**Review.** `ploopy review <NAME>` writes and runs `<NAME>_REVIEW.md`.
+The board offers two modes: `collected` (the default) runs a read-only session
+per landed unit and one for the seams, then a frontier triage; `direct` runs
+one frontier session against the complete branch change and the plan. The
+reviewer uses the `triage_*` settings in either mode. Direct review records the
+first landed unit's starting revision and the branch tip, including fixes
+already applied. `--since` is only available for collected reviews. A written
+review keeps its mode and recorded revision when resumed.
+
+Both modes write `<NAME>_FIXES.md` only for evidenced defects, regressions,
+violated repository rules or unmet plan requirements. Optional improvements
+are collected together in **one issue per review pass**, for later interactive
+organization or disposal. Unsupported concerns are dropped. Zero fixes and
+zero optional findings is a successful result. With follow-up on, any fix plan
+runs immediately using the implementation agent, in the same worktree.
+
+- Add a checklist at `.agents/review-checklist.md`.
+- Select the mode on the board, set `[review] mode`, or use `--review-mode direct`
+  on `review` or a `run --follow-up`.
+- Without a persistence hook, optional findings are committed beside the plan
+  as `<NAME>_FOLLOWUPS_<reviewed-head>.md`. Closing the plan leaves them intact.
+- To use another Markdown issue system, configure `followups_instructions` and
+  `followups_paths` together under `[review]`. The first names a Markdown file
+  inlined into the reviewer prompt; the second lists allowed repository paths
+  or globs (`*` does not cross directories). The reviewer may change one
+  follow-up Markdown document and must link it from *For the author*. Ploopy
+  does not execute a hook command or depend on the issue system.
+
+For Benchpress, copy [these instructions](docs/review-followups-benchpress.md)
+into `.agents/review-followups.md` and configure:
+
+```toml
+[review]
+mode = "direct"                         # or "collected"
+followups_instructions = ".agents/review-followups.md"
+followups_paths = ["docs/workbench/*.md"]
+```
+
+Review session history and stats include `review_mode`, `review_base` and
+`review_head` alongside time and cost, so comparisons can identify the reviewed
+snapshot. Costs remain subject to what each harness reports.
 
 **Land.** `ploopy land [BRANCH]` rebases the branch onto the default branch,
 runs the checks, closes the branch's plans and fast-forwards.
@@ -109,7 +145,7 @@ runs the checks, closes the branch's plans and fast-forwards.
 
 **Skills.** `ploopy skills` writes the skills ploopy ships into
 `.agents/skills` (linked into `.claude/skills` when there is a `.claude`):
-`ploopy`, `plan-writing`, `plan-unit`, `plan-review`, `review-triage`,
+`ploopy`, `plan-writing`, `plan-unit`, `plan-review`, `review-triage`, `review-direct`,
 `unit-rescue` and `land-repair`.
 - Rerunning it brings them up to date with the binary; runs always use the
   binary's copy.
@@ -188,6 +224,7 @@ push = true
 finish = "none"                          # none | suspend | poweroff
 
 [review]
+mode = "collected"                      # collected | direct
 triage_agent = "claude"
 triage_model = "opus"
 triage_effort = "high"
@@ -203,7 +240,8 @@ rescue_effort = "high"
 `[run] agent` and `effort` are enough for an unattended run:
 `ploopy run --plan X --detach` starts from them. `[run] push` is the documented
 push key; the old top-level `push` still works, and `[run] push` wins when both
-are given. `[review]` is the triage's agent, model, effort and spending cap.
+are given. `[review]` chooses the review mode, frontier agent, model, effort and spending
+cap, plus optional follow-up persistence instructions and paths.
 `[automation]` is the follow-up and the rescue agent, model and effort; setting
 `rescue = "none"` turns the rescue off. When `rescue` is absent, a run uses the
 last run's rescue, and then none.

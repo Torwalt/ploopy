@@ -16,12 +16,14 @@ import (
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
+	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
 
 // runSettings is what a run starts with beyond the plan and where it runs.
 // The last run's are remembered, so the next can start the same way.
 type runSettings struct {
+	ReviewMode    string         `json:"reviewMode,omitempty"`
 	Harness       string         `json:"harness"`
 	Model         string         `json:"model,omitempty"`
 	Effort        string         `json:"effort,omitempty"`
@@ -94,6 +96,7 @@ func (g given) source(key, current string) string {
 
 // chosenRun is the settings, resolved.
 type chosenRun struct {
+	reviewMode    string
 	agent         loop.Agent
 	secondary     *loop.Agent
 	rescue        *loop.Agent
@@ -135,6 +138,19 @@ func chooseSettings(ctx context.Context, cmd *cobra.Command, e *env, p *plan.Pla
 func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSettings, given, error) {
 	var s runSettings
 	var g given
+	s.ReviewMode = f.reviewMode
+	if s.ReviewMode != "" {
+		g.from("reviewMode", "from a flag")
+	} else if e.cfg.Review.Mode != "" {
+		s.ReviewMode = e.cfg.Review.Mode
+		g.fromFile("reviewMode", s.ReviewMode)
+	}
+	if s.ReviewMode == "" {
+		s.ReviewMode = review.Collected
+	}
+	if err := review.ValidateMode(s.ReviewMode); err != nil {
+		return s, g, err
+	}
 
 	s.Harness = f.agent
 	if s.Harness != "" {
@@ -527,6 +543,7 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 		finish = ui.FinishNone
 	}
 	return chosenRun{
+		reviewMode:    s.ReviewMode,
 		agent:         loop.Agent{Harness: h, Model: s.Model, Effort: s.Effort},
 		secondary:     toLoopAgent(e.harnesses, s.Secondary),
 		rescue:        toLoopAgent(e.harnesses, s.Rescue),

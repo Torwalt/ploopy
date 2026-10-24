@@ -19,6 +19,7 @@ import (
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/repo"
+	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/stats"
 )
@@ -64,10 +65,13 @@ type Options struct {
 	// The skills of a review plan's units and of a rescue, and the
 	// repository's own review checklist, which collecting units are given
 	// beside their skill.
-	ReviewSkill string
-	TriageSkill string
-	RescueSkill string
-	Checklist   string
+	ReviewSkill           string
+	TriageSkill           string
+	DirectSkill           string
+	FollowupsInstructions string
+	FollowupsPaths        []string
+	RescueSkill           string
+	Checklist             string
 
 	// Harnesses is every harness a unit's own `Agent:` may name.
 	Harnesses harness.Set
@@ -188,11 +192,12 @@ type Result struct {
 
 // Loop is one run of one plan.
 type Loop struct {
-	root   string
-	name   string // the plan's
-	opts   Options
-	repo   *repo.Repo
-	report Reporter
+	reviewMode, reviewBase, reviewHead string
+	root                               string
+	name                               string // the plan's
+	opts                               Options
+	repo                               *repo.Repo
+	report                             Reporter
 
 	dir       string
 	logs      string
@@ -232,7 +237,12 @@ func New(root string, opts Options, report Reporter) (*Loop, error) {
 		return nil, err
 	}
 	dir := stats.Dir(root, p.Name())
+	mode := ""
+	if p.Reviews() != "" {
+		mode = review.ModeOf(p)
+	}
 	return &Loop{
+		reviewMode: mode, reviewBase: p.Settings["review-base"], reviewHead: p.Settings["review-head"],
 		root: root, name: p.Name(), opts: opts,
 		repo:      repo.New(root, opts.AuthorPaths),
 		report:    report,

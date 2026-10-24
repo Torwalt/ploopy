@@ -178,9 +178,15 @@ func launchArgs(cmd *cobra.Command, f *runFlags, p *plan.Plan, pick chosenRun) [
 		"--push="+strconv.FormatBool(pick.push),
 		"--finish", string(pick.finish),
 		"--follow-up="+strconv.FormatBool(pick.followUp))
+	if pick.reviewMode != "" {
+		args = append(args, "--review-mode", pick.reviewMode)
+	}
 
 	runOnly := runFlagNames()
 	cmd.Flags().Visit(func(flag *pflag.Flag) {
+		if flag.Name == "review-mode" && pick.reviewMode != "" {
+			return
+		}
 		if chosenFlags[flag.Name] || !runOnly[flag.Name] || flag.Deprecated != "" {
 			return
 		}

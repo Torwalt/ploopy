@@ -27,6 +27,9 @@ var PlanReviewSkill string
 //go:embed skills/review-triage/SKILL.md
 var ReviewTriageSkill string
 
+//go:embed skills/review-direct/SKILL.md
+var ReviewDirectSkill string
+
 // UnitRescueSkill is how a rescue session diagnoses a unit the loop stopped
 // on. A repository may override it at .agents/skills/unit-rescue/SKILL.md.
 //

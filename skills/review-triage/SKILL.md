@@ -1,6 +1,6 @@
 ---
 name: review-triage
-description: Weigh the findings review sessions collected on a plan's landed work — confirm or drop each, merge duplicates, class them — then write a fix plan that applies recommended resolutions and show the author the choices and alternatives. Use when a ploopy review hands you its triage unit.
+description: Weigh the findings review sessions collected on a plan's landed work — confirm or drop each, merge duplicates, class them — separate required fixes from optional improvements, then write a fix plan that applies required resolutions and show the author the choices and alternatives. Use when a ploopy review hands you its triage unit.
 ---
 
 # Triage
@@ -11,10 +11,9 @@ will carry out the fixes. Spend your effort deciding.
 
 ## Limits
 
-- Change only the two documents your order names. Never edit source, tests or
-  another document, and never fix a finding yourself, not even a one-line slip:
-  it goes into the fix plan. The loop looks at your commit and stops the review
-  if it touches anything else.
+- Change only the review summary, fix plan when needed, and one follow-up
+  document permitted by your order. Never edit source or tests, and never fix
+  a finding yourself. The loop stops a review that changes other paths.
 - For each finding, read the code it cites — the lines around it and the
   definitions they depend on — and nothing beyond what deciding it needs.
 - Do not review the work afresh. What the collectors missed stays missed, unless
@@ -36,7 +35,16 @@ will carry out the fixes. Spend your effort deciding.
    - **unsure** — reading cannot settle it in reasonable time. If it would matter,
      it holds, and its fix unit proves it with a failing test before fixing.
      Otherwise drop it.
-3. **Class what holds.** The collector's class is a proposal:
+3. **Separate required fixes from optional improvements.** A required fix has
+   evidence of a defect, regression, violated repository rule or unmet plan
+   requirement. A useful improvement the completed work is acceptable without
+   is optional. A missing test alone is not a defect: name the required behavior
+   whose coverage is missing. Persist all optional findings in one issue for
+   this review pass, following your order's persistence instructions. Do not
+   split, prioritize or organize them; an interactive session does that later.
+   Create no issue when there are no optional findings.
+
+   **Class only the required fixes.** The collector's class is a proposal:
    - **slip** — right intent, wrong code in one place; the fix changes no
      contract;
    - **gap** — right intent, something missing; the fix stays inside the code
@@ -61,12 +69,14 @@ will carry out the fixes. Spend your effort deciding.
    the finding or wait for an answer. Do not choose an option that contradicts
    an explicit decision of the author; when two such decisions conflict, choose
    the smallest reversible resolution and name the conflict.
-5. **Write the fix plan** for every finding that holds, when any do.
+5. **Write the fix plan** only for required fixes, when any exist. Zero fixes
+   and zero optional findings is a successful result. Never invent work or
+   write an empty fix plan to demonstrate effort.
 6. **Write the section for the author** at the end of the review plan. Show each
    recommended design choice, its alternatives and where the fix plan applies
    it, so the plan can run immediately but the author can revise it first.
 7. **Lint and commit.** `ploopy lint <fix plan>` until it reports no errors. Then
-   one commit holding the fix plan and the review plan and nothing else, the
+   one commit holding the review summary, any fix plan and optional follow-up document, the
    handover, and `DONE`.
 
 ## The fix plan
@@ -129,8 +139,8 @@ repository's checks are green>
 - *Done when* is checkable: a named test, a command, an `rg` that must come back
   empty.
 - No unit that only investigates.
-- Hold nothing back for a later pass and invent no gate: every finding that
-  holds gets the units needed to implement it.
+- Every required fix gets the units needed to implement it. Optional findings
+  belong only in the follow-up issue. Invent no gate.
 - Omit *Recommended design decisions* when no design finding holds.
 
 ## For the author
@@ -141,7 +151,9 @@ Append this to the review plan, after its last stage:
 ## For the author
 
 <N> findings: <a> slips, <b> gaps and <c> design findings go to `<fix plan>` in
-<u> units; <c> design recommendations are explained below; <d> were dropped.
+<u> units; <c> required design recommendations are explained below; <d> were dropped.
+<o> optional improvements are collected in [follow-up issue](<path>), for later
+interactive organization or disposal. Omit this link when none exist.
 
 ### <the design question, as a question>
 

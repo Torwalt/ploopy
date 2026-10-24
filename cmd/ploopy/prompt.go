@@ -30,18 +30,21 @@ func showPrompt(cmd *cobra.Command, e *env, c catalog.Copy, u plan.Unit) error {
 	}
 	p := c.Plan
 	runner, err := loop.New(root, loop.Options{
-		PlanPath:    p.Path,
-		Harness:     e.harnesses[0],
-		Skill:       skill.unit,
-		ReviewSkill: skill.review,
-		TriageSkill: skill.triage,
-		RescueSkill: skill.rescue,
-		Checklist:   skill.checklist,
-		Harnesses:   e.harnesses,
-		BaseContext: cfg.Context,
-		VerifyCmd:   cfg.Verify,
-		TestCmd:     cfg.Test,
-		AuthorPaths: cfg.AuthorPaths,
+		PlanPath:              p.Path,
+		Harness:               e.harnesses[0],
+		Skill:                 skill.unit,
+		ReviewSkill:           skill.review,
+		TriageSkill:           skill.triage,
+		DirectSkill:           skill.direct,
+		FollowupsInstructions: skill.followups,
+		FollowupsPaths:        cfg.Review.FollowupsPaths,
+		RescueSkill:           skill.rescue,
+		Checklist:             skill.checklist,
+		Harnesses:             e.harnesses,
+		BaseContext:           cfg.Context,
+		VerifyCmd:             cfg.Verify,
+		TestCmd:               cfg.Test,
+		AuthorPaths:           cfg.AuthorPaths,
 	}, ui.NewReporter(cmd.OutOrStdout(), cmd.ErrOrStderr()))
 	if err != nil {
 		return err

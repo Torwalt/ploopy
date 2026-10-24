@@ -225,3 +225,47 @@ func TestTheTriageLabelSaysItsCap(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+func TestDirectReviewUsesOneFrontierUnitAndRecordsTheWholeBranch(t *testing.T) {
+	p := plan.Parse(reviewed, "docs/plans/PASS.md")
+	s := progress(map[string]*state.Entry{"1.1": landed("aaa first"), "1.3": landed("bbb third")})
+	text, err := Generate(p, s, Options{Mode: Direct, Head: "tip", Triage: triage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := plan.Parse(text, Path(p.Path))
+	if len(r.Units) != 1 || r.Units[0].Role() != plan.Direct || ModeOf(r) != Direct {
+		t.Fatalf("units: %+v", r.Units)
+	}
+	if r.Settings["review-base"] != "base" || r.Settings["review-head"] != "tip" {
+		t.Fatalf("target: %+v", r.Settings)
+	}
+	_, got := TriageOf(r)
+	if got != triage {
+		t.Fatalf("reviewer: %+v", got)
+	}
+	changed, err := SetTriage(text, Triage{Agent: "codex"})
+	if err != nil || ModeOf(plan.Parse(changed, r.Path)) != Direct {
+		t.Fatalf("changing reviewer: %v", err)
+	}
+	if errs, _ := plan.Lint(r, t.TempDir(), nil, nil); len(errs) != 1 || !strings.Contains(errs[0], "does not exist") {
+		t.Fatalf("lint: %v", errs)
+	}
+	for _, mode := range []string{Direct, "nope"} {
+		_, err := Generate(p, s, Options{Mode: mode, Since: "1.1", Triage: triage})
+		if err == nil {
+			t.Fatalf("accepted mode %s with --since", mode)
+		}
+	}
+}
+
+func TestFollowupFilesAreDistinctFromPlansAndOtherPasses(t *testing.T) {
+	a := FollowupsPath("docs/plans/PASS.md", "123456789012aaa")
+	b := FollowupsPath("docs/plans/PASS.md", "223456789012aaa")
+	if a == b || Family(a) != a || IsFix(a) {
+		t.Fatalf("follow-up paths: %s, %s", a, b)
+	}
+	if plans := plan.Runnable([]*plan.Plan{plan.Parse("# Follow-ups\n\n## Optional improvements\n", a)}, nil); len(plans) != 0 {
+		t.Fatal("follow-ups are not runnable plans")
+	}
+}

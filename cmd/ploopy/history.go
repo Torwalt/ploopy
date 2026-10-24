@@ -117,7 +117,8 @@ func importHistory(ctx context.Context, e *env, path string) (int, error) {
 				}
 				known[key] = true
 				r := history.Record{
-					Plan: name, Branch: tree.Branch, Run: rec.Run, Unit: rec.Unit, Stem: rec.Stem,
+					ReviewMode: rec.ReviewMode, ReviewBase: rec.ReviewBase, ReviewHead: rec.ReviewHead,
+					Plan: name, Role: rec.Role, Branch: tree.Branch, Run: rec.Run, Unit: rec.Unit, Stem: rec.Stem,
 					Agent: rec.Agent, Harness: strings.Fields(rec.Agent + " ?")[0],
 					Started: rec.Started, Seconds: rec.Seconds, Verdict: rec.Verdict,
 					Tokens: rec.Tokens, CostUSD: rec.CostUSD, After: rec.Budget, Degraded: rec.Degraded,

@@ -18,24 +18,27 @@ import (
 
 // Record is one session.
 type Record struct {
-	Plan      string          `json:"plan"`
-	Role      string          `json:"role,omitempty"`
-	Branch    string          `json:"branch,omitempty"`
-	Run       string          `json:"run"`
-	Unit      string          `json:"unit"`
-	Stem      string          `json:"stem"`
-	Agent     string          `json:"agent"`
-	Harness   string          `json:"harness"`
-	Started   time.Time       `json:"started"`
-	Seconds   float64         `json:"seconds"`
-	Verdict   string          `json:"verdict"`
-	Tokens    *harness.Tokens `json:"tokens,omitempty"`
-	CostUSD   float64         `json:"cost_usd,omitempty"`
-	Before    *harness.Budget `json:"before,omitempty"`
-	After     *harness.Budget `json:"after,omitempty"`
-	Away      bool            `json:"away,omitempty"` // ran on a lent subscription
-	WorkOrder int             `json:"work_order,omitempty"`
-	Degraded  []string        `json:"degraded,omitempty"`
+	ReviewMode string          `json:"review_mode,omitempty"`
+	ReviewBase string          `json:"review_base,omitempty"`
+	ReviewHead string          `json:"review_head,omitempty"`
+	Plan       string          `json:"plan"`
+	Role       string          `json:"role,omitempty"`
+	Branch     string          `json:"branch,omitempty"`
+	Run        string          `json:"run"`
+	Unit       string          `json:"unit"`
+	Stem       string          `json:"stem"`
+	Agent      string          `json:"agent"`
+	Harness    string          `json:"harness"`
+	Started    time.Time       `json:"started"`
+	Seconds    float64         `json:"seconds"`
+	Verdict    string          `json:"verdict"`
+	Tokens     *harness.Tokens `json:"tokens,omitempty"`
+	CostUSD    float64         `json:"cost_usd,omitempty"`
+	Before     *harness.Budget `json:"before,omitempty"`
+	After      *harness.Budget `json:"after,omitempty"`
+	Away       bool            `json:"away,omitempty"` // ran on a lent subscription
+	WorkOrder  int             `json:"work_order,omitempty"`
+	Degraded   []string        `json:"degraded,omitempty"`
 }
 
 // Path is the repository's log, given its git common directory.

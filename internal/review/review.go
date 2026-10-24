@@ -1,6 +1,4 @@
-// Package review turns a plan's landed work into a review plan the loop runs:
-// one collecting unit per landed unit, one on the seams between them, and one
-// triage unit that weighs what they found and writes the fix plan. Pure text:
+// Package review writes collected or direct review plans. Pure text:
 // no git, no process execution.
 package review
 
@@ -61,7 +59,7 @@ func (t Triage) Label() string {
 // TriageOf is the triage unit of a review plan and the agent it names.
 func TriageOf(p *plan.Plan) (*plan.Unit, Triage) {
 	for i := range p.Units {
-		if u := p.Units[i]; u.Role() == plan.Triage {
+		if u := p.Units[i]; u.Role() == plan.Triage || u.Role() == plan.Direct {
 			return &p.Units[i], Triage{
 				Agent:  strings.TrimSpace(u.Fields["Agent"]),
 				Model:  strings.TrimSpace(u.Fields["Model"]),
@@ -105,10 +103,43 @@ func SetTriage(text string, t Triage) (string, error) {
 
 // Options is one review to write.
 type Options struct {
+	Mode   string // collected or direct
+	Base   string // the recorded start of the reviewed work
 	Date   string // when the review was written
 	Head   string // the short HEAD it was written against
 	Since  string // review the landed units from this id on; "" for all
 	Triage Triage
+}
+
+const (
+	Collected = "collected"
+	Direct    = "direct"
+)
+
+func ValidateMode(mode string) error {
+	if mode != "" && mode != Collected && mode != Direct {
+		return fmt.Errorf("review mode must be collected or direct, not %q", mode)
+	}
+	return nil
+}
+
+func ModeOf(p *plan.Plan) string {
+	if u, _ := TriageOf(p); u != nil && u.Role() == plan.Direct {
+		return Direct
+	}
+	return Collected
+}
+
+// FollowupsPath survives closing the plan and keeps separate review passes apart.
+func FollowupsPath(reviewed, head string) string {
+	if len(head) > 12 {
+		head = head[:12]
+	}
+	suffix := "_FOLLOWUPS"
+	if head != "" {
+		suffix += "_" + head
+	}
+	return sibling(reviewed, suffix)
 }
 
 // Path is where the review of a plan lives: beside it, named after it.
@@ -197,6 +228,12 @@ func before(a, b []int) bool {
 
 // Generate writes the review plan of p's landed work.
 func Generate(p *plan.Plan, s *state.State, o Options) (string, error) {
+	if err := ValidateMode(o.Mode); err != nil {
+		return "", err
+	}
+	if o.Mode == Direct && o.Since != "" {
+		return "", fmt.Errorf("direct review covers the whole branch; --since is only for collected reviews")
+	}
 	units, err := Reviewable(p, s, o.Since)
 	if err != nil {
 		return "", err
@@ -207,48 +244,54 @@ func Generate(p *plan.Plan, s *state.State, o Options) (string, error) {
 	if o.Triage.Agent == "" {
 		return "", fmt.Errorf("the triage needs an agent")
 	}
+	if o.Base == "" {
+		entry := s.Entry(units[0].ID)
+		o.Base = entry.Base
+		if o.Base == "" {
+			first, _, _ := strings.Cut(entry.Commits[0], " ")
+			o.Base = first + "^"
+		}
+	}
 
 	var b strings.Builder
 	para := func(format string, args ...any) { b.WriteString(wrap(fmt.Sprintf(format, args...)) + "\n\n") }
 	fixes := FixesPath(p.Path)
-	fmt.Fprintf(&b, "---\nreviews: %s\ntest: no\n---\n\n", p.Path)
+	fmt.Fprintf(&b, "---\nreviews: %s\ntest: no\nreview-base: %s\nreview-head: %s\n---\n\n", p.Path, o.Base, o.Head)
 	fmt.Fprintf(&b, "# Review of %s\n\n", p.Name())
-	para("Status: written by `ploopy review` on %s against `%s`. It reviews %s of `%s`.",
-		o.Date, o.Head, count(len(units), "landed unit"), p.Path)
-	seams := ""
-	if len(units) > 1 {
-		seams = " The seams unit looks only at what lies between the units."
+	para("Status: written by `ploopy review` on %s against `%s`. It reviews %s of `%s`.", o.Date, o.Head, count(len(units), "landed unit"), p.Path)
+	para("Only required fixes go into `%s`: evidenced defects, regressions, violated repository rules or unmet plan requirements. "+
+		"Useful optional improvements go into one follow-up issue for this review pass, using the session's persistence instructions. "+
+		"Unsupported concerns are dropped. Zero fixes and zero optional findings is a successful review. "+
+		"Explain required design choices and their alternatives under *For the author*.", fixes)
+	if o.Mode == Direct {
+		para("One frontier session reviews the complete change `git diff %s..%s` against the plan at the recorded tip, including fixes already applied. "+
+			"It checks the units and their integration itself, without collecting sessions, and writes the fix plan only when necessary.", o.Base, o.Head)
+		b.WriteString("## Stage 1 — Review\n\n### 1.1 Review the branch against the plan\n\nReview: direct\n")
+	} else {
+		para("Each collecting unit reads one landed unit's work order, handover and commits, and writes findings without changing the repository. " +
+			"The seams unit, when present, checks integration. The triage weighs every finding that holds, separates required fixes from optional improvements, " +
+			"and writes the fix plan with recommended design choices only for required fixes.")
+		b.WriteString("## Stage 1 — Collect\n\n")
+		for i, u := range units {
+			fmt.Fprintf(&b, "### 1.%d Review %s %s\n\nReview: %s\n\n", i+1, u.ID, u.Title, u.ID)
+			para("**Goal:** findings on unit %s of `%s`, *%s*, against its work order.", u.ID, p.Path, u.Title)
+			para("**Done when:** the findings file is written and the repository is unchanged.")
+		}
+		if len(units) > 1 {
+			fmt.Fprintf(&b, "### 1.%d Review the seams between the units\n\nReview: %s\n\n", len(units)+1, plan.Seams)
+			para("**Goal:** findings on the contracts the reviewed units share, work one left for another, and required documentation none updated.")
+			para("**Done when:** the findings file is written and the repository is unchanged.")
+		}
+		b.WriteString("## Stage 2 — Triage\n\n### 2.1 Weigh the findings\n\nReview: triage\n")
 	}
-	para("Each collecting unit reads one landed unit's work order, handover and commits, and "+
-		"writes its findings without changing the repository.%s The triage unit weighs every "+
-		"finding, writes the fix plan `%s` for every finding that holds using its recommended "+
-		"design choices, and explains those choices and their alternatives under *For the author*.", seams, fixes)
-
-	b.WriteString("## Stage 1 — Collect\n\n")
-	for i, u := range units {
-		fmt.Fprintf(&b, "### 1.%d Review %s %s\n\nReview: %s\n\n", i+1, u.ID, u.Title, u.ID)
-		para("**Goal:** findings on unit %s of `%s`, *%s*, against its work order.", u.ID, p.Path, u.Title)
-		para("**Done when:** the findings file is written and the repository is unchanged.")
-	}
-	if len(units) > 1 {
-		fmt.Fprintf(&b, "### 1.%d Review the seams between the units\n\nReview: %s\n\n", len(units)+1, plan.Seams)
-		para("**Goal:** findings on what lies between the reviewed units: the contracts they share, " +
-			"work one left for another, leftovers no unit owns, documents none updated.")
-		para("**Done when:** the findings file is written and the repository is unchanged.")
-	}
-
-	b.WriteString("## Stage 2 — Triage\n\n")
-	fmt.Fprintf(&b, "### 2.1 Weigh the findings\n\nReview: %s\n", plan.Triage)
 	for _, field := range o.Triage.fields() {
 		b.WriteString(field + "\n")
 	}
 	b.WriteString("\n")
-	para("**Goal:** every finding confirmed or dropped, duplicates merged, each one classed as a " +
-		"slip, a gap or a design question; a fix plan for every finding that holds, with recommended " +
-		"design choices already applied; those choices and their alternatives put to the author.")
-	b.WriteString(wrap(fmt.Sprintf("**Done when:** one commit touches only `%s` and this document, "+
-		"this document ends with a *For the author* section, and the fix plan, when there is one, "+
-		"lints clean.", fixes)) + "\n")
+	para("**Goal:** evidence checked, duplicates merged, required fixes separated from optional improvements and unsupported concerns dropped; " +
+		"a fix plan only for required fixes, with any necessary design decisions resolved; optional findings persisted together in one issue.")
+	para("**Done when:** the review summary is committed under *For the author*, the fix plan when necessary lints clean, " +
+		"and any optional findings are committed in one follow-up document linked from the summary. No source or tests changed.")
 	return b.String(), nil
 }
 

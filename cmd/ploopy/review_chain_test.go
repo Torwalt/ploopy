@@ -694,3 +694,103 @@ func TestTheChainLeavesATriageThatHasRunAlone(t *testing.T) {
 		t.Fatalf("the review's triage changed to %+v, want the one that ran %+v", got, own)
 	}
 }
+
+func summaryStep(optionalPath string) fake.Step {
+	return fake.Step{Outcome: harness.Outcome{Marker: harness.Done}, Do: func(dir string) error {
+		path := review.Path("docs/plans/PASS.md")
+		text, err := os.ReadFile(filepath.Join(dir, path))
+		if err != nil {
+			return err
+		}
+		summary := "\n" + review.AuthorHeading + "\n\nNo required fixes.\n"
+		paths := []string{path}
+		if optionalPath != "" {
+			if err := sandboxWrite(filepath.Join(dir, optionalPath), "# Review follow-ups\n\nOne optional improvement.\n"); err != nil {
+				return err
+			}
+			summary += "\nOptional findings: [follow-up](" + optionalPath + ").\n"
+			paths = append(paths, optionalPath)
+		}
+		if err := sandboxWrite(filepath.Join(dir, path), string(text)+summary); err != nil {
+			return err
+		}
+		if err := sandboxGit(dir, append([]string{"add"}, paths...)...); err != nil {
+			return err
+		}
+		return sandboxGit(dir, "commit", "-q", "-m", "record review outcome")
+	}}
+}
+
+func TestDirectReviewUsesTheFrontierOnceAndFixesUseTheImplementationAgent(t *testing.T) {
+	e, tree := chainRepo(t)
+	reviewer := fake.New(triageStep(t))
+	reviewer.Named = "frontier"
+	implementer := fake.New(fixStep("fix1.go", "first fix"), fixStep("fix2.go", "second fix"))
+	e.harnesses = harness.Set{implementer, reviewer}
+	if err := runReview(t, e, reviewArgs("--review-mode", "direct", "--triage-agent", "frontier", "--follow-up")...); err != nil {
+		t.Fatal(err)
+	}
+	if reviewer.Started() != 1 || implementer.Started() != 2 {
+		t.Fatalf("reviewer %d, implementer %d", reviewer.Started(), implementer.Started())
+	}
+	if implementer.Specs[0].Model != "fix-model" {
+		t.Fatalf("fix implementation model: %s", implementer.Specs[0].Model)
+	}
+	p, err := plan.Load(filepath.Join(tree, "docs/plans/PASS_REVIEW.md"), "docs/plans/PASS_REVIEW.md")
+	if err != nil || review.ModeOf(p) != review.Direct || len(p.Units) != 1 {
+		t.Fatalf("direct plan: %+v, %v", p, err)
+	}
+}
+
+func TestDirectReviewWithoutRequiredFixesEndsTheFollowupChain(t *testing.T) {
+	for _, optional := range []bool{false, true} {
+		t.Run(fmt.Sprintf("optional=%v", optional), func(t *testing.T) {
+			e, tree := chainRepo(t)
+			head := strings.TrimSpace(gitOut(t, tree, "rev-parse", "HEAD"))
+			path := ""
+			if optional {
+				path = review.FollowupsPath("docs/plans/PASS.md", head)
+			}
+			h := fake.New(summaryStep(path))
+			e.harnesses = harness.Set{h}
+			e.cfg.Review.Mode = review.Direct
+			write(t, tree, ".ploopy.toml", "[review]\nmode = 'direct'\n")
+			git(t, tree, "add", ".ploopy.toml")
+			git(t, tree, "commit", "-q", "-m", "configure direct review")
+			if optional {
+				head = strings.TrimSpace(gitOut(t, tree, "rev-parse", "HEAD"))
+				path = review.FollowupsPath("docs/plans/PASS.md", head)
+				h.Steps = []fake.Step{summaryStep(path)}
+			}
+			if err := runReview(t, e, reviewArgs("--follow-up")...); err != nil {
+				t.Fatal(err)
+			}
+			if h.Started() != 1 || exists(filepath.Join(tree, "docs/plans/PASS_FIXES.md")) {
+				t.Fatal("review without required fixes should end after one session")
+			}
+			if optional {
+				if err := closePlan(context.Background(), e, []string{"PASS_REVIEW"}, false); err != nil {
+					t.Fatal(err)
+				}
+				if !exists(filepath.Join(tree, path)) {
+					t.Fatal("closing the review deleted optional findings")
+				}
+			}
+		})
+	}
+}
+
+func TestAnOrdinaryPlansFollowupUsesTheDirectModeChosenForTheRun(t *testing.T) {
+	e, _ := openPlanRepo(t, finishedPlan)
+	h := fake.New(fixStep("one.go", "implement plan"), summaryStep(""))
+	e.harnesses = harness.Set{h}
+	if err := runRun(t, e, runArgs(triageArgs("--follow-up", "--review-mode", "direct")...)...); err != nil {
+		t.Fatal(err)
+	}
+	if h.Started() != 2 {
+		t.Fatalf("sessions %d, want implementation then direct review", h.Started())
+	}
+	if !strings.Contains(h.Prompts[1], "without collecting sessions") {
+		t.Fatal("follow-up did not use direct review")
+	}
+}

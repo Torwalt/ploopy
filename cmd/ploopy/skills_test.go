@@ -25,7 +25,7 @@ func TestSkillsAreWrittenBesideTheLocalOne(t *testing.T) {
 	if err := writeSkills(dir, "", false); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"ploopy", "plan-writing", "plan-unit", "plan-review", "review-triage", "unit-rescue", "land-repair"} {
+	for _, name := range []string{"ploopy", "plan-writing", "plan-unit", "plan-review", "review-triage", "review-direct", "unit-rescue", "land-repair"} {
 		text := read(t, filepath.Join(dir, name, "SKILL.md"))
 		if !strings.HasPrefix(text, "---\nname: "+name+"\n") || !generated(text) {
 			t.Fatalf("%s should keep its front matter first and be marked as ploopy's:\n%.300s", name, text)
@@ -114,5 +114,27 @@ func TestSessionsGetTheBinarysSkillAndTheRepositorysRules(t *testing.T) {
 	write(t, root, config.RepoSkill, "our own unit skill\n")
 	if got, _ := skillAt(root, config.Default()); !strings.HasPrefix(got, "our own unit skill\n\n## This repository's rules") {
 		t.Fatalf("the repository's own skill wins, with its rules after it:\n%s", got)
+	}
+}
+
+func TestDirectReviewReceivesLocalRulesAndConfiguredFollowupInstructions(t *testing.T) {
+	root := t.TempDir()
+	write(t, root, config.LocalSkillPaths[0], "## review-direct\n\nCheck our ownership rules.\n")
+	cfg := config.Default()
+	cfg.Review.FollowupsInstructions = ".agents/followups.md"
+	cfg.Review.FollowupsPaths = []string{"docs/workbench/*.md"}
+	if _, err := skillsAt(root, cfg); err == nil {
+		t.Fatal("missing follow-up instructions were ignored")
+	}
+	write(t, root, cfg.Review.FollowupsInstructions, "Use Benchpress: one open topic for the pass.\n")
+	got, err := skillsAt(root, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got.direct, "Check our ownership rules.") || !strings.HasPrefix(got.direct, ploopy.ReviewDirectSkill[:100]) {
+		t.Fatal("direct reviewer did not get the bundled skill and local rules")
+	}
+	if !strings.Contains(got.followups, "one open topic") {
+		t.Fatal("follow-up instructions were not read")
 	}
 }

@@ -273,7 +273,7 @@ func (e *env) repo() *repo.Repo { return repo.New(e.root, e.cfg.AuthorPaths) }
 
 // skills is what sessions are given besides their work order.
 type skills struct {
-	unit, review, triage, rescue, checklist string
+	unit, review, triage, direct, rescue, checklist, followups string
 }
 
 // skillsAt reads every skill from the checkout when it keeps its own, else
@@ -287,6 +287,17 @@ func skillsAt(root string, cfg config.Config) (skills, error) {
 	}
 	out.review = ownOr(root, config.RepoReviewSkill, ploopy.PlanReviewSkill)
 	out.triage = ownOr(root, config.RepoTriageSkill, ploopy.ReviewTriageSkill)
+	out.direct = ownOr(root, config.RepoDirectSkill, ploopy.ReviewDirectSkill)
+	if cfg.Review.FollowupsInstructions != "" {
+		body, err := os.ReadFile(filepath.Join(root, cfg.Review.FollowupsInstructions))
+		if err != nil {
+			return out, fmt.Errorf("follow-up instructions: %w", err)
+		}
+		if strings.TrimSpace(string(body)) == "" {
+			return out, fmt.Errorf("follow-up instructions are empty")
+		}
+		out.followups = string(body)
+	}
 	out.rescue = ownOr(root, config.RepoRescueSkill, ploopy.UnitRescueSkill)
 	if path := cfg.ChecklistPath(root); path != "" {
 		text, err := os.ReadFile(path)

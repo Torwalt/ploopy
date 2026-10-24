@@ -21,6 +21,7 @@ import (
 // triageFlags is who weighs the findings, on `review` and on a run that
 // follows up with one.
 type triageFlags struct {
+	reviewMode   string
 	triageAgent  string
 	triageModel  string
 	triageEffort string
@@ -38,22 +39,15 @@ func newReview(e *env) *cobra.Command {
 	var f reviewFlags
 	cmd := &cobra.Command{
 		Use:   "review [PLAN]",
-		Short: "Review a plan's landed work: findings, a triage, a fix plan",
-		Long: "Write and run the review of a plan's landed work, as a plan of its own\n" +
-			"beside it, <PLAN>_REVIEW.md. A fresh session per landed unit collects\n" +
-			"findings on that unit's commits without changing anything, and one more\n" +
-			"looks at the seams between the units. Then one triage session, usually\n" +
-			"a stronger model, weighs every finding: it writes <PLAN>_FIXES.md, an\n" +
-			"ordinary plan for every finding that holds, applies its recommended\n" +
-			"design choices, and shows the author those choices and alternatives at\n" +
-			"the end of the review plan.\n\n" +
-			"One board asks everything before either runs: the run's columns for the\n" +
-			"collecting sessions and a Triage column for the session that weighs the\n" +
-			"findings, remembered apart; the --triage flags answer it. A review already\n" +
-			"written runs on from where it stopped, and its triage can still be\n" +
-			"changed until it has run. --follow-up runs the fix plan the triage\n" +
-			"writes in the same invocation; it is off by default, and --then fixes\n" +
-			"is its deprecated alias.",
+		Short: "Review a plan's work: required fixes and optional follow-ups",
+		Long: "Review a plan's landed work, as <PLAN>_REVIEW.md beside it.\n\n" +
+			"Collected mode reviews each landed unit and its seams, then uses a frontier\n" +
+			"triage. Direct mode uses one frontier session to review the complete branch\n" +
+			"against the plan. Both write <PLAN>_FIXES.md only for required fixes, and\n" +
+			"collect optional improvements in one issue for the review pass.\n\n" +
+			"The board chooses the mode, frontier reviewer and implementation settings.\n" +
+			"A written review keeps its mode and resumes where it stopped. --follow-up\n" +
+			"executes the fix plan when there is one, using the implementation agent.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error { return reviewPlan(cmd, e, args, &f) },
 	}
@@ -77,10 +71,11 @@ func addTriageFlags(cmd *cobra.Command, f *reviewFlags) {
 // run that may follow up with one.
 func addTriageFlagsTo(cmd *cobra.Command, f *triageFlags) {
 	flags := cmd.Flags()
-	flags.StringVar(&f.triageAgent, "triage-agent", "", "harness that runs the triage; claude when nothing else says")
-	flags.StringVar(&f.triageModel, "triage-model", "", "model for the triage; opus when nothing else says")
-	flags.StringVar(&f.triageEffort, "triage-effort", "", "effort for the triage")
-	flags.Float64Var(&f.triageBudget, "triage-budget", 0, "spending cap for the triage session in dollars; 0 is none")
+	flags.StringVar(&f.reviewMode, "review-mode", "", "review approach: collected (default) or direct")
+	flags.StringVar(&f.triageAgent, "triage-agent", "", "harness for frontier review or triage; claude by default")
+	flags.StringVar(&f.triageModel, "triage-model", "", "model for frontier review or triage; opus by default")
+	flags.StringVar(&f.triageEffort, "triage-effort", "", "effort for frontier review or triage")
+	flags.Float64Var(&f.triageBudget, "triage-budget", 0, "spending cap for frontier review or triage in dollars; 0 is none")
 }
 
 func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error {
@@ -99,6 +94,7 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 	if err != nil {
 		return err
 	}
+	fresh := false
 	reviewPath := review.Path(c.Plan.Path)
 	var p *plan.Plan
 	var s *state.State
@@ -122,6 +118,9 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 		}
 		fmt.Printf("%s is already written; running it on\n", reviewPath)
 		p = existing
+		if f.reviewMode != "" && f.reviewMode != review.ModeOf(p) {
+			return fmt.Errorf("%s already uses %s review; a written review keeps its mode", p.Path, review.ModeOf(p))
+		}
 		triage, givens, sources, triageRan, err = reviewTriage(ctx, cmd, e, f, p, s)
 		if err != nil {
 			return err
@@ -142,6 +141,7 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 			}
 		}
 	} else {
+		fresh = true
 		triage, givens, sources, triageRan, err = reviewTriage(ctx, cmd, e, f, nil, nil)
 		if err != nil {
 			return err
@@ -190,6 +190,13 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 	fill(e, &settings, g, loadLast(ctx, e.root))
 	locked := triageLock(ctx, e, p, s)
 	board := newReviewBoard(ctx, e, c.Plan, g, &settings, t.branch, openUnits(c.Plan, c.State), triage, givens, sources, locked)
+	if fresh {
+		board.reviewModeLock = ""
+		if f.reviewMode != "" {
+			board.reviewModeLock = "from a flag"
+		}
+		board.rebuild()
+	}
 	chosen, err := board.start(func() error {
 		_, err := board.board.Run()
 		return err
@@ -201,7 +208,11 @@ func reviewPlan(cmd *cobra.Command, e *env, args []string, f *reviewFlags) error
 	if err != nil {
 		return err
 	}
-	if !triageRan && current != nil {
+	if chosen.reviewMode != review.ModeOf(p) {
+		if err := rewriteReviewMode(ctx, e, root, p, chosen.reviewMode, f.since, final); err != nil {
+			return err
+		}
+	} else if !triageRan && current != nil {
 		if _, err := changeTriage(ctx, e, root, p, s, *current, final); err != nil {
 			return err
 		}
@@ -245,10 +256,15 @@ func writeReview(cmd *cobra.Command, e *env, root string, reviewed *plan.Plan, s
 	if err != nil {
 		return err
 	}
-	if len(head) > 8 {
-		head = head[:8]
+	mode := f.reviewMode
+	if mode == "" {
+		mode = cfg.Review.Mode
+	}
+	if mode == "" {
+		mode = review.Collected
 	}
 	text, err := review.Generate(reviewed, s, review.Options{
+		Mode:   mode,
 		Date:   time.Now().Format("2006-01-02"),
 		Head:   head,
 		Since:  f.since,
@@ -269,8 +285,11 @@ func writeReview(cmd *cobra.Command, e *env, root string, reviewed *plan.Plan, s
 		return err
 	}
 	written := plan.Parse(text, path)
-	fmt.Printf("wrote %s: %d sessions to collect findings, then the triage with %s\n",
-		path, len(written.Units)-1, triage.Label())
+	if review.ModeOf(written) == review.Direct {
+		fmt.Printf("wrote %s: one direct review with %s\n", path, triage.Label())
+	} else {
+		fmt.Printf("wrote %s: %d sessions to collect findings, then the triage with %s\n", path, len(written.Units)-1, triage.Label())
+	}
 	return nil
 }
 
@@ -338,7 +357,7 @@ func reviewOutcome(root string, p *plan.Plan, runsNext bool) {
 			fmt.Printf("\nthe fix plan is %s: run it with `ploopy run --plan %s`\n", fixes, fixes)
 		}
 	} else {
-		fmt.Println("\nno fix plan: no finding held for the loop to fix")
+		fmt.Println("\nno fix plan: no required fixes")
 	}
 	fmt.Printf("close the review with `ploopy close %s` once you have read it\n", p.Name())
 }
@@ -346,4 +365,26 @@ func reviewOutcome(root string, p *plan.Plan, runsNext bool) {
 func isFile(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular()
+}
+
+func rewriteReviewMode(ctx context.Context, e *env, root string, p *plan.Plan, mode, since string, t review.Triage) error {
+	rp, err := plan.Load(filepath.Join(root, p.Reviews()), p.Reviews())
+	if err != nil {
+		return err
+	}
+	rs, err := state.Load(filepath.Join(root, state.PathFor(rp.Path)))
+	if err != nil {
+		return err
+	}
+	text, err := review.Generate(rp, rs, review.Options{Mode: mode, Since: since, Base: p.Settings["review-base"], Head: p.Settings["review-head"], Date: time.Now().Format("2006-01-02"), Triage: t})
+	if err != nil {
+		return err
+	}
+	if errs := lintReport(e, root, plan.Parse(text, p.Path), os.Stderr, false); len(errs) > 0 {
+		return fmt.Errorf("the new review does not lint")
+	}
+	if err := os.WriteFile(filepath.Join(root, p.Path), []byte(text), 0o644); err != nil {
+		return err
+	}
+	return repo.New(root, nil).CommitOnly(ctx, p.Path, "plans: change review mode")
 }

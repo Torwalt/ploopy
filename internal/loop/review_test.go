@@ -10,6 +10,7 @@ import (
 
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/harness/fake"
+	"github.com/Torwalt/ploopy/internal/history"
 	"github.com/Torwalt/ploopy/internal/plan"
 	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
@@ -343,5 +344,173 @@ func TestAUnitsOwnAgentIsNeverHandedToTheSecondary(t *testing.T) {
 	}
 	if secondary.Started() != 0 || other.Started() != 2 {
 		t.Fatalf("secondary %d, triage %d", secondary.Started(), other.Started())
+	}
+}
+
+func collectedSteps() []fake.Step {
+	return []fake.Step{
+		{Do: finds("1.1", "No findings.\n"), Outcome: done()},
+		{Do: finds("1.2", "No findings.\n"), Outcome: done()},
+		{Do: finds("1.3", "No findings.\n"), Outcome: done()},
+	}
+}
+
+func makeDirect(t *testing.T, f *fixture) string {
+	t.Helper()
+	p, err := plan.Load(filepath.Join(f.root, "docs/plans/PASS.md"), "docs/plans/PASS.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	head := strings.TrimSpace(f.git("rev-parse", "HEAD"))
+	text, err := review.Generate(p, f.state(), review.Options{
+		Mode: review.Direct, Head: head, Triage: review.Triage{Agent: "other", Model: "big"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, f.root, reviewPath, text)
+	f.git("add", reviewPath)
+	f.git("commit", "-q", "-m", "change review mode")
+	f.opts.DirectSkill = "# direct skill body"
+	return head
+}
+
+func triagesWithFollowups(fixes string, paths ...string) func(string) error {
+	return func(dir string) error {
+		for _, path := range paths {
+			if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, path)), 0o755); err != nil {
+				return err
+			}
+		}
+		if err := triages(fixes, paths...)(dir); err != nil {
+			return err
+		}
+		file, err := os.OpenFile(filepath.Join(dir, reviewPath), os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			return err
+		}
+		for _, path := range paths {
+			fmt.Fprintf(file, "\nOptional findings: [follow-up](%s).\n", filepath.Base(path))
+		}
+		if err := file.Close(); err != nil {
+			return err
+		}
+		for _, args := range [][]string{{"add", reviewPath}, {"commit", "-q", "-m", "link follow-up"}} {
+			cmd := exec.Command("git", args...)
+			cmd.Dir = dir
+			if out, err := cmd.CombinedOutput(); err != nil {
+				return fmt.Errorf("git: %v: %s", err, out)
+			}
+		}
+		return nil
+	}
+}
+
+func TestBothModesCanFinishWithoutFixesOrWithOnlyOptionalFindings(t *testing.T) {
+	for _, mode := range []string{review.Collected, review.Direct} {
+		for _, optional := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/optional=%v", mode, optional), func(t *testing.T) {
+				f, other := reviewFixture(t, collectedSteps())
+				head := "abc"
+				if mode == review.Direct {
+					head = makeDirect(t, f)
+				}
+				path := review.FollowupsPath("docs/plans/PASS.md", head)
+				do := triages("")
+				if optional {
+					do = triagesWithFollowups("", path)
+				}
+				other.Steps = []fake.Step{{Do: do, Outcome: done()}}
+				f.opts.History = filepath.Join(t.TempDir(), "history.jsonl")
+				if result := f.run(); result.Status != "done" {
+					t.Fatalf("run: %+v", result)
+				}
+				if _, err := os.Stat(filepath.Join(f.root, "docs/plans/PASS_FIXES.md")); !os.IsNotExist(err) {
+					t.Fatal("review created a fix plan without required fixes")
+				}
+				if other.Started() != 1 || mode == review.Direct && f.h.Started() != 0 {
+					t.Fatalf("collector %d reviewer %d", f.h.Started(), other.Started())
+				}
+				prompt := other.Prompts[0]
+				for _, want := range []string{"Zero fixes and zero optional findings", "exactly one document", path} {
+					if !strings.Contains(prompt, want) {
+						t.Fatalf("prompt lacks %q", want)
+					}
+				}
+				if mode == review.Direct {
+					for _, want := range []string{"# direct skill body", "one.go", "two.go", "the owner holds its state", head, "git diff ", "docs/plans/PASS.md"} {
+						if !strings.Contains(prompt, want) {
+							t.Fatalf("direct prompt lacks %q", want)
+						}
+					}
+				}
+				records, err := history.Load(f.opts.History)
+				if err != nil || len(records) == 0 {
+					t.Fatalf("history: %v", err)
+				}
+				for _, rec := range records {
+					if rec.ReviewMode != mode || rec.ReviewHead != head {
+						t.Fatalf("history target: %+v", rec)
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestFollowupHookCanWriteOneDeclaredDocumentInEitherMode(t *testing.T) {
+	for _, mode := range []string{review.Collected, review.Direct} {
+		t.Run(mode, func(t *testing.T) {
+			f, other := reviewFixture(t, collectedSteps())
+			if mode == review.Direct {
+				makeDirect(t, f)
+			}
+			f.opts.FollowupsInstructions = "Use benchpress to collect optional findings in one open topic. Leave NEXT.md alone."
+			f.opts.FollowupsPaths = []string{"docs/workbench/*.md"}
+			other.Steps = []fake.Step{{Do: triagesWithFollowups(fixPlan, "docs/workbench/review-pass.md"), Outcome: done()}}
+			if result := f.run(); result.Status != "done" {
+				t.Fatalf("run: %+v", result)
+			}
+			if !strings.Contains(other.Prompts[0], f.opts.FollowupsInstructions) {
+				t.Fatal("hook was not handed to reviewer")
+			}
+		})
+	}
+}
+
+func TestReviewRejectsMultipleIssuesOrFilesOutsideTheHook(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		paths []string
+		want  string
+	}{
+		{"multiple", []string{"docs/workbench/a.md", "docs/workbench/b.md"}, "one document"},
+		{"source", []string{"one.go"}, "one.go"},
+		{"outside", []string{"docs/other.md"}, "docs/other.md"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f, other := reviewFixture(t, collectedSteps())
+			makeDirect(t, f)
+			f.opts.Retries = 0
+			f.opts.FollowupsPaths = []string{"docs/workbench/*.md"}
+			other.Steps = []fake.Step{{Do: triagesWithFollowups("", tc.paths...), Outcome: done()}}
+			if result := f.run(); result.Status != "failed" || !strings.Contains(result.Message, tc.want) {
+				t.Fatalf("run: %+v", result)
+			}
+		})
+	}
+}
+
+func TestADirectReviewRefusesCodeChangedAfterItsRecordedTip(t *testing.T) {
+	f, other := reviewFixture(t, nil, fake.Step{Do: triages(""), Outcome: done()})
+	makeDirect(t, f)
+	writeFile(t, f.root, "one.go", "new implementation\n")
+	f.git("add", "one.go")
+	f.git("commit", "-q", "-m", "change after review was written")
+	if result := f.run(); result.Status != "failed" || !strings.Contains(result.Message, "branch changed since reviewed revision") {
+		t.Fatalf("run: %+v", result)
+	}
+	if other.Started() != 0 {
+		t.Fatal("reviewer inspected a different tree than its recorded diff")
 	}
 }

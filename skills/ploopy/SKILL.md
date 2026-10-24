@@ -156,6 +156,7 @@ push = true
 finish = "none"                          # none | suspend | poweroff
 
 [review]
+mode = "collected"                      # collected | direct
 triage_agent = "claude"
 triage_model = "opus"
 triage_effort = "high"
@@ -191,9 +192,30 @@ names.
 
 ## Reviewing, closing, landing
 
-- `ploopy review <plan>` writes and runs the review of a plan's landed units,
-  then a triage that writes the fix plan. With follow-up on, that fix plan runs
-  in the same invocation.
+- `ploopy review <plan>` offers collected review (unit sessions, seams, then
+  frontier triage) or direct review (one frontier session against the complete
+  branch change and plan). The board selects the mode; `[review] mode` prefills
+  it, and `--review-mode collected|direct` also works on `run --follow-up`.
+  Both modes use `triage_*` settings for the frontier session. Implementation
+  settings choose the agent that runs fixes. A written review keeps its mode.
+  Direct review records the first landed unit's base and branch tip, including
+  previous fixes; `--since` is only for collected reviews.
+- Both modes write a fix plan only for evidenced defects, regressions, violated
+  repository rules or unmet plan requirements. Optional improvements go into
+  one issue per review pass, left for a later interactive session to organize
+  or discard. Unsupported concerns are dropped. Zero findings is success.
+  With follow-up on, a fix plan runs in the same invocation only when present.
+- Without configuration, optional findings are committed to
+  `<PLAN>_FOLLOWUPS_<reviewed-head>.md` beside the plan and survive closing it.
+  `[review] followups_instructions` names a Markdown file inlined into both
+  modes' frontier sessions; `followups_paths` declares permitted Markdown output
+  paths or globs, with `*` confined to one directory. Configure both together.
+  The reviewer may change one follow-up document and links it from For the
+  author. For Benchpress, instruct it to read the repository's benchpress skill,
+  create one open topic for the pass, reuse it on retries, leave NEXT.md alone,
+  and run `benchpress lint`. Ploopy executes no hook command.
+- Review history and stats record `review_mode`, `review_base` and `review_head`
+  alongside time and cost for comparisons.
 - `ploopy land [branch]` is how finished work reaches the default branch. It
   refuses while a plan of the branch has open units.
 - `ploopy close <plan>` drops a plan from the default branch without landing

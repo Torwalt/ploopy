@@ -12,6 +12,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/Torwalt/ploopy/internal/harness"
+	"github.com/Torwalt/ploopy/internal/review"
 )
 
 // File is the settings file's name.
@@ -55,10 +56,13 @@ type Run struct {
 
 // Review mirrors the flags that choose a review's triage.
 type Review struct {
-	TriageAgent  string   `toml:"triage_agent"`
-	TriageModel  string   `toml:"triage_model"`
-	TriageEffort string   `toml:"triage_effort"`
-	TriageBudget *float64 `toml:"triage_budget"`
+	Mode                  string   `toml:"mode"`
+	FollowupsInstructions string   `toml:"followups_instructions"`
+	FollowupsPaths        []string `toml:"followups_paths"`
+	TriageAgent           string   `toml:"triage_agent"`
+	TriageModel           string   `toml:"triage_model"`
+	TriageEffort          string   `toml:"triage_effort"`
+	TriageBudget          *float64 `toml:"triage_budget"`
 }
 
 // Automation is what a run does without the author: follow-up, and the agent
@@ -213,6 +217,29 @@ func validateRun(r Run, harnesses harness.Set) error {
 }
 
 func validateReview(r Review, harnesses harness.Set) error {
+	if err := review.ValidateMode(r.Mode); err != nil {
+		return fmt.Errorf("[review] mode: %w", err)
+	}
+	if (r.FollowupsInstructions == "") != (len(r.FollowupsPaths) == 0) {
+		return fmt.Errorf("[review] followups_instructions and followups_paths must be configured together")
+	}
+	for _, path := range append(append([]string(nil), r.FollowupsPaths...), r.FollowupsInstructions) {
+		if path == "" {
+			continue
+		}
+		if filepath.IsAbs(path) || strings.Contains(path, "\\") || strings.Contains(path, "\n") || strings.Contains(path, "\r") {
+			return fmt.Errorf("[review] follow-up paths must be relative to the repository: %q", path)
+		}
+		for _, part := range strings.Split(path, "/") {
+			if part == ".." || part == ".git" {
+				return fmt.Errorf("[review] invalid follow-up path %q", path)
+			}
+		}
+		if _, err := filepath.Match(path, ""); err != nil {
+			return fmt.Errorf("[review] invalid follow-up path %q: %w", path, err)
+		}
+	}
+
 	if r.TriageAgent != "" {
 		h := harnesses.Get(r.TriageAgent)
 		if h == nil {
@@ -299,6 +326,7 @@ const RepoSkill = ".agents/skills/plan-unit/SKILL.md"
 // Where a repository may keep its own review and landing skills and checklist.
 const (
 	RepoReviewSkill = ".agents/skills/plan-review/SKILL.md"
+	RepoDirectSkill = ".agents/skills/review-direct/SKILL.md"
 	RepoTriageSkill = ".agents/skills/review-triage/SKILL.md"
 	RepoRescueSkill = ".agents/skills/unit-rescue/SKILL.md"
 	RepoLandSkill   = ".agents/skills/land-repair/SKILL.md"

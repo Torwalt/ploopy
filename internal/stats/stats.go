@@ -42,24 +42,27 @@ type Degraded struct {
 // Record is one line of the log: a session, a check, a wait, a tool call or a
 // whole run.
 type Record struct {
-	Kind    string          `json:"kind"` // session, check, wait, tool or run
-	Role    string          `json:"role,omitempty"`
-	Run     string          `json:"run"`
-	Unit    string          `json:"unit,omitempty"`
-	Stem    string          `json:"stem,omitempty"`
-	Agent   string          `json:"agent,omitempty"`
-	Started time.Time       `json:"started"`
-	Seconds float64         `json:"seconds"`
-	Verify  float64         `json:"verify_s,omitempty"`
-	Test    float64         `json:"test_s,omitempty"`
-	Tokens  *harness.Tokens `json:"tokens,omitempty"`
-	CostUSD float64         `json:"cost_usd,omitempty"`
-	Turns   int             `json:"turns,omitempty"`
-	Tools   int             `json:"tools,omitempty"`
-	Verdict string          `json:"verdict,omitempty"`
-	Reason  string          `json:"reason,omitempty"`
-	Tool    string          `json:"tool,omitempty"`
-	Command string          `json:"command,omitempty"`
+	ReviewMode string          `json:"review_mode,omitempty"`
+	ReviewBase string          `json:"review_base,omitempty"`
+	ReviewHead string          `json:"review_head,omitempty"`
+	Kind       string          `json:"kind"` // session, check, wait, tool or run
+	Role       string          `json:"role,omitempty"`
+	Run        string          `json:"run"`
+	Unit       string          `json:"unit,omitempty"`
+	Stem       string          `json:"stem,omitempty"`
+	Agent      string          `json:"agent,omitempty"`
+	Started    time.Time       `json:"started"`
+	Seconds    float64         `json:"seconds"`
+	Verify     float64         `json:"verify_s,omitempty"`
+	Test       float64         `json:"test_s,omitempty"`
+	Tokens     *harness.Tokens `json:"tokens,omitempty"`
+	CostUSD    float64         `json:"cost_usd,omitempty"`
+	Turns      int             `json:"turns,omitempty"`
+	Tools      int             `json:"tools,omitempty"`
+	Verdict    string          `json:"verdict,omitempty"`
+	Reason     string          `json:"reason,omitempty"`
+	Tool       string          `json:"tool,omitempty"`
+	Command    string          `json:"command,omitempty"`
 
 	Budget   *harness.Budget `json:"budget,omitempty"`   // the usage windows the session ended on
 	Degraded []string        `json:"degraded,omitempty"` // what its adapter could not read

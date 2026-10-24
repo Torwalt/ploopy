@@ -194,3 +194,21 @@ func TestADetachedRunNeedsTmux(t *testing.T) {
 		t.Errorf("a launch outside tmux said %v", err)
 	}
 }
+
+func TestDetachedLaunchPreservesTheReviewModeChosenOnTheBoard(t *testing.T) {
+	e := mainRepo(t)
+	parent := newRun(e)
+	if err := parent.ParseFlags([]string{"--review-mode", "collected"}); err != nil {
+		t.Fatal(err)
+	}
+	pick := chosenForLaunch(e)
+	pick.reviewMode = "direct"
+	args := launchArgs(parent, &runFlags{}, plan.Parse("# Pass", "docs/plans/PASS.md"), pick)
+	child := newRun(e)
+	if err := child.ParseFlags(args[1:]); err != nil {
+		t.Fatal(err)
+	}
+	if mode, _ := child.Flags().GetString("review-mode"); mode != "direct" {
+		t.Fatalf("launched mode: %s", mode)
+	}
+}

@@ -35,6 +35,7 @@ type spent struct {
 
 func (l *Loop) log(r stats.Record) {
 	r.Run = l.runID
+	r.ReviewMode, r.ReviewBase, r.ReviewHead = l.reviewMode, l.reviewBase, l.reviewHead
 	_ = stats.Append(l.dir, r)
 }
 
@@ -92,6 +93,7 @@ func (l *Loop) accountSession(u plan.Unit, stem string, agent Agent, info sessio
 		return
 	}
 	_ = history.Append(l.opts.History, history.Record{
+		ReviewMode: l.reviewMode, ReviewBase: l.reviewBase, ReviewHead: l.reviewHead,
 		Plan: l.name, Role: role, Branch: l.opts.Branch, Run: l.runID, Unit: u.ID, Stem: stem,
 		Agent: agent.Label(), Harness: agent.Harness.Name(),
 		Started: info.Started, Seconds: info.Took.Seconds(), Verdict: verdict,

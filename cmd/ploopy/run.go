@@ -231,6 +231,9 @@ func chainedReview(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags,
 		}
 		rf := &reviewFlags{run: *f}
 		rf.triageFlags = f.triageFlags
+		if r.chosen.reviewMode != "" {
+			rf.reviewMode = r.chosen.reviewMode
+		}
 		triage, _, _, triageRan, err := reviewTriage(ctx, cmd, e, rf, existing, s)
 		if err != nil {
 			return nil, err
@@ -262,6 +265,9 @@ func chainedReview(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags,
 	}
 	rf := &reviewFlags{run: *f}
 	rf.triageFlags = f.triageFlags
+	if r.chosen.reviewMode != "" {
+		rf.reviewMode = r.chosen.reviewMode
+	}
 	triage, _, err := chooseTriageWithSources(ctx, cmd, e, rf, nil)
 	if err != nil {
 		return nil, err
@@ -420,37 +426,40 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 // on and the checks chosen for it.
 func runOptions(ctx context.Context, e *env, f *runFlags, p *plan.Plan, cfg config.Config, skill skills, pick chosenRun, verify, test string) loop.Options {
 	return loop.Options{
-		PlanPath:     p.Path,
-		Harness:      pick.agent.Harness,
-		Model:        pick.agent.Model,
-		Effort:       pick.agent.Effort,
-		Start:        f.from,
-		Until:        f.until,
-		MaxUnits:     f.units,
-		Retries:      f.retries,
-		BlockRetries: f.blockRetries,
-		Timeout:      f.timeout,
-		Backoff:      f.backoff,
-		Tests:        testsOverride(f),
-		Context:      strings.Fields(f.context),
-		BaseContext:  cfg.Context,
-		Skill:        skill.unit,
-		ReviewSkill:  skill.review,
-		TriageSkill:  skill.triage,
-		RescueSkill:  skill.rescue,
-		Checklist:    skill.checklist,
-		Harnesses:    e.harnesses,
-		VerifyCmd:    verify,
-		TestCmd:      test,
-		AuthorPaths:  cfg.AuthorPaths,
-		StateCommit:  cfg.StateCommit,
-		Notify:       f.notify,
-		HarnessArgs:  e.extra,
-		MaxBudgetUSD: f.budget,
-		Secondary:    pick.secondary,
-		Rescue:       pick.rescue,
-		WaitOffPeak:  pick.waitOffPeak,
-		History:      historyPath(ctx, e.root),
+		PlanPath:              p.Path,
+		Harness:               pick.agent.Harness,
+		Model:                 pick.agent.Model,
+		Effort:                pick.agent.Effort,
+		Start:                 f.from,
+		Until:                 f.until,
+		MaxUnits:              f.units,
+		Retries:               f.retries,
+		BlockRetries:          f.blockRetries,
+		Timeout:               f.timeout,
+		Backoff:               f.backoff,
+		Tests:                 testsOverride(f),
+		Context:               strings.Fields(f.context),
+		BaseContext:           cfg.Context,
+		Skill:                 skill.unit,
+		ReviewSkill:           skill.review,
+		TriageSkill:           skill.triage,
+		DirectSkill:           skill.direct,
+		FollowupsInstructions: skill.followups,
+		FollowupsPaths:        cfg.Review.FollowupsPaths,
+		RescueSkill:           skill.rescue,
+		Checklist:             skill.checklist,
+		Harnesses:             e.harnesses,
+		VerifyCmd:             verify,
+		TestCmd:               test,
+		AuthorPaths:           cfg.AuthorPaths,
+		StateCommit:           cfg.StateCommit,
+		Notify:                f.notify,
+		HarnessArgs:           e.extra,
+		MaxBudgetUSD:          f.budget,
+		Secondary:             pick.secondary,
+		Rescue:                pick.rescue,
+		WaitOffPeak:           pick.waitOffPeak,
+		History:               historyPath(ctx, e.root),
 	}
 }
 
