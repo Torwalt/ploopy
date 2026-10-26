@@ -173,15 +173,33 @@ func TestARunGoesToItsFamilysWindowWhileThatWaitsForACommand(t *testing.T) {
 	}
 }
 
-func TestARunNeverTypesIntoABusyWindow(t *testing.T) {
-	e := mainRepo(t)
-	log := fakeTmux(t, `@4\tploopy-PASS\tploopy\n`)
-	calls, err := launched(t, e, log)
-	if err == nil || !strings.Contains(err.Error(), "busy running ploopy") {
-		t.Fatalf("launching into a busy window said %v", err)
-	}
-	if len(calls) != 1 {
-		t.Errorf("tmux was asked more than to list windows: %q", calls)
+func TestARunUsesAnUnusedNameWhenItsWindowIsBusy(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		windows string
+		want    string
+	}{
+		{"busy", `@4\tploopy-PASS\tploopy\n`, "ploopy-PASS_2"},
+		{"occupied suffix", `@4\tploopy-PASS\tploopy\n@5\tploopy-PASS_2\tzsh\n`, "ploopy-PASS_3"},
+		{"gap", `@4\tploopy-PASS\tploopy\n@6\tploopy-PASS_3\tploopy\n`, "ploopy-PASS_2"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			e := mainRepo(t)
+			log := fakeTmux(t, tc.windows)
+			calls, err := launched(t, e, log)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(calls) != 5 {
+				t.Fatalf("tmux calls: %q, want list, create, send, enter and display", calls)
+			}
+			if !strings.HasPrefix(calls[1], "new-window -d -P -F #{window_id} -n "+tc.want+" -c ") {
+				t.Errorf("tmux was asked %q, want a new window named %s", calls[1], tc.want)
+			}
+			if !strings.HasPrefix(calls[2], "send-keys -t @9 -l ") || calls[3] != "send-keys -t @9 Enter" {
+				t.Errorf("run was not sent to the new window: %q", calls)
+			}
+		})
 	}
 }
 

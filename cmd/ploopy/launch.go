@@ -32,7 +32,7 @@ func detached(e *env, f *runFlags) bool {
 }
 
 // windowName is the tmux window a plan's family runs in: a plan, its reviews
-// and their fix plans share one branch, one worktree and one window.
+// and their fix plans share a base window name.
 func windowName(p *plan.Plan) string {
 	family := review.Family(p.Path)
 	return "ploopy-" + strings.TrimSuffix(filepath.Base(family), filepath.Ext(family))
@@ -42,8 +42,8 @@ func windowName(p *plan.Plan) string {
 // settings already chosen. The window's shell runs it, so the run belongs to
 // the tmux server and not to this process, and the shell's hooks (direnv) load
 // as they would for the author. A window the family has already runs it in its
-// idle shell, below the earlier runs' output. The window is never closed: it
-// stays until the author closes it.
+// idle shell, below the earlier runs' output, or a numbered window if busy.
+// The window stays until the author closes it.
 func launch(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, p *plan.Plan, pick chosenRun) error {
 	if os.Getenv("TMUX") == "" {
 		return errors.New("a detached run needs tmux, and this terminal is not in a tmux session; " +
@@ -61,7 +61,7 @@ func launch(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, p *pla
 	line := shellLine([]string{"cd", main}) + " && " + shellLine(append([]string{self}, launchArgs(cmd, f, p, pick)...))
 	name := windowName(p)
 
-	target, err := freeWindow(ctx, name)
+	name, target, err := freeWindow(ctx, name)
 	if err != nil {
 		return err
 	}
@@ -85,25 +85,33 @@ func launch(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, p *pla
 	return nil
 }
 
-// freeWindow is the window named name in the current session when its shell
-// waits for a command, or empty when there is none. A window running
-// something else is the author's, or a run's, and is refused.
-func freeWindow(ctx context.Context, name string) (string, error) {
+// freeWindow reuses the family's idle shell, or picks an unused name so a
+// busy window keeps running undisturbed.
+func freeWindow(ctx context.Context, name string) (string, string, error) {
 	out, err := tmux(ctx, "list-windows", "-F", "#{window_id}\t#{window_name}\t#{pane_current_command}")
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
+	windows := make(map[string]bool)
+	var target string
 	for _, row := range strings.Split(strings.TrimSpace(out), "\n") {
 		fields := strings.Split(row, "\t")
-		if len(fields) != 3 || fields[1] != name {
+		if len(fields) != 3 {
 			continue
 		}
-		if !isShell(fields[2]) {
-			return "", fmt.Errorf("tmux window %s is busy running %s; let it finish or close it", name, fields[2])
+		windows[fields[1]] = true
+		if fields[1] == name && isShell(fields[2]) {
+			target = fields[0]
 		}
-		return fields[0], nil
 	}
-	return "", nil
+	if target != "" {
+		return name, target, nil
+	}
+	base := name
+	for suffix := 2; windows[name]; suffix++ {
+		name = base + "_" + strconv.Itoa(suffix)
+	}
+	return name, "", nil
 }
 
 // carried is the environment a launched run keeps from the terminal that

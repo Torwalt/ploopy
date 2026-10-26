@@ -54,7 +54,9 @@ A run lasts hours and must outlive the agent session that starts it. Never run
 `ploopy run` through your own shell tool, in the foreground or the background,
 except with `--detach` or with `launch = "tmux"` in `.ploopy.toml`: then ploopy
 starts the run in a tmux window of the current session, `ploopy-<PLAN>`, and
-returns at once. The tmux server owns the run, so it survives your session.
+returns at once. It reuses the family's idle window; if busy, it uses the first
+unused name with a suffix `_2`, `_3`, and so on. The tmux server owns the run,
+so it survives your session.
 Without tmux, ask the author to start it.
 
 ```sh

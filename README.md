@@ -50,7 +50,8 @@ flag or in the plan's front matter shows locked. Every answer is also a flag:
 - `launch = "tmux"` in `.ploopy.toml` (or `--detach`) starts the run in a tmux
   window of the current session, `ploopy-<NAME>`, and returns: the window's
   shell runs it, so it outlives whatever started it, an agent's session
-  included. A plan's review and fix plans run in its window. Windows stay until
+  included. A plan's review and fix plans reuse its idle window. If busy, a new
+  window gets the first unused suffix `_2`, `_3`, and so on. Windows stay until
   you close them; `--here` runs in this terminal instead.
 
 **Automation.** `[automation]` in `.ploopy.toml` sets what a run does on its
