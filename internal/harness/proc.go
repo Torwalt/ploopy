@@ -33,7 +33,15 @@ type Proc struct {
 // StartProc runs argv in dir. Output is merged, streamed on Lines, appended to
 // a ring of the last TailLines, and written verbatim to logPath when given.
 func StartProc(ctx context.Context, argv []string, dir string, stdin io.Reader, logPath string, timeout time.Duration) (*Proc, error) {
+	return StartProcWithEnv(ctx, argv, dir, stdin, logPath, timeout, nil)
+}
+
+// StartProcWithEnv adds child-only environment overrides to StartProc.
+func StartProcWithEnv(ctx context.Context, argv []string, dir string, stdin io.Reader, logPath string, timeout time.Duration, env []string) (*Proc, error) {
 	cmd := exec.Command(argv[0], argv[1:]...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	cmd.Dir = dir
 	cmd.Stdin = stdin
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

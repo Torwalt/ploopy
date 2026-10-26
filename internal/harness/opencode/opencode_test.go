@@ -73,9 +73,10 @@ func TestGoAndTheAPIShareThePeakWindows(t *testing.T) {
 
 func fakeOpencode(t *testing.T, output string) string {
 	t.Helper()
+	t.Setenv("OPENCODE_CONFIG_CONTENT", "")
 	dir := t.TempDir()
 	args := filepath.Join(dir, "args")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + args + "\ncat <<'OUT'\n" + output + "\nOUT\n"
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + args + "\nprintf '%s' \"$OPENCODE_CONFIG_CONTENT\" > " + args + ".config\ncat <<'OUT'\n" + output + "\nOUT\n"
 	if err := os.WriteFile(filepath.Join(dir, "opencode"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +181,7 @@ func TestAPromptTooLargeForOneArgumentIsRefusedBeforeExec(t *testing.T) {
 	}
 }
 
-func TestTheSessionIsStartedWithThePlanUnitAgent(t *testing.T) {
+func TestTheSessionIsStartedWithTheBundledAgent(t *testing.T) {
 	argsFile := fakeOpencode(t, "DONE")
 	start(t, harness.Spec{Prompt: "do the unit", Model: "deepseek/deepseek-v4-pro", Effort: "high"})
 
@@ -189,10 +190,87 @@ func TestTheSessionIsStartedWithThePlanUnitAgent(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(strings.Split(strings.TrimSpace(string(raw)), "\n"), " ")
-	for _, want := range []string{"run --format json --auto", "--agent plan-unit", "--model deepseek/deepseek-v4-pro", "--variant high", "do the unit"} {
+	for _, want := range []string{"run --format json --auto", "--agent ploopy", "--model deepseek/deepseek-v4-pro", "--variant high", "do the unit"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("the session was started without %q:\n%s", want, joined)
 		}
+	}
+	raw, err = os.ReadFile(argsFile + ".config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config struct {
+		Agent map[string]struct {
+			Mode       string
+			Prompt     string
+			Model      string
+			Permission map[string]string
+		}
+	}
+	if err := json.Unmarshal(raw, &config); err != nil {
+		t.Fatal(err)
+	}
+	agent, ok := config.Agent["ploopy"]
+	if !ok || agent.Mode != "primary" || agent.Prompt != "" || agent.Model != "" {
+		t.Fatalf("unexpected execution profile: %+v", agent)
+	}
+	for _, tool := range []string{"question", "plan_enter", "plan_exit"} {
+		if agent.Permission[tool] != "deny" {
+			t.Fatalf("interactive tool %s was not denied", tool)
+		}
+	}
+}
+
+func TestInlineConfigurationIsPreservedOnlyInTheChild(t *testing.T) {
+	argsFile := fakeOpencode(t, "DONE")
+	inherited := `{"provider":{"deepseek":{"options":{"apiKey":"{env:DEEPSEEK_API_KEY}"}}},"model":"other/model","agent":{"custom":{"mode":"primary"},"ploopy":{"mode":"subagent"}}}`
+	t.Setenv("OPENCODE_CONFIG_CONTENT", inherited)
+	start(t, harness.Spec{Prompt: "review this unit"})
+	if got := os.Getenv("OPENCODE_CONFIG_CONTENT"); got != inherited {
+		t.Fatal("the adapter changed its parent's configuration")
+	}
+	raw, err := os.ReadFile(argsFile + ".config")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got, want map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(inherited), &want); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"provider", "model"} {
+		if string(got[key]) != string(want[key]) {
+			t.Fatalf("inherited %s configuration was changed", key)
+		}
+	}
+	var agents map[string]json.RawMessage
+	if err := json.Unmarshal(got["agent"], &agents); err != nil {
+		t.Fatal(err)
+	}
+	if string(agents["custom"]) != `{"mode":"primary"}` {
+		t.Fatal("the user's other agent was changed")
+	}
+	var agent struct{ Mode string }
+	if err := json.Unmarshal(agents["ploopy"], &agent); err != nil || agent.Mode != "primary" {
+		t.Fatal("the canonical profile did not replace the inherited profile")
+	}
+}
+
+func TestInvalidInlineConfigurationStopsBeforeLaunching(t *testing.T) {
+	for _, config := range []string{`{invalid-secret`, `[]`, `null`, `{"agent":[]}`, `{"agent":null}`} {
+		t.Run(config, func(t *testing.T) {
+			argsFile := fakeOpencode(t, "DONE")
+			t.Setenv("OPENCODE_CONFIG_CONTENT", config)
+			_, err := New().Start(context.Background(), harness.Spec{Dir: t.TempDir(), Prompt: "x"})
+			if err == nil || !strings.Contains(err.Error(), "OPENCODE_CONFIG_CONTENT") || strings.Contains(err.Error(), config) {
+				t.Fatalf("expected a configuration error without its contents, got %v", err)
+			}
+			if _, err := os.Stat(argsFile); !os.IsNotExist(err) {
+				t.Fatal("OpenCode was launched despite invalid configuration")
+			}
+		})
 	}
 }
 

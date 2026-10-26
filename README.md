@@ -69,6 +69,15 @@ own.
   file, under *Rescued* in `ploopy report`, and in the run's closing summary;
   review them before landing.
 
+OpenCode sessions use a bundled `ploopy` primary agent, supplied through the
+child's `OPENCODE_CONFIG_CONTENT`; no repository or global profile installation
+is needed. It disables questions and entering or leaving planning mode. The
+work order and skill stay in the session prompt, and OpenCode keeps its normal
+model-specific system prompt. Model, effort and credentials are not set by the
+profile. Existing inline configuration is preserved except for the reserved
+`agent.ploopy` entry; configuration files and the parent's environment are untouched.
+Invalid inline JSON is reported before starting the session.
+
 **Lifecycle.** A plan exists while master holds it; its progress lives on its
 branch.
 - Starting a plan commits it on master as last edited, then runs it on a branch

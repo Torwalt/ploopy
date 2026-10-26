@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -71,7 +72,11 @@ func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session
 			size, MaxArgumentBytes)
 	}
 
-	argv := []string{"opencode", "run", "--format", "json", "--auto", "--agent", "plan-unit"}
+	config, err := sessionConfig(os.Getenv("OPENCODE_CONFIG_CONTENT"))
+	if err != nil {
+		return nil, err
+	}
+	argv := []string{"opencode", "run", "--format", "json", "--auto", "--agent", "ploopy"}
 	if spec.Model != "" {
 		argv = append(argv, "--model", spec.Model)
 	}
@@ -84,7 +89,8 @@ func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session
 	argv = append(argv, spec.Extra...)
 	argv = append(argv, spec.Prompt)
 
-	proc, err := harness.StartProc(ctx, argv, spec.Dir, nil, spec.LogPath, spec.Timeout)
+	proc, err := harness.StartProcWithEnv(ctx, argv, spec.Dir, nil, spec.LogPath, spec.Timeout,
+		[]string{"OPENCODE_CONFIG_CONTENT=" + config})
 	if err != nil {
 		return nil, err
 	}

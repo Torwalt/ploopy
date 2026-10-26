@@ -81,6 +81,13 @@ after the current unit. Never kill a run's process or window.
 
 ## Models and subscriptions
 
+OpenCode sessions use Ploopy's bundled `ploopy` primary agent. No OpenCode
+profile needs installing in the repository. Ploopy injects it into the child's
+`OPENCODE_CONFIG_CONTENT`, preserving other inline settings and leaving config
+files untouched; `agent.ploopy` is reserved. The profile disables questions and
+planning-mode transitions. Skills remain in the session prompt; model, effort
+and provider credentials keep their usual configuration.
+
 The default picker offers Claude Sonnet and Opus, Codex `gpt-6.1-sol`, and
 OpenCode Go `opencode-go/deepseek-v4.1-flash` and direct DeepSeek API
 `deepseek/deepseek-flash`, all at high effort. Repository
