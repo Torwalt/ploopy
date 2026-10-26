@@ -104,6 +104,7 @@ func commandChoices(lives []control.Live) []ui.Choice {
 		ui.Choice{Key: 'w', Label: "show a unit's work order", Value: "show"},
 		ui.Choice{Key: 'y', Label: "replay a unit's session", Value: "replay"},
 		ui.Choice{Key: 'm', Label: "mark a unit by hand", Value: "mark"},
+		ui.Choice{Key: 'o', Label: "power off when every plan has stopped (check every minute)", Value: "poweroff"},
 		ui.Choice{Key: 't', Label: "lint the plans", Value: "lint"},
 	)
 	return choices
@@ -159,8 +160,8 @@ func newRoot(e *env) *cobra.Command {
 		},
 	}
 	root.AddCommand(
-		newRun(e),
-		newReview(e),
+		withActivity(newRun(e)),
+		withActivity(newReview(e)),
 		newStatus(e),
 		newShow(e),
 		newLint(e),
@@ -171,9 +172,10 @@ func newRoot(e *env) *cobra.Command {
 		newLend(e),
 		newReclaim(e),
 		newClose(e),
-		newLand(e),
+		withActivity(newLand(e)),
 		newAdjust(e),
 		newSkills(e),
+		newPoweroff(),
 		guardCommand(),
 	)
 	return root

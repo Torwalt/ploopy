@@ -48,6 +48,19 @@ worktree that still holds a copy is ignored.
 Never write a `.state.json` by hand. `ploopy mark <plan> <unit>
 landed|skipped|pending` records a unit's status when the author asks for it.
 
+## Shutdown watcher
+
+When asked to power off once all plans have stopped, `ploopy poweroff` manually
+arms a transient systemd service. It checks every 60 seconds, first after one
+minute, and requests poweroff when no live run announcements remain. It scans
+all users' standard registries and the caller's runtime directory, across
+repositories. Other users' custom runtime directories are outside its scope.
+Activity covers follow-ups, landing and the final push. Errors stop the watcher
+without powering off. Starting requires systemd
+authorization or sudo. It is never enabled at boot. `ploopy poweroff stop`
+cancels it; `systemctl status ploopy-poweroff.service` and
+`journalctl -u ploopy-poweroff.service` inspect it. Only arm it when asked.
+
 ## Starting a run
 
 A run lasts hours and must outlive the agent session that starts it. Never run

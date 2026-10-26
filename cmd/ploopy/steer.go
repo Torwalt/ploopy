@@ -3,6 +3,8 @@ package main
 import (
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/Torwalt/ploopy/internal/control"
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/loop"
@@ -128,4 +130,19 @@ func peakName(waitOffPeak bool) string {
 		return "wait"
 	}
 	return "run"
+}
+
+// withActivity covers the whole command, including the gaps between plans and
+// the final push, when no per-plan steering announcement exists.
+func withActivity(cmd *cobra.Command) *cobra.Command {
+	run := cmd.RunE
+	cmd.RunE = func(cmd *cobra.Command, args []string) error {
+		release, err := control.RegisterActivity()
+		if err != nil {
+			return err
+		}
+		defer release()
+		return run(cmd, args)
+	}
+	return cmd
 }

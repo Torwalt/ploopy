@@ -20,6 +20,7 @@ What now?
   w  show a unit's work order
   y  replay a unit's session
   m  mark a unit by hand
+  o  power off when every plan has stopped (check every minute)
   t  lint the plans
 
 ploopy · PASS_FIXES on pass-fixes · 12 open units
@@ -53,6 +54,18 @@ flag or in the plan's front matter shows locked. Every answer is also a flag:
   included. A plan's review and fix plans reuse its idle window. If busy, a new
   window gets the first unused suffix `_2`, `_3`, and so on. Windows stay until
   you close them; `--here` runs in this terminal instead.
+
+**Shutdown watcher.** `ploopy poweroff` manually starts a transient systemd
+service, requiring systemd authorization or sudo. Every 60 seconds (including
+before the first check), it checks live ploopy run announcements across
+repositories and users. Activity stays visible through follow-ups, landing and the final push. Once
+none remain, it requests poweroff and exits.
+Registry errors stop the watcher without powering off. It scans the standard
+`/run/user/*/ploopy` and `/tmp/ploopy-<uid>` registries, plus the caller's runtime
+directory; other users' custom runtime directories are outside its scope.
+`ploopy poweroff stop` cancels it; `systemctl status ploopy-poweroff.service`
+and `journalctl -u ploopy-poweroff.service` inspect it. Nothing is enabled at
+boot, and the watcher must be started again after a reboot or cancellation.
 
 **Automation.** `[automation]` in `.ploopy.toml` sets what a run does on its
 own.
