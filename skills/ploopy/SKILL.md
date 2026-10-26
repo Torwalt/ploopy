@@ -82,13 +82,15 @@ after the current unit. Never kill a run's process or window.
 ## Models and subscriptions
 
 The default picker offers Claude Sonnet and Opus, Codex `gpt-6.1-sol`, and
-OpenCode Go `opencode-go/deepseek-v4.1-flash`, all at high effort. Repository
+OpenCode Go `opencode-go/deepseek-v4.1-flash` and direct DeepSeek API
+`deepseek/deepseek-flash`, all at high effort. Repository
 settings can replace a harness's lists with `[agents.claude]`, `[agents.codex]`
 or `[agents.opencode]`, each with `models = [...]` and `efforts = [...]`.
 Use the installed harness's model IDs; `opencode models` lists its IDs.
 Explicit plan and flag settings can still name other supported choices.
 
-DeepSeek Flash uses Go first. A reported usage limit hands the unit's existing
+DeepSeek Flash defaults to Go; select `deepseek/deepseek-flash` to use the API
+directly. On Go, a reported usage limit hands the unit's existing
 work to a fresh session on `deepseek/deepseek-flash`, without spending an
 attempt or changing harness. Each session records its actual route. The next
 session tries Go again after the reported reset, or after 30 minutes if the

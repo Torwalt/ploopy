@@ -187,7 +187,7 @@ models = ["gpt-6.1-sol"]
 efforts = ["high"]
 
 [agents.opencode]
-models = ["opencode-go/deepseek-v4.1-flash"]
+models = ["opencode-go/deepseek-v4.1-flash", "deepseek/deepseek-flash"]
 efforts = ["high"]
 
 [agents.opencode.fallbacks]

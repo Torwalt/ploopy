@@ -14,7 +14,7 @@ func TestDefaultPickersOfferOnlyThePreferredModelsAndHighEffort(t *testing.T) {
 	for name, want := range map[string][]string{
 		"claude":   {"sonnet", "opus"},
 		"codex":    {"gpt-6.1-sol"},
-		"opencode": {"opencode-go/deepseek-v4.1-flash"},
+		"opencode": {"opencode-go/deepseek-v4.1-flash", "deepseek/deepseek-flash"},
 	} {
 		h := set.Get(name)
 		if !reflect.DeepEqual(h.Models(), want) || !reflect.DeepEqual(harness.EffortChoices(h), []string{"high"}) {
@@ -46,7 +46,7 @@ func TestConfiguredChoicesReachEveryPickerAndKeepExplicitOverrides(t *testing.T)
 		t.Fatalf("efforts %v", got)
 	}
 	choices := secondaryChoices(e.harnesses, "claude")
-	if len(choices) != 6 { // wait, one Flash, and four Codex combinations
+	if len(choices) != 7 { // wait, two Flash routes, and four Codex combinations
 		t.Fatalf("secondary choices %v", choices)
 	}
 	if _, err := unattended(e, runSettings{Harness: "codex", Model: "custom-model", Effort: "max"}); err != nil {

@@ -45,7 +45,7 @@ func (*Harness) Efforts() []string { return []string{"high", "max"} }
 // subscription and `deepseek/` the DeepSeek API directly. An empty model
 // leaves the choice to `opencode.json`.
 func (h *Harness) Models() []string {
-	return h.ModelsOr("opencode-go/deepseek-v4.1-flash")
+	return h.ModelsOr("opencode-go/deepseek-v4.1-flash", "deepseek/deepseek-flash")
 }
 
 // PeakWindows is when DeepSeek bills double, through Go and the API alike:
