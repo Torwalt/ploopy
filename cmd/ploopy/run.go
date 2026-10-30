@@ -44,7 +44,6 @@ type runFlags struct {
 	allowDirty    bool
 	worktree      bool
 	dryRun        bool
-	finish        string
 	push          bool
 	budget        float64
 	secondary     string
@@ -60,7 +59,6 @@ type runFlags struct {
 	then          string
 	triageFlags
 	quiet    bool
-	grace    time.Duration
 	away     string
 	night    string
 	reserve  int
@@ -120,8 +118,7 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 	flags.BoolVar(&f.launched, launchedFlag, false, "")
 	_ = flags.MarkHidden(launchedFlag)
 	flags.BoolVar(&f.dryRun, "dry-run", false, "print the first session's prompt and stop")
-	flags.StringVar(&f.finish, "finish", "", "when the run ends: none, suspend or poweroff")
-	flags.BoolVar(&f.push, "push", false, "push the branch when the run ends, before the end action")
+	flags.BoolVar(&f.push, "push", false, "push the branch when the run ends")
 	flags.Float64Var(&f.budget, "budget", 0, "spending cap per session, in dollars")
 	flags.StringVar(&f.secondary, "secondary", "",
 		"harness that takes over when the agent hits a usage limit, or none")
@@ -136,7 +133,6 @@ func addRunFlags(cmd *cobra.Command, f *runFlags) {
 		"lent subscriptions to use: all, none, or names such as claude,codex")
 	flags.BoolVar(&f.spendAll, "spend-all", false, "spend the subscriptions' weeks, keeping no reserve")
 	flags.BoolVar(&f.quiet, "quiet", false, "report decisions only, without the session feed")
-	flags.DurationVar(&f.grace, "grace", time.Minute, "countdown before the end action")
 	flags.StringVar(&f.away, "away", "", "")
 	_ = flags.MarkDeprecated("away", "lend subscriptions with `ploopy lend`")
 	flags.StringVar(&f.night, "night", "", "")
@@ -171,7 +167,7 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) error {
 	for {
 		next, err := chainedPlan(ctx, cmd, e, f, last)
 		if err != nil {
-			finishRun(ctx, e, f, last)
+			finishRun(ctx, e, last)
 			return err
 		}
 		if next == nil {
@@ -180,7 +176,7 @@ func runPlan(cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) error {
 		last = next
 	}
 
-	finishRun(ctx, e, f, last)
+	finishRun(ctx, e, last)
 	if last.result.Status != "done" {
 		return fmt.Errorf("%s", last.result.Message)
 	}
@@ -279,8 +275,7 @@ func chainedReview(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags,
 	return runChainedPlan(ctx, cmd, e, f, r, path)
 }
 
-// runOnce carries one plan to its end, without pushing, leaving its worktree
-// or taking the end action.
+// runOnce carries one plan to its end, without pushing or leaving its worktree.
 func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chosen *chosenRun) (*planRun, error) {
 	c, err := choosePlan(ctx, e, f)
 	if err != nil {
@@ -365,7 +360,7 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 		Root: root, Plan: p.Path, Branch: branch,
 		Agent: pick.agent.Label(),
 		Settings: control.Settings{
-			Finish: string(pick.finish), Peak: peakName(pick.waitOffPeak), Push: &pick.push,
+			Peak: peakName(pick.waitOffPeak), Push: &pick.push,
 			Secondary:     toControlAgent(pick.secondary),
 			Rescue:        toControlAgent(pick.rescue),
 			Subscriptions: pick.subscriptions, SpendAll: &pick.spendAll, FollowUp: followUp,
@@ -379,9 +374,9 @@ func runOnce(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags, chose
 		return nil, err
 	}
 
-	report.Say("%s with %s%s at %s effort%s%s%s%s%s", p.Path, pick.agent.Harness.Name(),
+	report.Say("%s with %s%s at %s effort%s%s%s%s", p.Path, pick.agent.Harness.Name(),
 		modelSuffix(pick.agent.Model), pick.agent.Effort, secondarySuffix(pick.secondary),
-		peakSuffix(pick), pushSuffix(pick.push), finishSuffix(pick.finish),
+		peakSuffix(pick), pushSuffix(pick.push),
 		followUpSuffix(pick.followUp, p, limited))
 	if fallback := harness.FallbackModel(pick.agent.Harness, pick.agent.Model); fallback != "" {
 		report.Say("on a usage limit, %s continues with %s before waiting or switching harness", pick.agent.Model, fallback)
@@ -514,16 +509,15 @@ func runChainedPlan(ctx context.Context, cmd *cobra.Command, e *env, f *runFlags
 	return runOnce(ctx, cmd, e, &next, &settings)
 }
 
-// finishRun pushes, leaves the worktree and takes the end action once, after
+// finishRun pushes and leaves the worktree once, after
 // the last plan the run carried.
-func finishRun(ctx context.Context, e *env, f *runFlags, r *planRun) {
+func finishRun(ctx context.Context, e *env, r *planRun) {
 	if r.wanted.Pushes() {
 		pushBranch(ctx, r.root, r.runner, r.report)
 	}
 	if r.branch != "" && e.ours(ctx, r.root) {
 		leaveWorktree(ctx, r.root, r.branch, r.p.Path, r.cfg, r.complete, r.report)
 	}
-	endAction(ctx, r.runner, r.report, ui.Finish(r.wanted.Finish), f.grace)
 }
 
 // pushBranch sends the branch to its remote once the run is over, whatever
@@ -548,32 +542,8 @@ func pushBranch(ctx context.Context, root string, runner *loop.Loop, report *ui.
 }
 
 // pushTimeout bounds a push nobody is watching, so a stuck remote cannot hold
-// off the end action.
+// up the end of a run.
 const pushTimeout = 2 * time.Minute
-
-// endAction powers off or suspends after a countdown, and records what came of
-// it. A run the author cancelled does nothing more: whoever stopped it is
-// either at the keyboard or closed the terminal the countdown would show in.
-func endAction(ctx context.Context, runner *loop.Loop, report *ui.Reporter, finish ui.Finish, grace time.Duration) {
-	if !finish.Acts() {
-		return
-	}
-	if ctx.Err() != nil {
-		report.Say("the run was cancelled; not going to %s", finish)
-		runner.Note("finish", string(finish)+" skipped: the run was cancelled")
-		return
-	}
-	if finish.Countdown(os.Stdout, grace) {
-		report.Say("cancelled; the machine stays up")
-		runner.Note("finish", string(finish)+" cancelled at the keyboard")
-		return
-	}
-	runner.Note("finish", string(finish))
-	if err := finish.Execute(os.Stdout); err != nil {
-		report.Fail("the end action failed: %v", err)
-		runner.Note("finish", string(finish)+" failed: "+err.Error())
-	}
-}
 
 func dryRun(ctx context.Context, runner *loop.Loop, c catalog.Copy, f *runFlags) error {
 	p := c.Plan
@@ -650,13 +620,6 @@ func pushSuffix(push bool) string {
 		return ""
 	}
 	return ", pushed at the end"
-}
-
-func finishSuffix(finish ui.Finish) string {
-	if finish == ui.FinishNone || finish == "" {
-		return ""
-	}
-	return ", then " + string(finish)
 }
 
 // followUpSuffix says which plan a run with follow-up goes on to, if any.

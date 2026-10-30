@@ -21,7 +21,6 @@ import (
 
 type adjustFlags struct {
 	run           string
-	finish        string
 	peak          string
 	push          bool
 	stop          bool
@@ -45,7 +44,7 @@ func newAdjust(e *env) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "adjust",
 		Short: "Change what a running run does next",
-		Long: "Change what a running run does next: its end action, whether it\n" +
+		Long: "Change what a running run does next: whether it\n" +
 			"pushes, whether it stops after the current unit, the agent that takes\n" +
 			"over on a usage limit, the agent that diagnoses a unit the run would\n" +
 			"stop on, what a unit due in peak hours does, which lent subscriptions\n" +
@@ -61,7 +60,6 @@ func newAdjust(e *env) *cobra.Command {
 	}
 	flags := cmd.Flags()
 	flags.StringVar(&f.run, "run", "", "the run to change, by pid or plan name; asked for when several go on")
-	flags.StringVar(&f.finish, "finish", "", "when the run ends: none, suspend or poweroff")
 	flags.StringVar(&f.peak, "peak", "", "a unit due in the harness's peak hours: wait or run")
 	flags.BoolVar(&f.push, "push", false, "push the branch when the run ends; --push=false to stop it")
 	flags.BoolVar(&f.stop, "stop", false, "stop once the current unit is done; --stop=false to go on")
@@ -199,12 +197,6 @@ func isReviewRun(live control.Live) bool {
 func changeFromFlags(cmd *cobra.Command, e *env, f *adjustFlags) (control.Settings, error) {
 	var change control.Settings
 	flags := cmd.Flags()
-	if flags.Changed("finish") {
-		if !ui.Finish(f.finish).Valid() {
-			return change, fmt.Errorf("--finish must be none, suspend or poweroff, not %s", f.finish)
-		}
-		change.Finish = f.finish
-	}
 	if flags.Changed("peak") {
 		if f.peak != "wait" && f.peak != "run" {
 			return change, fmt.Errorf("--peak must be wait or run, not %s", f.peak)

@@ -20,7 +20,7 @@ func TestAFileValuePrefillsTheBoardWithoutLockingIt(t *testing.T) {
 	e.harnesses = allHarnesses()
 	e.cfg.Run = config.Run{
 		Agent: "opencode", Model: "custom/model", Effort: "max", Peak: "run",
-		Subscriptions: "claude", Finish: "suspend", SpendAll: boolValue(true),
+		Subscriptions: "claude", SpendAll: boolValue(true),
 	}
 	cmd, f := settingsCommand(t)
 	p := plan.Parse(finishedPlan, "docs/plans/PASS.md")
@@ -37,7 +37,6 @@ func TestAFileValuePrefillsTheBoardWithoutLockingIt(t *testing.T) {
 	}{
 		{0, 'a'}, {0, 'm'}, {0, 'e'}, {0, 'o'},
 		{len(board.board.Columns) - 1, 's'}, {len(board.board.Columns) - 1, 'w'},
-		{len(board.board.Columns) - 1, 'f'},
 	} {
 		field := fieldByKey(t, board.board.Columns[want.column], want.key)
 		if field.Locked != "" {
@@ -54,7 +53,7 @@ func TestAFileValueBeatsTheLastRun(t *testing.T) {
 	e.harnesses = allHarnesses()
 	e.cfg.Run = config.Run{
 		Agent: "opencode", Model: "custom/model", Effort: "max", Peak: "run",
-		Subscriptions: "none", Finish: "suspend", SpendAll: boolValue(true),
+		Subscriptions: "none", SpendAll: boolValue(true),
 	}
 	e.cfg.Push, e.cfg.PushSet = true, true
 	cmd, f := settingsCommand(t)
@@ -65,12 +64,12 @@ func TestAFileValueBeatsTheLastRun(t *testing.T) {
 	}
 	fill(e, &s, g, &runSettings{
 		Harness: "claude", Model: "opus", Effort: "xhigh", Peak: "wait",
-		Subscriptions: "all", SpendAll: false, Push: false, Finish: "none",
+		Subscriptions: "all", SpendAll: false, Push: false,
 	})
 	if s.Harness != "opencode" || s.Model != "custom/model" || s.Effort != "max" {
 		t.Fatalf("agent %s %s %s, want the file's opencode custom/model max", s.Harness, s.Model, s.Effort)
 	}
-	if s.Peak != "run" || s.Subscriptions != "none" || !s.SpendAll || !s.Push || s.Finish != "suspend" {
+	if s.Peak != "run" || s.Subscriptions != "none" || !s.SpendAll || !s.Push {
 		t.Fatalf("rate settings %+v, want the file's", s)
 	}
 }
@@ -201,40 +200,6 @@ func TestAFileSourceLeavesWhenTheRunFieldChanges(t *testing.T) {
 	key(board.board, 'o')
 	if got := peakSource(); got != "from .ploopy.toml" {
 		t.Fatalf("a peak back at the file's value shows source %q", got)
-	}
-}
-
-func TestAFileSourceLeavesWhenTheRunColumnFieldChanges(t *testing.T) {
-	e := boardEnv(t)
-	e.harnesses = allHarnesses()
-	e.cfg.Run = config.Run{Finish: "suspend"}
-	cmd, f := settingsCommand(t)
-	p := plan.Parse(finishedPlan, "docs/plans/PASS.md")
-	s, g, err := givenSettings(cmd, e, p, f)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fill(e, &s, g, nil)
-	board := newSettingsBoard(context.Background(), e, p, g, &s, "pass", 0)
-	runAt, _ := columnByTitle(t, board.board, "Run")
-	finishSource := func() string {
-		_, run := columnByTitle(t, board.board, "Run")
-		return fieldByKey(t, run, 'f').Source
-	}
-
-	if got := finishSource(); got != "from .ploopy.toml" {
-		t.Fatalf("the file's finish shows source %q", got)
-	}
-	key(board.board, rune('1'+runAt))
-	for i := 0; i < 2; i++ {
-		key(board.board, 'f')
-		if got := finishSource(); got != "" {
-			t.Fatalf("a changed finish still shows source %q", got)
-		}
-	}
-	key(board.board, 'f')
-	if got := finishSource(); got != "from .ploopy.toml" {
-		t.Fatalf("a finish back at the file's value shows source %q", got)
 	}
 }
 

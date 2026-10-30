@@ -10,7 +10,6 @@ import (
 
 	"github.com/Torwalt/ploopy/internal/loop"
 	"github.com/Torwalt/ploopy/internal/plan"
-	"github.com/Torwalt/ploopy/internal/ui"
 )
 
 const reviewPlanText = "---\nreviews: docs/plans/PASS.md\n---\n\n# Review\n\n## Stage 1 — Only\n\n### 1.1 One\n\n**Goal:** x\n\n**Done when:** y\n"
@@ -23,7 +22,6 @@ func chosenForLaunch(e *env) chosenRun {
 		rescue:        &loop.Agent{Harness: e.harnesses.Get("opencode"), Model: "deepseek/deepseek-flash", Effort: "max"},
 		subscriptions: "claude codex",
 		push:          true,
-		finish:        ui.FinishSuspend,
 		followUp:      true,
 	}
 }
@@ -57,7 +55,6 @@ func TestALaunchedRunStartsWithTheSettingsChosenForIt(t *testing.T) {
 	f.rescueEff, _ = child.Flags().GetString("rescue-effort")
 	f.subscriptions, _ = child.Flags().GetString("subscriptions")
 	f.push, _ = child.Flags().GetBool("push")
-	f.finish, _ = child.Flags().GetString("finish")
 	f.followUp, _ = child.Flags().GetBool("follow-up")
 	s, _, err := givenSettings(child, e, p, &f)
 	if err != nil {
@@ -73,7 +70,7 @@ func TestALaunchedRunStartsWithTheSettingsChosenForIt(t *testing.T) {
 		s.Rescue.Effort != "max" {
 		t.Errorf("the launched run rescues with %+v, want opencode deepseek/deepseek-flash max", s.Rescue)
 	}
-	if s.Subscriptions != "claude codex" || !s.Push || s.Finish != "suspend" || !s.FollowUp {
+	if s.Subscriptions != "claude codex" || !s.Push || !s.FollowUp {
 		t.Errorf("the launched run has %+v", s)
 	}
 	if f.planName != p.Path {

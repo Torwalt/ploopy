@@ -146,7 +146,6 @@ func newAdjustBoard(ctx context.Context, e *env, live control.Live) *settingsBoa
 		Subscriptions: wanted.Subscriptions,
 		SpendAll:      wanted.SpendAll != nil && *wanted.SpendAll,
 		Push:          wanted.Pushes(),
-		Finish:        wanted.Finish,
 		FollowUp:      wanted.FollowUp != nil && *wanted.FollowUp,
 	}
 	if fields := strings.Fields(live.Agent); len(fields) > 0 {
@@ -163,9 +162,6 @@ func newAdjustBoard(ctx context.Context, e *env, live control.Live) *settingsBoa
 	}
 	if s.Peak == "" {
 		s.Peak = "run"
-	}
-	if s.Finish == "" {
-		s.Finish = string(ui.FinishNone)
 	}
 	var g given
 	g.harness, g.model, g.effort = true, true, true
@@ -483,8 +479,6 @@ func (sb *settingsBoard) runColumn() ui.Column {
 		fields = append(fields, ui.BoardField{Key: 'p', Label: "push", Value: &sb.push,
 			Choices: func() []ui.Choice { return yesNoChoices(true) }, Locked: sb.given.why("push"), Source: sb.given.source("push", sb.push)})
 	}
-	fields = append(fields, ui.BoardField{Key: 'f', Label: "end", Value: &s.Finish,
-		Choices: func() []ui.Choice { return ui.Finishes }, Locked: sb.given.why("finish"), Source: sb.given.source("finish", s.Finish)})
 	if sb.adjust {
 		fields = append(fields, ui.BoardField{Key: 'x', Label: "stop", Value: &sb.stop,
 			Choices: func() []ui.Choice { return yesNoChoices(sb.stop == "yes") }})
@@ -626,7 +620,6 @@ func (sb *settingsBoard) adjustChange() control.Settings {
 	stop := sb.stop == "yes"
 	followUp := sb.followUp == "yes"
 	return control.Settings{
-		Finish:        sb.s.Finish,
 		Peak:          sb.s.Peak,
 		Push:          &sb.s.Push,
 		Stop:          &stop,

@@ -93,9 +93,6 @@ func liveRun(t *testing.T, e *env, settings control.Settings) control.Live {
 func liveRunPlan(t *testing.T, e *env, settings control.Settings, planPath string) control.Live {
 	t.Helper()
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	if settings.Finish == "" {
-		settings.Finish = "none"
-	}
 	if settings.Peak == "" {
 		settings.Peak = "run"
 	}
@@ -248,7 +245,6 @@ func TestTheAdjustBoardAppliesItsSettingsAndLeases(t *testing.T) {
 		key(board.board, 'l')
 		key(board.board, rune('1'+runAt))
 		key(board.board, 's')
-		key(board.board, 'f')
 		key(board.board, 'x')
 		key(board.board, 'w')
 		key(board.board, 'p')
@@ -266,7 +262,7 @@ func TestTheAdjustBoardAppliesItsSettingsAndLeases(t *testing.T) {
 		t.Fatalf("listed %v, %v", lives, err)
 	}
 	wanted := lives[0].Wanted
-	if wanted.Finish != "suspend" || wanted.Subscriptions != "claude" || !wanted.Stops() {
+	if wanted.Subscriptions != "claude" || !wanted.Stops() {
 		t.Fatalf("applied %+v", wanted)
 	}
 	if wanted.SpendAll == nil || !*wanted.SpendAll {

@@ -16,7 +16,7 @@ func register(t *testing.T) *Run {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	run, err := Register(Status{
 		Root: "/work/hero-rts", Plan: "docs/plans/DRAFT.md", Agent: "opencode deepseek/deepseek-flash high",
-		Settings: Settings{Finish: "none", Peak: "run"},
+		Settings: Settings{Peak: "run"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +37,7 @@ func TestARegisteredRunIsListedWithItsUnit(t *testing.T) {
 	if live.PID != os.Getpid() || live.Unit != "4.2" || live.Name() != "DRAFT in hero-rts" {
 		t.Fatalf("live %+v", live)
 	}
-	if live.Wanted.Finish != "none" {
+	if live.Wanted.Peak != "run" {
 		t.Fatalf("wanted %+v", live.Wanted)
 	}
 }
@@ -45,7 +45,7 @@ func TestARegisteredRunIsListedWithItsUnit(t *testing.T) {
 func TestAnAdjustmentReachesTheRun(t *testing.T) {
 	run := register(t)
 
-	if _, err := Adjust(os.Getpid(), Settings{Finish: "poweroff"}); err != nil {
+	if _, err := Adjust(os.Getpid(), Settings{SpendAll: yes()}); err != nil {
 		t.Fatal(err)
 	}
 	live, err := Adjust(os.Getpid(), Settings{Push: yes(), Secondary: &Agent{Harness: "claude", Model: "sonnet"}})
@@ -54,7 +54,7 @@ func TestAnAdjustmentReachesTheRun(t *testing.T) {
 	}
 
 	for _, wanted := range []Settings{live.Wanted, run.Wanted()} {
-		if wanted.Finish != "poweroff" || !wanted.Pushes() || wanted.Peak != "run" {
+		if (wanted.SpendAll == nil || !*wanted.SpendAll) || !wanted.Pushes() || wanted.Peak != "run" {
 			t.Fatalf("a later change undid an earlier one: %+v", wanted)
 		}
 		if agent := wanted.SecondaryAgent(); agent == nil || agent.Label() != "claude sonnet" {
@@ -148,7 +148,7 @@ func TestARunWhoseProcessIsGoneIsClearedAway(t *testing.T) {
 	if _, err := os.Stat(statusPath(Dir(), dead)); !os.IsNotExist(err) {
 		t.Fatal("the dead run's file was left behind")
 	}
-	if _, err := Adjust(dead, Settings{Finish: "poweroff"}); err == nil {
+	if _, err := Adjust(dead, Settings{SpendAll: yes()}); err == nil {
 		t.Fatal("a dead run was adjusted")
 	}
 }

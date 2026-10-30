@@ -54,7 +54,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "ploopy:", err)
 			os.Exit(2)
 		}
-		argv = []string{picked}
+		argv = strings.Fields(picked)
 	}
 
 	e := &env{extra: extra}
@@ -104,7 +104,8 @@ func commandChoices(lives []control.Live) []ui.Choice {
 		ui.Choice{Key: 'w', Label: "show a unit's work order", Value: "show"},
 		ui.Choice{Key: 'y', Label: "replay a unit's session", Value: "replay"},
 		ui.Choice{Key: 'm', Label: "mark a unit by hand", Value: "mark"},
-		ui.Choice{Key: 'o', Label: "power off when every plan has stopped (check every minute)", Value: "poweroff"},
+		ui.Choice{Key: 'x', Label: "cancel the shutdown watcher", Value: "poweroff stop"},
+		ui.Choice{Key: 'o', Label: "power off once every plan has stopped and you are away", Value: "poweroff"},
 		ui.Choice{Key: 't', Label: "lint the plans", Value: "lint"},
 	)
 	return choices

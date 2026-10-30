@@ -36,8 +36,7 @@ func (a Agent) Label() string {
 // Settings are what can change while a run goes on. In a change, an unset
 // field leaves the run's own setting alone.
 type Settings struct {
-	Finish        string `json:"finish,omitempty"` // none, suspend or poweroff
-	Peak          string `json:"peak,omitempty"`   // wait or run
+	Peak          string `json:"peak,omitempty"` // wait or run
 	Push          *bool  `json:"push,omitempty"`
 	Stop          *bool  `json:"stop,omitempty"`          // stop once the current unit is done
 	Secondary     *Agent `json:"secondary,omitempty"`     // an empty harness means none
@@ -50,9 +49,6 @@ type Settings struct {
 // Over lays a change over base settings.
 func (s Settings) Over(base Settings) Settings {
 	out := base
-	if s.Finish != "" {
-		out.Finish = s.Finish
-	}
 	if s.Peak != "" {
 		out.Peak = s.Peak
 	}
@@ -110,11 +106,6 @@ func (s Settings) RescueAgent() *Agent {
 func (s Settings) Describe(review ...bool) string {
 	onReview := len(review) > 0 && review[0]
 	var parts []string
-	if s.Finish != "" && s.Finish != "none" {
-		parts = append(parts, "then "+s.Finish)
-	} else {
-		parts = append(parts, "no end action")
-	}
 	if s.Pushes() {
 		parts = append(parts, "push at the end")
 	}

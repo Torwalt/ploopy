@@ -121,7 +121,7 @@ func TestAPlanWithFollowUpRunsItsReviewAndFixPlan(t *testing.T) {
 		fixStep("fix1.go", "Do the first fix"), fixStep("fix2.go", "Do the second fix"))
 	e.harnesses = harness.Set{h}
 
-	args := runArgs(triageArgs("--follow-up", "--push", "--finish", "suspend", "--grace", "0")...)
+	args := runArgs(triageArgs("--follow-up", "--push")...)
 	if err := runRun(t, e, args...); err != nil {
 		t.Fatal(err)
 	}
@@ -174,12 +174,10 @@ func TestAPlanWithFollowUpRunsItsReviewAndFixPlan(t *testing.T) {
 			t.Fatalf("the push happened before %q:\n%s", want, landed)
 		}
 	}
-	action, err := os.ReadFile(finishes)
-	if err != nil {
-		t.Fatalf("the end action did not run: %v", err)
-	}
-	if got := strings.Count(string(action), "suspend\n"); got != 1 {
-		t.Fatalf("the end action ran %d times, want once after the fix plan", got)
+	if action, err := os.ReadFile(finishes); err == nil {
+		t.Fatalf("a plan invoked a machine action: %s", action)
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
 	}
 }
 

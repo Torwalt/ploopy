@@ -163,7 +163,6 @@ peak = "run"
 subscriptions = "claude,codex"
 spend_all = true
 push = false
-finish = "suspend"
 
 [review]
 triage_agent = "claude"
@@ -184,7 +183,7 @@ rescue_effort = "high"
 	run := cfg.Run
 	if run.Agent != "opencode" || run.Model != "deepseek/deepseek-flash" || run.Effort != "max" ||
 		run.Secondary != "claude" || run.SecondaryModel != "sonnet" || run.SecondaryEffort != "high" ||
-		run.Peak != "run" || run.Subscriptions != "claude,codex" || run.Finish != "suspend" {
+		run.Peak != "run" || run.Subscriptions != "claude,codex" {
 		t.Fatalf("run %+v", run)
 	}
 	if run.SpendAll == nil || !*run.SpendAll {
@@ -238,7 +237,6 @@ func TestTheNewTablesAreValidated(t *testing.T) {
 		{"an unknown secondary", "[run]\nsecondary = 'nope'\n", "[run] secondary"},
 		{"an effort the secondary does not offer", "[run]\nsecondary = 'claude'\nsecondary_effort = 'max'\n", "[run] secondary_effort"},
 		{"a bad peak", "[run]\npeak = 'later'\n", "[run] peak"},
-		{"a bad finish", "[run]\nfinish = 'sleep'\n", "[run] finish"},
 		{"a bad subscription set", "[run]\nsubscriptions = 'nope'\n", "[run] subscriptions"},
 		{"an unknown review mode", "[review]\nmode = 'nope'\n", "[review] mode"},
 		{"instructions without paths", "[review]\nfollowups_instructions = '.agents/followups.md'\n", "configured together"},
@@ -263,5 +261,15 @@ func TestTheNewTablesAreValidated(t *testing.T) {
 				t.Fatalf("error %v, want it to name %s", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestFinishConfigurationRequiresExplicitMigration(t *testing.T) {
+	for _, finish := range []string{"none", "suspend", "poweroff"} {
+		root := t.TempDir()
+		write(t, root, File, "[run]\nfinish = '"+finish+"'\n")
+		if _, err := Load(root); err == nil || !strings.Contains(err.Error(), "ploopy poweroff") {
+			t.Fatalf("legacy finish %s: %v", finish, err)
+		}
 	}
 }

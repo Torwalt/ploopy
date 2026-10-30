@@ -279,7 +279,7 @@ func details(st planStyles, c catalog.Copy, ph phase, here string, now time.Time
 		facts = append(facts, c.Where(here))
 	}
 	if c.Live != nil {
-		if wanted := c.Live.Wanted.Describe(c.Plan.Reviews() != ""); wanted != "no end action" {
+		if wanted := c.Live.Wanted.Describe(c.Plan.Reviews() != ""); wanted != "" {
 			facts = append(facts, wanted)
 		}
 	}

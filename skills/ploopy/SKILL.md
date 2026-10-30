@@ -50,16 +50,15 @@ landed|skipped|pending` records a unit's status when the author asks for it.
 
 ## Shutdown watcher
 
-When asked to power off once all plans have stopped, `ploopy poweroff` manually
-arms a transient systemd service. It checks every 60 seconds, first after one
-minute, and requests poweroff when no live run announcements remain. It scans
-all users' standard registries and the caller's runtime directory, across
-repositories. Other users' custom runtime directories are outside its scope.
-Activity covers follow-ups, landing and the final push. Errors stop the watcher
-without powering off. Starting requires systemd
-authorization or sudo. It is never enabled at boot. `ploopy poweroff stop`
-cancels it; `systemctl status ploopy-poweroff.service` and
-`journalctl -u ploopy-poweroff.service` inspect it. Only arm it when asked.
+When asked to power off once all plans have stopped, `ploopy poweroff` arms a
+transient systemd user service. It checks every 60 seconds for live runs across
+repositories; activity covers follow-ups, landing and the final push. Once none
+remain it powers off only if the author is away (`$XDG_RUNTIME_DIR/away`, kept
+by an idle daemon), after a notification and one more minute; if the author is
+present it disarms itself. Errors stop it without powering off. Shutdown is
+never a plan setting. `ploopy poweroff stop` cancels it;
+`systemctl --user status ploopy-poweroff.service` inspects it. Only arm it when
+asked.
 
 ## Starting a run
 
@@ -79,7 +78,7 @@ ploopy run --detach --plan <plan> --agent <agent> <flags>
 Nobody answers a question in a detached window, so pass every choice as a flag
 or set it in `.ploopy.toml`: `--plan` is required, and `--agent` unless
 `[run]` names an agent and an effort. Add whatever the author asked for
-(`--model`, `--effort`, `--units`, `--until`, `--finish`, `--push`, …; `ploopy
+(`--model`, `--effort`, `--units`, `--until`, `--push`, …; `ploopy
 run --help` lists them). If the author did not say which agent and the
 repository does not set one, ask before starting. Run `ploopy lint` and
 `ploopy status` first. Start it from the main checkout:
@@ -177,7 +176,6 @@ peak = "wait"                            # wait | run
 subscriptions = "all"                    # all | none | names
 spend_all = false
 push = true
-finish = "none"                          # none | suspend | poweroff
 
 [review]
 mode = "collected"                      # collected | direct

@@ -33,19 +33,18 @@ type runSettings struct {
 	Subscriptions string         `json:"subscriptions,omitempty"`
 	SpendAll      bool           `json:"spendAll,omitempty"`
 	Push          bool           `json:"push,omitempty"`
-	Finish        string         `json:"finish,omitempty"`
 	FollowUp      bool           `json:"followUp,omitempty"`
 }
 
 // given is which settings the author already gave, as flags or in the plan's
 // front matter. The board shows those locked and says where they came from.
 type given struct {
-	harness, model, effort, secondary, peak, subscriptions, spendAll, push, finish bool
-	followUp                                                                       bool
-	rescue, rescueModel, rescueEffort                                              bool
-	sources                                                                        map[string]string
-	prefills                                                                       map[string]string
-	fileValues                                                                     map[string]string
+	harness, model, effort, secondary, peak, subscriptions, spendAll, push bool
+	followUp                                                               bool
+	rescue, rescueModel, rescueEffort                                      bool
+	sources                                                                map[string]string
+	prefills                                                               map[string]string
+	fileValues                                                             map[string]string
 }
 
 // why is where a given setting came from, for the board's locked field.
@@ -104,7 +103,6 @@ type chosenRun struct {
 	subscriptions string
 	spendAll      bool
 	push          bool
-	finish        ui.Finish
 	followUp      bool
 }
 
@@ -303,19 +301,6 @@ func givenSettings(cmd *cobra.Command, e *env, p *plan.Plan, f *runFlags) (runSe
 	} else if e.cfg.PushSet {
 		g.fromFile("push", yesNo(s.Push))
 	}
-	if f.finish != "" {
-		if !ui.Finish(f.finish).Valid() {
-			return s, g, fmt.Errorf("--finish must be none, suspend or poweroff, not %s", f.finish)
-		}
-		s.Finish, g.finish = f.finish, true
-		g.from("finish", "from a flag")
-	} else if e.cfg.Run.Finish != "" {
-		if !ui.Finish(e.cfg.Run.Finish).Valid() {
-			return s, g, fmt.Errorf("[run] finish must be none, suspend or poweroff, not %s", e.cfg.Run.Finish)
-		}
-		s.Finish = e.cfg.Run.Finish
-		g.fromFile("finish", s.Finish)
-	}
 	if cmd.Flags().Changed("follow-up") {
 		s.FollowUp, g.followUp = f.followUp, true
 		g.from("followUp", "from a flag")
@@ -360,7 +345,7 @@ func settledHarness(ctx context.Context, e *env, name string) harness.Harness {
 
 // unattended settles a run nobody is watching: it needs the harness and the
 // effort named, takes the harness's default model, runs through peak hours
-// and takes no end action.
+// without a machine end action.
 func unattended(e *env, s runSettings) (chosenRun, error) {
 	if s.Harness == "" {
 		return chosenRun{}, ui.NoTerminal("agent")
@@ -425,12 +410,6 @@ func fill(e *env, s *runSettings, g given, last *runSettings) {
 	}
 	if !g.push && g.prefilled("push") == "" && last != nil {
 		s.Push = last.Push
-	}
-	if !g.finish && g.prefilled("finish") == "" {
-		s.Finish = string(ui.FinishNone)
-		if last != nil && ui.Finish(last.Finish).Valid() {
-			s.Finish = last.Finish
-		}
 	}
 	if !g.followUp && g.prefilled("followUp") == "" {
 		s.FollowUp = false
@@ -538,10 +517,6 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 	if err != nil {
 		return chosenRun{}, err
 	}
-	finish := ui.Finish(s.Finish)
-	if finish == "" {
-		finish = ui.FinishNone
-	}
 	return chosenRun{
 		reviewMode:    s.ReviewMode,
 		agent:         loop.Agent{Harness: h, Model: s.Model, Effort: s.Effort},
@@ -551,7 +526,6 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 		subscriptions: subscriptions,
 		spendAll:      s.SpendAll,
 		push:          s.Push,
-		finish:        finish,
 		followUp:      s.FollowUp,
 	}, nil
 }
@@ -559,9 +533,6 @@ func resolveSettings(e *env, s runSettings) (chosenRun, error) {
 // overChosen lays what the author adjusted during a run over the settings it
 // started with, so a chained run keeps those changes to the end.
 func overChosen(e *env, c chosenRun, w control.Settings) chosenRun {
-	if w.Finish != "" {
-		c.finish = ui.Finish(w.Finish)
-	}
 	if w.Peak != "" {
 		c.waitOffPeak = w.Peak == "wait"
 	}

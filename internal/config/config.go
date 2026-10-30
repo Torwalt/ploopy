@@ -51,7 +51,6 @@ type Run struct {
 	Subscriptions   string `toml:"subscriptions"`
 	SpendAll        *bool  `toml:"spend_all"`
 	Push            *bool  `toml:"push"`
-	Finish          string `toml:"finish"`
 }
 
 // Review mirrors the flags that choose a review's triage.
@@ -106,6 +105,9 @@ func Load(root string) (Config, error) {
 	meta, err := toml.Decode(string(raw), &cfg)
 	if err != nil {
 		return cfg, fmt.Errorf("%s is not valid TOML: %w", path, err)
+	}
+	if meta.IsDefined("run", "finish") {
+		return cfg, fmt.Errorf("[run] finish was removed; remove it and arm `ploopy poweroff` explicitly")
 	}
 	if meta.IsDefined("push") {
 		cfg.PushSet = true
@@ -191,11 +193,6 @@ func validateRun(r Run, harnesses harness.Set) error {
 	case "", "wait", "run":
 	default:
 		return fmt.Errorf("[run] peak must be wait or run, not %s", r.Peak)
-	}
-	switch r.Finish {
-	case "", "none", "suspend", "poweroff":
-	default:
-		return fmt.Errorf("[run] finish must be none, suspend or poweroff, not %s", r.Finish)
 	}
 	if r.Subscriptions != "" {
 		if _, err := NormalizeSubscriptions(harnesses, r.Subscriptions); err != nil {
