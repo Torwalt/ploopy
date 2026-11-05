@@ -1,6 +1,7 @@
 package review
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -79,6 +80,24 @@ func TestAReviewAndItsFixesBelongToTheReviewedPlan(t *testing.T) {
 	got := strings.Join(Lineage("docs/plans/PASS_FIXES_REVIEW.md"), " ")
 	if got != "docs/plans/PASS_FIXES_REVIEW.md docs/plans/PASS_FIXES.md docs/plans/PASS.md" {
 		t.Fatalf("lineage: %s", got)
+	}
+}
+
+func TestAFamilyIsHeadedByTheFurthestPlanThatExists(t *testing.T) {
+	exists := func(names ...string) func(string) bool {
+		return func(p string) bool { return slices.Contains(names, p) }
+	}
+	for _, c := range []struct {
+		path, want string
+		exists     func(string) bool
+	}{
+		{"docs/plans/PASS_FIXES_REVIEW.md", "docs/plans/PASS.md", exists("docs/plans/PASS.md", "docs/plans/PASS_FIXES.md")},
+		{"docs/plans/PASS_FIXES_REVIEW.md", "docs/plans/PASS_FIXES.md", exists("docs/plans/PASS_FIXES.md")},
+		{"docs/plans/PLAYTEST_FIXES.md", "docs/plans/PLAYTEST_FIXES.md", exists()},
+	} {
+		if got := FamilyAmong(c.path, c.exists); got != c.want {
+			t.Errorf("FamilyAmong(%s) = %s, want %s", c.path, got, c.want)
+		}
 	}
 }
 

@@ -94,6 +94,34 @@ func TestClosingAPlanDropsItOnMaster(t *testing.T) {
 	}
 }
 
+// PLAYTEST_FIXES with no PLAYTEST is a plan of its own: closing it drops it on
+// master, as any plan, rather than on its branch as a fix plan.
+func TestClosingAPlanNamedLikeAFixPlanDropsItOnMaster(t *testing.T) {
+	e := mainRepo(t)
+	write(t, e.root, "docs/plans/PLAYTEST_FIXES.md", finishedPlan)
+	git(t, e.root, "add", "-A")
+	git(t, e.root, "commit", "-q", "-m", "plans: add PLAYTEST_FIXES")
+	tree := worktreePath(e.root, "playtest-fixes")
+	git(t, e.root, "worktree", "add", "--quiet", "-b", "playtest-fixes", tree)
+	write(t, tree, "docs/plans/PLAYTEST_FIXES.state.json", finishedState)
+	git(t, tree, "add", "-A")
+	git(t, tree, "commit", "-q", "-m", "plans: record PLAYTEST_FIXES progress")
+	branch := output(t, e.root, "rev-parse", "playtest-fixes")
+
+	if err := closePlan(context.Background(), e, []string{"PLAYTEST_FIXES"}, false); err != nil {
+		t.Fatal(err)
+	}
+	if got := output(t, e.root, "log", "-1", "--format=%s", "master"); got != "plans: close PLAYTEST_FIXES" {
+		t.Fatalf("the plan should be closed on master, last commit %q", got)
+	}
+	if exists(filepath.Join(e.root, "docs/plans/PLAYTEST_FIXES.md")) {
+		t.Fatal("master should no longer hold the plan")
+	}
+	if output(t, e.root, "rev-parse", "playtest-fixes") != branch {
+		t.Fatal("the plan's branch is left as it is")
+	}
+}
+
 func TestClosingAPlanNeedsMasterInTheMainCheckout(t *testing.T) {
 	e, _ := worktreeRepo(t, nil)
 	git(t, e.root, "switch", "-q", "-c", "elsewhere")

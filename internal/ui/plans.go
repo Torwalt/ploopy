@@ -15,7 +15,6 @@ import (
 	"golang.org/x/term"
 
 	"github.com/Torwalt/ploopy/internal/catalog"
-	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/stats"
 )
@@ -55,7 +54,10 @@ func families(entries []catalog.Entry) []family {
 	byRoot := map[string]*family{}
 	var order []string
 	for _, entry := range entries {
-		root := review.Family(entry.Path())
+		root := entry.Best.Family
+		if root == "" {
+			root = entry.Path()
+		}
 		f, seen := byRoot[root]
 		if !seen {
 			f = &family{root: root}

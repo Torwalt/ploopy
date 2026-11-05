@@ -177,6 +177,19 @@ func Family(path string) string {
 	return lineage[len(lineage)-1]
 }
 
+// FamilyAmong is the plan a plan descends from in the end among the plans
+// that exist: PASS_FIXES belongs to PASS while PASS exists, and to itself
+// while it does not.
+func FamilyAmong(path string, exists func(string) bool) string {
+	lineage := Lineage(path)
+	for i := len(lineage) - 1; i > 0; i-- {
+		if exists(lineage[i]) {
+			return lineage[i]
+		}
+	}
+	return path
+}
+
 // IsFix reports whether a plan is the fix plan a triage wrote: its name ends
 // in _FIXES. A review of a fix plan is not itself a fix plan.
 func IsFix(path string) bool {

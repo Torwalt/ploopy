@@ -50,7 +50,7 @@ func (e *env) find(ctx context.Context, name string) (catalog.Copy, error) {
 		return catalog.Copy{}, err
 	}
 	branch, _ := e.repo().Branch(ctx)
-	return catalog.Copy{Plan: p, State: s, Branch: branch, Root: e.root, Here: true}, nil
+	return catalog.Copy{Plan: p, State: s, Branch: branch, Root: e.root, Here: true, Family: p.Path}, nil
 }
 
 // planArg is the plan a command was given, or the one the author picks.

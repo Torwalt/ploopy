@@ -10,7 +10,6 @@ import (
 	"github.com/Torwalt/ploopy/internal/catalog"
 	"github.com/Torwalt/ploopy/internal/config"
 	"github.com/Torwalt/ploopy/internal/repo"
-	"github.com/Torwalt/ploopy/internal/review"
 	"github.com/Torwalt/ploopy/internal/state"
 	"github.com/Torwalt/ploopy/internal/ui"
 )
@@ -60,7 +59,7 @@ func closePlan(ctx context.Context, e *env, args []string, force bool) error {
 			return nil
 		}
 	}
-	if review.Family(c.Plan.Path) == c.Plan.Path {
+	if c.Family == c.Plan.Path {
 		return dropPlan(ctx, e, c)
 	}
 

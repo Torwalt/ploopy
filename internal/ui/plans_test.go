@@ -39,11 +39,18 @@ const threeUnits = `# Pass
 
 func entryOf(path string, units map[string]*state.Entry, live *control.Live) catalog.Entry {
 	return catalog.Entry{Best: catalog.Copy{
-		Plan:  plan.Parse(threeUnits, path),
-		State: &state.State{Units: units},
-		Here:  true,
-		Live:  live,
+		Plan:   plan.Parse(threeUnits, path),
+		State:  &state.State{Units: units},
+		Here:   true,
+		Live:   live,
+		Family: path,
 	}}
+}
+
+// inFamily files an entry under the plan the catalog found it descends from.
+func inFamily(entry catalog.Entry, root string) catalog.Entry {
+	entry.Best.Family = root
+	return entry
 }
 
 func TestPlansNestsReviewsAndFixesUnderTheirPlanAndMarksTheRun(t *testing.T) {
@@ -51,9 +58,11 @@ func TestPlansNestsReviewsAndFixesUnderTheirPlanAndMarksTheRun(t *testing.T) {
 	landed := func() *state.Entry { return &state.Entry{Status: state.Landed, ElapsedS: 600} }
 	entries := []catalog.Entry{
 		entryOf("docs/plans/OTHER.md", nil, nil),
-		entryOf("docs/plans/PASS_FIXES.md", map[string]*state.Entry{"1.1": landed()},
+		inFamily(entryOf("docs/plans/PASS_FIXES.md", map[string]*state.Entry{"1.1": landed()},
 			&control.Live{Status: control.Status{Unit: "1.2", Agent: "claude", Started: now.Add(-90 * time.Second)}}),
-		entryOf("docs/plans/PASS_REVIEW.md", map[string]*state.Entry{"1.1": landed(), "1.2": landed(), "1.3": landed()}, nil),
+			"docs/plans/PASS.md"),
+		inFamily(entryOf("docs/plans/PASS_REVIEW.md", map[string]*state.Entry{"1.1": landed(), "1.2": landed(), "1.3": landed()}, nil),
+			"docs/plans/PASS.md"),
 		entryOf("docs/plans/PASS.md", map[string]*state.Entry{"1.1": landed(), "1.2": landed(), "1.3": landed()}, nil),
 		entryOf("docs/plans/STUCK.md", map[string]*state.Entry{
 			"1.1": {Status: state.Blocked, Reason: "the premise is wrong"},
@@ -84,6 +93,25 @@ func TestPlansNestsReviewsAndFixesUnderTheirPlanAndMarksTheRun(t *testing.T) {
 		if w := lipgloss.Width(line); w > 40 {
 			t.Fatalf("a line is %d columns wide, wider than the pane:\n%s", w, line)
 		}
+	}
+}
+
+// A plan named like a fix plan of one that does not exist heads its own
+// family, with its review under it.
+func TestAPlanNamedLikeAFixPlanHeadsItsOwnFamily(t *testing.T) {
+	entries := []catalog.Entry{
+		entryOf("docs/plans/PLAYTEST_FIXES.md", nil, nil),
+		inFamily(entryOf("docs/plans/PLAYTEST_FIXES_REVIEW.md", nil, nil), "docs/plans/PLAYTEST_FIXES.md"),
+	}
+	var out bytes.Buffer
+	Plans(&out, entries, "", 80, time.Now())
+	text := out.String()
+	t.Log("\n" + text)
+	if !strings.Contains(text, "○ PLAYTEST_FIXES") || !strings.Contains(text, "└─ ○ REVIEW") {
+		t.Fatalf("PLAYTEST_FIXES should head its own family:\n%s", text)
+	}
+	if strings.Contains(text, "\nPLAYTEST\n") {
+		t.Fatalf("no PLAYTEST exists to head it:\n%s", text)
 	}
 }
 

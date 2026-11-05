@@ -31,6 +31,7 @@ type Copy struct {
 	Root   string // the checkout holding it; empty for a branch read from git
 	Here   bool   // the checkout ploopy was started in
 	Live   *control.Live
+	Family string // the plan it descends from in the end among those listed; its own path when none is
 }
 
 // Done counts the units landed or skipped, of all of them.
@@ -120,7 +121,25 @@ func Find(ctx context.Context, root, plansDir string) ([]Entry, error) {
 			return nil, err
 		}
 	}
-	return group(copies, onto), nil
+	return withFamilies(group(copies, onto)), nil
+}
+
+// withFamilies ties each copy to the plan its family is listed under. A plan
+// named like a review or fix plan of one not listed is its own.
+func withFamilies(entries []Entry) []Entry {
+	listed := map[string]bool{}
+	for _, entry := range entries {
+		listed[key(entry.Path())] = true
+	}
+	exists := func(p string) bool { return listed[key(p)] }
+	for i := range entries {
+		family := review.FamilyAmong(entries[i].Path(), exists)
+		entries[i].Best.Family = family
+		for j := range entries[i].Others {
+			entries[i].Others[j].Family = family
+		}
+	}
+	return entries
 }
 
 // withoutDetached leaves out the checkouts on no branch, which builds and

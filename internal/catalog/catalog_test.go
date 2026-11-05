@@ -187,6 +187,11 @@ func TestAPlanNamedLikeAFixPlanIsItsOwn(t *testing.T) {
 	if got := strings.Join(paths, ","); got != "docs/plans/PASS.md,docs/plans/PLAYTEST_FIXES.md,docs/plans/PLAYTEST_FIXES_REVIEW.md" {
 		t.Fatalf("listed %s", got)
 	}
+	for _, entry := range find(t, root)[1:] {
+		if entry.Best.Family != "docs/plans/PLAYTEST_FIXES.md" {
+			t.Fatalf("%s belongs to %s", entry.Path(), entry.Best.Family)
+		}
+	}
 }
 
 func TestTheMostUnitsDoneWinOverNewerProgress(t *testing.T) {
