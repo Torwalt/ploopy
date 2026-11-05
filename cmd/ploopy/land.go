@@ -41,6 +41,9 @@ func newLand(e *env) *cobra.Command {
 		Use:   "land [BRANCH]",
 		Short: "Land a finished branch: rebase, check, close its plans, fast-forward",
 		Long: "Put a branch whose plans are all finished on the default branch.\n\n" +
+			"With no branch named, the branch checked out here is landed; on the\n" +
+			"default branch, the branches of the finished plans it holds are\n" +
+			"offered. A branch named outright may be any branch, a plan's or not.\n\n" +
 			"The branch is rebased onto the default branch, and the verify and test\n" +
 			"commands run on the result. A conflict, or a check that fails on the\n" +
 			"rebased branch, goes to a session with the land-repair skill; git and\n" +
@@ -86,7 +89,7 @@ func landBranch(cmd *cobra.Command, e *env, args []string, f *landFlags) error {
 	}
 	main := trees[0].Path
 
-	branch, err := landTarget(ctx, e, args, onto, trees)
+	branch, err := landTarget(ctx, e, args, onto)
 	if err != nil {
 		return err
 	}
@@ -205,24 +208,100 @@ func landBranch(cmd *cobra.Command, e *env, args []string, f *landFlags) error {
 }
 
 // landTarget is the branch named, else the one checked out here, else one the
-// author picks from the branches checked out somewhere.
-func landTarget(ctx context.Context, e *env, args []string, onto string, trees []repo.Worktree) (string, error) {
+// author picks from the branches the plans master holds have finished on. A
+// branch named outright may be any branch, a plan's or not.
+func landTarget(ctx context.Context, e *env, args []string, onto string) (string, error) {
 	if len(args) > 0 {
 		return args[0], nil
 	}
 	if here, err := e.repo().Branch(ctx); err == nil && here != "" && here != onto {
 		return here, nil
 	}
-	var choices []ui.Choice
-	for _, tree := range trees {
-		if tree.Branch != "" && tree.Branch != onto {
-			choices = append(choices, ui.Choice{Label: tree.Branch + "  " + tree.Path, Value: tree.Branch})
-		}
-	}
-	if len(choices) == 0 || !ui.Interactive() {
+	if !ui.Interactive() {
 		return "", errors.New("name the branch to land")
 	}
-	return ui.Pick("Land which branch on "+onto+"?", "branch", choices)
+	entries, err := e.plans(ctx)
+	if err != nil {
+		return "", err
+	}
+	choices, open := landable(entries, onto, e.root)
+	if len(choices) == 0 {
+		if len(open) > 0 {
+			return "", fmt.Errorf("no plan on %s is finished: %s", onto, strings.Join(open, "; "))
+		}
+		return "", fmt.Errorf("no plan on %s has a branch to land; name the branch to land", onto)
+	}
+	if len(choices) == 1 {
+		fmt.Printf("landing %s, the only branch of a finished plan on %s\n", choices[0].Value, onto)
+		return choices[0].Value, nil
+	}
+	return ui.Pick("Land which plan's branch on "+onto+"?", "branch", choices)
+}
+
+// landable is the branches the plans of the catalog are furthest on, one
+// choice each where every plan on it is finished, and a line for each of the
+// rest saying what is still open. The catalog holds only the plans onto
+// holds, so a stale branch or worktree is never offered.
+func landable(entries []catalog.Entry, onto, here string) ([]ui.Choice, []string) {
+	type candidate struct {
+		branch, root string
+		plans, open  []string
+	}
+	var order []*candidate
+	byBranch := map[string]*candidate{}
+	for _, entry := range entries {
+		c, ok := branchCopy(entry, onto)
+		if !ok {
+			continue
+		}
+		b := byBranch[c.Branch]
+		if b == nil {
+			b = &candidate{branch: c.Branch, root: c.Root}
+			byBranch[c.Branch] = b
+			order = append(order, b)
+		}
+		b.plans = append(b.plans, c.Plan.Name())
+		done, total := c.Done()
+		switch {
+		case c.Live != nil:
+			b.open = append(b.open, c.Plan.Name()+" is running")
+		case done < total:
+			b.open = append(b.open, fmt.Sprintf("%s %d/%d", c.Plan.Name(), done, total))
+		}
+	}
+	var choices []ui.Choice
+	var open []string
+	for _, b := range order {
+		if len(b.open) > 0 {
+			open = append(open, b.branch+": "+strings.Join(b.open, ", "))
+			continue
+		}
+		label := b.branch + "  " + strings.Join(b.plans, ", ")
+		if b.root != "" {
+			if rel, err := filepath.Rel(here, b.root); err == nil {
+				label += "  in " + rel
+			} else {
+				label += "  in " + b.root
+			}
+		}
+		choices = append(choices, ui.Choice{Label: label, Value: b.branch})
+	}
+	return choices, open
+}
+
+// branchCopy is the copy of a plan its branch holds: the one shown when that
+// made progress off onto, else the one on the branch named after the plan. A
+// copy that came untouched with a branch forked from onto is not the plan's.
+func branchCopy(entry catalog.Entry, onto string) (catalog.Copy, bool) {
+	if c := entry.Best; c.Branch != "" && c.Branch != onto {
+		return c, true
+	}
+	for _, c := range entry.Others {
+		if c.Branch != onto && ofBranch(c.Plan.Path, c.Branch) {
+			return c, true
+		}
+	}
+	return catalog.Copy{}, false
 }
 
 // closable is the plans of the branch a landing closes. A plan with units

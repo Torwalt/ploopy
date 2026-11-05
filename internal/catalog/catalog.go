@@ -4,8 +4,9 @@
 //
 // The default branch says which plans exist: a plan is open while its file is
 // there, committed or still uncommitted in a checkout of that branch. A review
-// or fix plan exists while the plan it descends from does. Progress lives on
-// the branches, so the copy to show is the one that got furthest.
+// or fix plan exists while it or a plan it descends from does, so a plan named
+// like a fix plan of none is its own. Progress lives on the branches, so the
+// copy to show is the one that got furthest.
 package catalog
 
 import (
@@ -137,10 +138,10 @@ func withoutDetached(copies []Copy) []Copy {
 }
 
 // registered keeps the copies of the plans the default branch holds, and of
-// the review and fix plans descending from them. A landed or dropped plan is
-// gone from it, so whatever stale branch still holds a copy is left out. A run
-// going on is never left out, and neither is a checkout on no branch that
-// ploopy was started in.
+// the review and fix plans descending from one of them. A landed or dropped
+// plan is gone from it, so whatever stale branch still holds a copy is left
+// out. A run going on is never left out, and neither is a checkout on no
+// branch that ploopy was started in.
 func registered(ctx context.Context, r *repo.Repo, plansDir, onto string, copies []Copy) ([]Copy, error) {
 	tip := "refs/heads/" + onto
 	files, err := r.FilesAt(ctx, []string{tip}, plansDir, func(name string) bool { return strings.HasSuffix(name, ".md") })
@@ -158,11 +159,20 @@ func registered(ctx context.Context, r *repo.Repo, plansDir, onto string, copies
 	}
 	var out []Copy
 	for _, c := range copies {
-		if c.Live != nil || (c.Here && c.Branch == "") || exists[key(review.Family(c.Plan.Path))] {
+		if c.Live != nil || (c.Here && c.Branch == "") || anyExists(exists, review.Lineage(c.Plan.Path)) {
 			out = append(out, c)
 		}
 	}
 	return out, nil
+}
+
+func anyExists(exists map[string]bool, paths []string) bool {
+	for _, p := range paths {
+		if exists[key(p)] {
+			return true
+		}
+	}
+	return false
 }
 
 func key(p string) string { return path.Clean(filepath.ToSlash(p)) }

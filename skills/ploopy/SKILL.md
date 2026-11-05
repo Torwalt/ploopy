@@ -239,7 +239,9 @@ names.
 - Review history and stats record `review_mode`, `review_base` and `review_head`
   alongside time and cost for comparisons.
 - `ploopy land [branch]` is how finished work reaches the default branch. It
-  refuses while a plan of the branch has open units.
+  refuses while a plan of the branch has open units. With no branch named, it
+  offers the branches of the finished plans the default branch holds; a branch
+  named outright may be any branch, a plan's or not.
 - `ploopy close <plan>` drops a plan from the default branch without landing
   it, leaving its branch alone; on a review or fix plan it closes that one on
   its branch.

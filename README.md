@@ -165,6 +165,9 @@ snapshot. Costs remain subject to what each harness reports.
 
 **Land.** `ploopy land [BRANCH]` rebases the branch onto the default branch,
 runs the checks, closes the branch's plans and fast-forwards.
+- With no branch named, outside a plan's worktree, it offers the branches of the
+  plans master holds that are finished; a stale worktree is never offered. A
+  branch named outright may be any branch.
 - A conflict or red check goes to a `land-repair` session; `--no-agent` stops
   instead.
 - The worktree and branch are removed; master is yours to push.

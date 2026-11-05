@@ -17,7 +17,9 @@ func (e *env) plans(ctx context.Context) ([]catalog.Entry, error) {
 }
 
 // find takes a plan by path, by name, or by stem under the plans directory,
-// wherever it lives. A path outside the plans directory is read from here.
+// wherever it lives. A path outside the plans directory is read from here; a
+// plan under it the catalog lacks is gone from the default branch, whatever
+// this checkout still holds.
 func (e *env) find(ctx context.Context, name string) (catalog.Copy, error) {
 	entries, err := e.plans(ctx)
 	if err != nil {
@@ -34,6 +36,14 @@ func (e *env) find(ctx context.Context, name string) (catalog.Copy, error) {
 	p, err := e.resolve(name)
 	if err != nil {
 		return catalog.Copy{}, err
+	}
+	abs := p.Path
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(e.root, abs)
+	}
+	if within(abs, filepath.Join(e.root, e.cfg.Plans)) {
+		onto, _ := e.repo().DefaultBranch(ctx)
+		return catalog.Copy{}, fmt.Errorf("no plan %s on %s; a plan exists while %s holds it", name, onto, onto)
 	}
 	s, err := e.state(p)
 	if err != nil {

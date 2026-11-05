@@ -169,6 +169,26 @@ func TestReviewAndFixPlansFollowTheirPlanOnMaster(t *testing.T) {
 	}
 }
 
+// PLAYTEST_FIXES is a plan of its own when master holds no PLAYTEST, and a
+// review written for it on its branch belongs to it.
+func TestAPlanNamedLikeAFixPlanIsItsOwn(t *testing.T) {
+	root := repository(t)
+	write(t, root, "docs/plans/PLAYTEST_FIXES.md", strings.Replace(pass, "# Pass", "# Playtest fixes", 1))
+	commitAll(t, root, "plan playtest fixes")
+	git(t, root, "switch", "-q", "-c", "playtest-fixes")
+	write(t, root, "docs/plans/PLAYTEST_FIXES_REVIEW.md", strings.Replace(pass, "# Pass", "# Review", 1))
+	commitAll(t, root, "review")
+	git(t, root, "switch", "-q", "master")
+
+	var paths []string
+	for _, entry := range find(t, root) {
+		paths = append(paths, entry.Path())
+	}
+	if got := strings.Join(paths, ","); got != "docs/plans/PASS.md,docs/plans/PLAYTEST_FIXES.md,docs/plans/PLAYTEST_FIXES_REVIEW.md" {
+		t.Fatalf("listed %s", got)
+	}
+}
+
 func TestTheMostUnitsDoneWinOverNewerProgress(t *testing.T) {
 	root := repository(t)
 	git(t, root, "switch", "-q", "-c", "ahead")

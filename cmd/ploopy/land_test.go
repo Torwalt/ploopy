@@ -157,3 +157,54 @@ func TestALandingThatFailsItsChecksClosesNothing(t *testing.T) {
 		t.Fatal("the plan stays open until the branch lands")
 	}
 }
+
+// The picker offers the branches the plans master holds are finished on. A
+// worktree left on a merged branch, one holding a plan master no longer
+// holds, and one holding no plan are never offered; a plan still open is
+// named instead.
+func TestThePickerOffersOnlyTheBranchesOfFinishedPlansOnMaster(t *testing.T) {
+	e, tree := worktreeRepo(t, nil)
+	write(t, e.root, "docs/plans/LATER.md", finishedPlan)
+	git(t, e.root, "add", "-A")
+	git(t, e.root, "commit", "-q", "-m", "plans: add LATER")
+	git(t, e.root, "worktree", "add", "--quiet", "-b", "later", worktreePath(e.root, "later"))
+
+	git(t, e.root, "worktree", "add", "--quiet", "-b", "merged", worktreePath(e.root, "merged"))
+	loose := worktreePath(e.root, "loose")
+	git(t, e.root, "worktree", "add", "--quiet", "-b", "loose", loose)
+	write(t, loose, "work.txt", "work\n")
+	git(t, loose, "add", "-A")
+	git(t, loose, "commit", "-q", "-m", "work of no plan")
+	gone := worktreePath(e.root, "gone")
+	git(t, e.root, "worktree", "add", "--quiet", "-b", "gone", gone)
+	write(t, gone, "docs/plans/GONE.md", finishedPlan)
+	write(t, gone, "docs/plans/GONE.state.json", finishedState)
+	git(t, gone, "add", "-A")
+	git(t, gone, "commit", "-q", "-m", "a plan master never held")
+
+	entries, err := e.plans(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	choices, open := landable(entries, "master", e.root)
+	if len(choices) != 1 || choices[0].Value != "pass" || !strings.Contains(choices[0].Label, "PASS") ||
+		!strings.Contains(choices[0].Label, "repo.worktrees/pass") {
+		t.Fatalf("only pass is offered, in %s; got %+v", tree, choices)
+	}
+	if len(open) != 1 || open[0] != "later: LATER 0/1" {
+		t.Fatalf("the open plan's branch is named with its progress, got %q", open)
+	}
+}
+
+// Standing in a worktree that still holds a plan master no longer holds, the
+// plan is not found there either.
+func TestAPlanGoneFromMasterIsNotFoundInAStaleWorktree(t *testing.T) {
+	e, tree := worktreeRepo(t, nil)
+	git(t, e.root, "rm", "-q", "docs/plans/PASS.md")
+	git(t, e.root, "commit", "-q", "-m", "plans: drop PASS")
+
+	stale := &env{root: tree, cfg: e.cfg, harnesses: e.harnesses}
+	if _, err := stale.find(context.Background(), "PASS"); err == nil || !strings.Contains(err.Error(), "no plan PASS on master") {
+		t.Fatalf("a plan master dropped must not be found in its old worktree, got %v", err)
+	}
+}
