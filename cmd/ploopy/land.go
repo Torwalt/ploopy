@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -33,21 +34,27 @@ type landFlags struct {
 	noAgent              bool
 	noPush               bool
 	keepBranch           bool
+	all                  bool
 }
 
 func newLand(e *env) *cobra.Command {
 	var f landFlags
 	cmd := &cobra.Command{
-		Use:   "land [BRANCH]",
-		Short: "Land a finished branch: rebase, check, close its plans, fast-forward",
-		Long: "Put a branch whose plans are all finished on the default branch.\n\n" +
-			"With no branch named, the branch checked out here is landed; on the\n" +
-			"default branch, the branches of the finished plans it holds are\n" +
-			"offered. A branch named outright may be any branch, a plan's or not.\n\n" +
-			"The branch is rebased onto the default branch, and the verify and test\n" +
+		Use:   "land [BRANCH...]",
+		Short: "Land finished branches: rebase, check, close their plans, fast-forward",
+		Long: "Put branches whose plans are all finished on the default branch.\n\n" +
+			"Branches named land in the order named. With --all, every branch the\n" +
+			"finished plans on the default branch are on lands, in the order the\n" +
+			"plans are found. With no branch named, the branch checked out here is\n" +
+			"landed; on the default branch, the branches of the finished plans it\n" +
+			"holds are offered. A branch named outright may be any branch, a plan's\n" +
+			"or not. Every branch is checked before the first one lands.\n\n" +
+			"Each branch is rebased onto the default branch, and the verify and test\n" +
 			"commands run on the result. A conflict, or a check that fails on the\n" +
 			"rebased branch, goes to a session with the land-repair skill; git and\n" +
-			"the checks decide whether it repaired it. Once the checks pass, the\n" +
+			"the checks decide whether it repaired it. Each repair session leaves a\n" +
+			"note of what it decided, and every later repair of the batch is handed\n" +
+			"the notes of the repairs accepted so far. Once the checks pass, the\n" +
 			"branch's plans are closed, each in a commit carrying its report: the\n" +
 			"plan it is named after and its reviews and fix plans, or on a branch\n" +
 			"named after no plan, the plans it did not inherit. Any other plan it\n" +
@@ -55,11 +62,13 @@ func newLand(e *env) *cobra.Command {
 			"branch, which drops the plans there too. It is never pushed.\n\n" +
 			"After landing, a branch that was pushed before is pushed again, with a\n" +
 			"lease; ploopy's worktree for it is removed and the branch deleted.\n\n" +
-			"When a repair fails, the default branch is left as it was and the\n" +
-			"plans open: the branch is back where it was after a conflict, and\n" +
-			"rebased after a failing check.",
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error { return landBranch(cmd, e, args, &f) },
+			"When a repair fails, the default branch is left as the branches landed\n" +
+			"before put it, and the branch's plans stay open: the branch is back\n" +
+			"where it was after a conflict, and rebased after a failing check. The\n" +
+			"batch skips it and goes on; its notes are handed to no later repair.\n" +
+			"A stop ends the batch.",
+		Args: cobra.ArbitraryArgs,
+		RunE: func(cmd *cobra.Command, args []string) error { return landBranches(cmd, e, args, &f) },
 	}
 	flags := cmd.Flags()
 	flags.StringVar(&f.agent, "agent", "", "harness that repairs a conflict or a failing check")
@@ -70,10 +79,25 @@ func newLand(e *env) *cobra.Command {
 	flags.BoolVar(&f.noAgent, "no-agent", false, "stop at a conflict or a failing check instead of repairing it")
 	flags.BoolVar(&f.noPush, "no-push", false, "do not push the rebased branch")
 	flags.BoolVar(&f.keepBranch, "keep-branch", false, "keep the branch after landing it")
+	flags.BoolVar(&f.all, "all", false, "land every branch whose plans on the default branch are finished")
 	return cmd
 }
 
-func landBranch(cmd *cobra.Command, e *env, args []string, f *landFlags) error {
+// prepared is one branch of a batch, checked before any of them lands.
+type prepared struct {
+	branch     string
+	root, own  string
+	fresh      bool
+	cfg        config.Config
+	branchRepo *repo.Repo
+	closing    []catalog.Copy
+}
+
+// landBranches lands the branches in the order given. Each is judged on its
+// own by git and the checks; one that does not land is skipped, the default
+// branch stays where the last landed one put it, and the rest go on. Every
+// repair is handed what the repairs before it in the batch settled.
+func landBranches(cmd *cobra.Command, e *env, args []string, f *landFlags) error {
 	ctx := cmd.Context()
 	r := e.repo()
 	onto, err := r.DefaultBranch(ctx)
@@ -89,37 +113,17 @@ func landBranch(cmd *cobra.Command, e *env, args []string, f *landFlags) error {
 	}
 	main := trees[0].Path
 
-	branch, err := landTarget(ctx, e, args, onto)
+	branches, err := landTargets(ctx, e, args, onto, f.all)
 	if err != nil {
 		return err
 	}
-	if branch == onto {
-		return fmt.Errorf("%s is the default branch; land another branch onto it", onto)
-	}
-	if _, err := r.Resolve(ctx, "refs/heads/"+branch); err != nil {
-		return fmt.Errorf("no branch %s", branch)
-	}
-
-	root, own := "", worktreePath(main, branch)
-	for _, tree := range trees {
-		if tree.Branch == branch {
-			root = tree.Path
-		}
-	}
-	fresh := root == ""
-	if fresh {
-		if own, err = e.addWorktree(ctx, main, trees, branch); err != nil {
+	var batch []*prepared
+	for _, branch := range branches {
+		l, err := prepareLanding(ctx, e, main, onto, branch)
+		if err != nil {
 			return err
 		}
-		root = own
-		fmt.Printf("checked %s out at %s\n", branch, root)
-	}
-	if lives, _ := control.List(); len(lives) > 0 {
-		for _, live := range lives {
-			if live.Root == root {
-				return fmt.Errorf("%s is running in %s; land the branch once the run has ended", live.Plan, root)
-			}
-		}
+		batch = append(batch, l)
 	}
 
 	var agent *land.Agent
@@ -129,55 +133,148 @@ func landBranch(cmd *cobra.Command, e *env, args []string, f *landFlags) error {
 		}
 	}
 
-	cfg, err := config.Load(root)
+	report := ui.NewReporter(os.Stdout, os.Stderr)
+	if len(batch) > 1 {
+		report.Say("landing %d branches in this order: %s", len(batch), strings.Join(branches, ", "))
+	}
+	var settled, outcomes []string
+	var skipped []string
+	sessions, cost := 0, 0.0
+	for i, l := range batch {
+		if len(batch) > 1 {
+			report.Say("── %s (%d of %d)", l.branch, i+1, len(batch))
+		}
+		result, err := landOne(ctx, e, main, onto, l, agent, settled, f, report)
+		sessions += result.Sessions
+		cost += result.CostUSD
+		if err == nil {
+			settled = append(settled, result.Notes...)
+			outcomes = append(outcomes, "✓ "+l.branch)
+			continue
+		}
+		skipped = append(skipped, l.branch)
+		outcomes = append(outcomes, fmt.Sprintf("✗ %s: %v", l.branch, err))
+		if ctx.Err() != nil {
+			for _, rest := range batch[i+1:] {
+				outcomes = append(outcomes, "· "+rest.branch+": not attempted")
+				skipped = append(skipped, rest.branch)
+			}
+			break
+		}
+	}
+	if len(batch) == 1 {
+		if len(skipped) > 0 {
+			return errors.New("not landed")
+		}
+		return nil
+	}
+
+	report.Say("%d of %d landed · %d repair session(s), $%.2f", len(batch)-len(skipped), len(batch), sessions, cost)
+	for _, line := range outcomes {
+		fmt.Println("  " + line)
+	}
+	if len(skipped) > 0 {
+		return fmt.Errorf("not landed: %s; land them again once what stopped them is settled", strings.Join(skipped, ", "))
+	}
+	return nil
+}
+
+// prepareLanding checks out a branch if nothing has, and refuses it before
+// anything of the batch lands: running, mid-rebase, dirty, or with a plan
+// still open.
+func prepareLanding(ctx context.Context, e *env, main, onto, branch string) (*prepared, error) {
+	r := e.repo()
+	if branch == onto {
+		return nil, fmt.Errorf("%s is the default branch; land another branch onto it", onto)
+	}
+	if _, err := r.Resolve(ctx, "refs/heads/"+branch); err != nil {
+		return nil, fmt.Errorf("no branch %s", branch)
+	}
+	trees, err := r.Worktrees(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	branchRepo := repo.New(root, cfg.AuthorPaths)
-	if branchRepo.Rebasing(ctx) {
-		return fmt.Errorf("a rebase is already going on in %s; finish or abort it first", root)
+
+	l := &prepared{branch: branch, own: worktreePath(main, branch)}
+	for _, tree := range trees {
+		if tree.Branch == branch {
+			l.root = tree.Path
+		}
 	}
-	closing, err := closable(ctx, root, branch, onto, cfg)
-	if err != nil {
-		return err
+	l.fresh = l.root == ""
+	if l.fresh {
+		if l.own, err = e.addWorktree(ctx, main, trees, branch); err != nil {
+			return nil, err
+		}
+		l.root = l.own
+		fmt.Printf("checked %s out at %s\n", branch, l.root)
 	}
-	if dirt, err := branchRepo.DirtLines(ctx); err != nil {
-		return err
-	} else if len(dirt) > 0 {
-		return fmt.Errorf("%s has changes a rebase would trip over; commit or stash them first:\n%s",
-			root, strings.Join(dirt, "\n"))
-	}
-	if fresh && cfg.Setup != "" {
-		fmt.Printf("readying the checkout: `%s`\n", cfg.Setup)
-		setup := exec.CommandContext(ctx, "sh", "-c", cfg.Setup)
-		setup.Dir, setup.Stdout, setup.Stderr = root, os.Stdout, os.Stderr
-		setup.Env = append(os.Environ(), e.setupEnv(ctx)...)
-		if err := setup.Run(); err != nil {
-			return fmt.Errorf("`%s` failed: %w", cfg.Setup, err)
+	if lives, _ := control.List(); len(lives) > 0 {
+		for _, live := range lives {
+			if live.Root == l.root {
+				return nil, fmt.Errorf("%s is running in %s; land the branch once the run has ended", live.Plan, l.root)
+			}
 		}
 	}
 
-	logs, err := landLogs(ctx, root, branch)
-	if err != nil {
-		return err
+	if l.cfg, err = config.Load(l.root); err != nil {
+		return nil, err
+	}
+	l.branchRepo = repo.New(l.root, l.cfg.AuthorPaths)
+	if l.branchRepo.Rebasing(ctx) {
+		return nil, fmt.Errorf("a rebase is already going on in %s; finish or abort it first", l.root)
+	}
+	if l.closing, err = closable(ctx, l.root, branch, onto, l.cfg); err != nil {
+		return nil, err
+	}
+	if dirt, err := l.branchRepo.DirtLines(ctx); err != nil {
+		return nil, err
+	} else if len(dirt) > 0 {
+		return nil, fmt.Errorf("%s has changes a rebase would trip over; commit or stash them first:\n%s",
+			l.root, strings.Join(dirt, "\n"))
+	}
+	return l, nil
+}
+
+// landOne lands one prepared branch, handing its repairs what the batch
+// settled so far, then pushes the branch if it was pushed before and tidies
+// up after it.
+func landOne(ctx context.Context, e *env, main, onto string, l *prepared, agent *land.Agent, settled []string, f *landFlags, report *ui.Reporter) (land.Result, error) {
+	if l.fresh && l.cfg.Setup != "" {
+		fmt.Printf("readying the checkout: `%s`\n", l.cfg.Setup)
+		setup := exec.CommandContext(ctx, "sh", "-c", l.cfg.Setup)
+		setup.Dir, setup.Stdout, setup.Stderr = l.root, os.Stdout, os.Stderr
+		setup.Env = append(os.Environ(), e.setupEnv(ctx)...)
+		if err := setup.Run(); err != nil {
+			err = fmt.Errorf("`%s` failed: %w", l.cfg.Setup, err)
+			report.Fail("%s did not land: %v", l.branch, err)
+			return land.Result{}, err
+		}
 	}
 
-	report := ui.NewReporter(os.Stdout, os.Stderr)
+	logs, err := landLogs(ctx, l.root, l.branch)
+	if err != nil {
+		return land.Result{}, err
+	}
+	notes := filepath.Join(logs, "notes-"+time.Now().Format("20060102-150405")+".md")
+
 	result, err := land.Run(ctx, land.Options{
-		Root:        root,
-		Branch:      branch,
+		Root:        l.root,
+		Branch:      l.branch,
 		Onto:        onto,
-		AuthorPaths: cfg.AuthorPaths,
-		Verify:      cfg.Verify,
-		Test:        cfg.Test,
+		AuthorPaths: l.cfg.AuthorPaths,
+		Verify:      l.cfg.Verify,
+		Test:        l.cfg.Test,
 		Agent:       agent,
-		Skill:       ownOr(root, config.RepoLandSkill, ploopy.LandRepairSkill),
-		Context:     cfg.Context,
+		Skill:       ownOr(l.root, config.RepoLandSkill, ploopy.LandRepairSkill),
+		Context:     l.cfg.Context,
 		Deny:        guard.DeniedTools,
 		Extra:       e.extra,
 		Attempts:    f.attempts,
 		Logs:        logs,
-		Finish:      func(ctx context.Context) error { return closeAll(ctx, closing, cfg) },
+		Settled:     settled,
+		Notes:       notes,
+		Finish:      func(ctx context.Context) error { return closeAll(ctx, l.closing, l.cfg) },
 		Report:      report,
 	})
 	spent := ""
@@ -185,17 +282,20 @@ func landBranch(cmd *cobra.Command, e *env, args []string, f *landFlags) error {
 		spent = fmt.Sprintf(" · %d repair session(s), $%.2f", result.Sessions, result.CostUSD)
 	}
 	if err != nil {
-		report.Fail("%s did not land: %v%s", branch, err, spent)
-		fmt.Printf("%s is untouched; the branch is at %s, and was at %s before. Logs: %s\n",
-			onto, root, short(result.Before), logs)
-		return errors.New("not landed")
+		report.Fail("%s did not land: %v%s", l.branch, err, spent)
+		fmt.Printf("%s is untouched by it; the branch is at %s, and was at %s before. Logs: %s\n",
+			onto, l.root, short(result.Before), logs)
+		return result, err
 	}
-	tip, _ := r.Resolve(ctx, "refs/heads/"+onto)
-	report.Say("landed %s: %s is now at %s%s; push it when you are ready", branch, onto, short(tip), spent)
+	tip, _ := e.repo().Resolve(ctx, "refs/heads/"+onto)
+	report.Say("landed %s: %s is now at %s%s; push it when you are ready", l.branch, onto, short(tip), spent)
+	if len(result.Notes) > 0 {
+		report.Say("what its repairs settled: %s", notes)
+	}
 
-	if !f.noPush && branchRepo.Upstream(ctx, branch) != "" {
+	if !f.noPush && l.branchRepo.Upstream(ctx, l.branch) != "" {
 		pushCtx, cancel := context.WithTimeout(ctx, pushTimeout)
-		where, err := branchRepo.PushRewritten(pushCtx, branch)
+		where, err := l.branchRepo.PushRewritten(pushCtx, l.branch)
 		cancel()
 		if err != nil {
 			report.Fail("pushing the branch failed: %v", err)
@@ -203,39 +303,59 @@ func landBranch(cmd *cobra.Command, e *env, args []string, f *landFlags) error {
 			report.Say("pushed %s", where)
 		}
 	}
-	tidyLanded(ctx, main, root, own, branch, onto, f.keepBranch, report)
-	return nil
+	tidyLanded(ctx, main, l.root, l.own, l.branch, onto, f.keepBranch, report)
+	return result, nil
 }
 
-// landTarget is the branch named, else the one checked out here, else one the
-// author picks from the branches the plans master holds have finished on. A
+// landTargets is the branches named, in their order; else, with --all, every
+// branch the finished plans master holds are on; else the branch checked out
+// here; else those the author picks from the finished plans' branches. A
 // branch named outright may be any branch, a plan's or not.
-func landTarget(ctx context.Context, e *env, args []string, onto string) (string, error) {
+func landTargets(ctx context.Context, e *env, args []string, onto string, all bool) ([]string, error) {
+	if all && len(args) > 0 {
+		return nil, errors.New("name the branches or pass --all, not both")
+	}
 	if len(args) > 0 {
-		return args[0], nil
+		seen := map[string]bool{}
+		for _, branch := range args {
+			if seen[branch] {
+				return nil, fmt.Errorf("%s is named twice", branch)
+			}
+			seen[branch] = true
+		}
+		return args, nil
 	}
-	if here, err := e.repo().Branch(ctx); err == nil && here != "" && here != onto {
-		return here, nil
-	}
-	if !ui.Interactive() {
-		return "", errors.New("name the branch to land")
+	if !all {
+		if here, err := e.repo().Branch(ctx); err == nil && here != "" && here != onto {
+			return []string{here}, nil
+		}
+		if !ui.Interactive() {
+			return nil, errors.New("name the branches to land, or pass --all")
+		}
 	}
 	entries, err := e.plans(ctx)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	choices, open := landable(entries, onto, e.root)
 	if len(choices) == 0 {
 		if len(open) > 0 {
-			return "", fmt.Errorf("no plan on %s is finished: %s", onto, strings.Join(open, "; "))
+			return nil, fmt.Errorf("no plan on %s is finished: %s", onto, strings.Join(open, "; "))
 		}
-		return "", fmt.Errorf("no plan on %s has a branch to land; name the branch to land", onto)
+		return nil, fmt.Errorf("no plan on %s has a branch to land; name the branch to land", onto)
+	}
+	if all {
+		var branches []string
+		for _, choice := range choices {
+			branches = append(branches, choice.Value)
+		}
+		return branches, nil
 	}
 	if len(choices) == 1 {
 		fmt.Printf("landing %s, the only branch of a finished plan on %s\n", choices[0].Value, onto)
-		return choices[0].Value, nil
+		return []string{choices[0].Value}, nil
 	}
-	return ui.Pick("Land which plan's branch on "+onto+"?", "branch", choices)
+	return ui.PickMany("Land which plans' branches on "+onto+"? They land in the order shown.", "all", choices)
 }
 
 // landable is the branches the plans of the catalog are furthest on, one

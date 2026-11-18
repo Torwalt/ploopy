@@ -208,3 +208,84 @@ func TestAPlanGoneFromMasterIsNotFoundInAStaleWorktree(t *testing.T) {
 		t.Fatalf("a plan master dropped must not be found in its old worktree, got %v", err)
 	}
 }
+
+// planBranch adds a plan to master and a worktree of a branch named after it
+// whose state the given text is; finishedState finishes it.
+func planBranch(t *testing.T, e *env, name, stateText string) string {
+	t.Helper()
+	branch := strings.ToLower(name)
+	write(t, e.root, "docs/plans/"+name+".md", finishedPlan)
+	git(t, e.root, "add", "-A")
+	git(t, e.root, "commit", "-q", "-m", "plans: add "+name)
+	tree := worktreePath(e.root, branch)
+	git(t, e.root, "worktree", "add", "--quiet", "-b", branch, tree)
+	write(t, tree, branch+".txt", branch+"\n")
+	if stateText != "" {
+		write(t, tree, "docs/plans/"+name+".state.json", stateText)
+	}
+	git(t, tree, "add", "-A")
+	git(t, tree, "commit", "-q", "-m", name+" work")
+	return tree
+}
+
+func TestABatchLandsTheBranchesInTheOrderNamed(t *testing.T) {
+	e, _ := worktreeRepo(t, nil)
+	planBranch(t, e, "LATER", finishedState)
+
+	if err := landing(t, e, "later", "pass"); err != nil {
+		t.Fatal(err)
+	}
+	log := output(t, e.root, "log", "--format=%s", "master")
+	if !strings.HasPrefix(log, "plans: close PASS\nplans\nplans: close LATER\nLATER work\n") {
+		t.Fatalf("later lands first, then pass on top of it:\n%s", log)
+	}
+}
+
+func TestABatchSkipsABranchThatDoesNotLandAndGoesOn(t *testing.T) {
+	e, tree := worktreeRepo(t, nil)
+	write(t, tree, ".ploopy.toml", "verify = \"exit 1\"\n")
+	git(t, tree, "add", "-A")
+	git(t, tree, "commit", "-q", "-m", "a failing check")
+	later := planBranch(t, e, "LATER", finishedState)
+
+	err := landing(t, e, "pass", "later")
+	if err == nil || !strings.Contains(err.Error(), "pass") || strings.Contains(err.Error(), "later") {
+		t.Fatalf("the batch should fail naming pass alone, got %v", err)
+	}
+	log := output(t, e.root, "log", "--format=%s", "master")
+	if !strings.HasPrefix(log, "plans: close LATER\n") || strings.Contains(log, "plans: close PASS") {
+		t.Fatalf("later lands though pass did not:\n%s", log)
+	}
+	if exists(later) || !exists(tree+"/docs/plans/PASS.md") {
+		t.Fatal("later's worktree is tidied, and pass keeps its open plan")
+	}
+}
+
+func TestABatchRefusesBeforeLandingAnythingWhenABranchCannotLand(t *testing.T) {
+	e, _ := worktreeRepo(t, nil)
+	planBranch(t, e, "LATER", "")
+	before := output(t, e.root, "rev-parse", "master")
+
+	if err := landing(t, e, "pass", "later"); err == nil || !strings.Contains(err.Error(), "LATER.md") {
+		t.Fatalf("later's open plan should stop the batch before it starts, got %v", err)
+	}
+	if output(t, e.root, "rev-parse", "master") != before {
+		t.Fatal("nothing lands while a branch of the batch is refused")
+	}
+}
+
+func TestLandingAllLandsEveryFinishedBranch(t *testing.T) {
+	e, _ := worktreeRepo(t, nil)
+	planBranch(t, e, "LATER", finishedState)
+
+	if err := landing(t, e, "--all"); err != nil {
+		t.Fatal(err)
+	}
+	log := output(t, e.root, "log", "--format=%s", "master")
+	if !strings.Contains(log, "plans: close PASS") || !strings.Contains(log, "plans: close LATER") {
+		t.Fatalf("both branches land:\n%s", log)
+	}
+	if err := landing(t, e, "--all", "pass"); err == nil {
+		t.Fatal("--all and named branches together are refused")
+	}
+}

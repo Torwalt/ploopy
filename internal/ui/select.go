@@ -58,3 +58,43 @@ func Pick(title, flag string, choices []Choice) (string, error) {
 	}
 	return picked, nil
 }
+
+// PickMany asks the author to choose any of a list, every one chosen to
+// begin with. The choices come back in the order offered. Flag names the
+// option a run with nobody watching should have passed instead.
+func PickMany(title, flag string, choices []Choice) ([]string, error) {
+	if !Interactive() {
+		return nil, NoTerminal(flag)
+	}
+	if len(choices) == 0 {
+		return nil, errors.New("nothing to choose from")
+	}
+	options := make([]huh.Option[string], 0, len(choices))
+	for _, choice := range choices {
+		options = append(options, huh.NewOption(choice.Label, choice.Value).Selected(true))
+	}
+	var picked []string
+	err := huh.NewMultiSelect[string]().
+		Title(title).
+		Options(options...).
+		Value(&picked).
+		WithTheme(huh.ThemeBase16()).
+		Run()
+	if err != nil {
+		return nil, err
+	}
+	if len(picked) == 0 {
+		return nil, errors.New("no branch picked")
+	}
+	chosen := map[string]bool{}
+	for _, value := range picked {
+		chosen[value] = true
+	}
+	var ordered []string
+	for _, choice := range choices {
+		if chosen[choice.Value] {
+			ordered = append(ordered, choice.Value)
+		}
+	}
+	return ordered, nil
+}

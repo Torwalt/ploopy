@@ -312,3 +312,110 @@ func TestMasterMovingDuringTheChecksRebasesAgain(t *testing.T) {
 		t.Fatalf("the branch should land on top of the late commit:\n%s", got)
 	}
 }
+
+// resolveTo resolves shared.txt to text and leaves note as the session's note.
+func resolveTo(text, note string) func(dir string) error {
+	return func(dir string) error {
+		if note != "" {
+			if err := os.WriteFile(filepath.Join(dir, ".ploopy", "land", "note.md"), []byte(note), 0o644); err != nil {
+				return err
+			}
+		}
+		if err := os.WriteFile(filepath.Join(dir, "shared.txt"), []byte(text), 0o644); err != nil {
+			return err
+		}
+		return exec.Command("git", "-C", dir, "add", "-A").Run()
+	}
+}
+
+func TestEachRepairIsHandedWhatTheEarlierOnesSettled(t *testing.T) {
+	f := setup(t, "master\n", "branch\n")
+	write(t, f.tree, "shared.txt", "branch again\n")
+	git(t, f.tree, "commit", "-q", "-am", "more branch work")
+	agent := fake.New(
+		fake.Step{Do: resolveTo("both\n", "- master renamed lobbed to anti_air\n"), Outcome: done()},
+		fake.Step{Do: resolveTo("both again\n", "- keep master's header\n"), Outcome: done()},
+	)
+	o := f.options(t, agent)
+	o.Settled = []string{"### earlier · conflict replaying x\n\n- an earlier branch's decision"}
+	o.Notes = filepath.Join(t.TempDir(), "notes.md")
+	result, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Started() != 2 {
+		t.Fatalf("two conflicts, two sessions; %d started", agent.Started())
+	}
+	if !strings.Contains(agent.Prompts[0], "an earlier branch's decision") {
+		t.Fatal("the first repair should be handed what the batch settled")
+	}
+	if strings.Contains(agent.Prompts[0], "lobbed") {
+		t.Fatal("a note is not handed on before it is written")
+	}
+	if !strings.Contains(agent.Prompts[1], "an earlier branch's decision") || !strings.Contains(agent.Prompts[1], "master renamed lobbed to anti_air") ||
+		!strings.Contains(agent.Prompts[1], "### pass · conflict replaying") {
+		t.Fatalf("the second repair should be handed both:\n%s", agent.Prompts[1])
+	}
+	if len(result.Notes) != 2 || !strings.Contains(result.Notes[1], "keep master's header") {
+		t.Fatalf("the landing's notes are its own two, got %q", result.Notes)
+	}
+	if text := read(t, filepath.Dir(o.Notes), filepath.Base(o.Notes)); !strings.Contains(text, "lobbed") || !strings.Contains(text, "header") {
+		t.Fatalf("the notes file should hold both notes:\n%s", text)
+	}
+	if strings.Contains(git(t, f.main, "log", "--stat", "master"), "note.md") {
+		t.Fatal("a note must never be committed")
+	}
+}
+
+func TestARejectedRepairsNoteReachesOnlyTheNextAttempt(t *testing.T) {
+	f := setup(t, "master\n", "branch\n")
+	agent := fake.New(
+		fake.Step{Do: func(dir string) error {
+			if err := os.WriteFile(filepath.Join(dir, ".ploopy", "land", "note.md"), []byte("- a wrong idea\n"), 0o644); err != nil {
+				return err
+			}
+			return exec.Command("git", "-C", dir, "add", "shared.txt").Run()
+		}, Outcome: done()},
+		fake.Step{Do: resolveTo("both\n", "- the right idea\n"), Outcome: done()},
+	)
+	o := f.options(t, agent)
+	result, err := Run(context.Background(), o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(agent.Prompts[1], "a wrong idea") || !strings.Contains(agent.Prompts[1], "not settled") {
+		t.Fatal("the retry should see the rejected attempt's note, marked unsettled")
+	}
+	if len(result.Notes) != 1 || strings.Contains(result.Notes[0], "wrong") {
+		t.Fatalf("only the accepted note is settled, got %q", result.Notes)
+	}
+}
+
+func TestASessionThatWritesNoNoteIsRememberedByItsFinalWords(t *testing.T) {
+	f := setup(t, "master\n", "branch\n")
+	agent := fake.New(fake.Step{
+		Do:      resolveTo("both\n", ""),
+		Events:  []harness.Event{{Kind: harness.EventText, Text: "Kept both sides of shared.txt.\n\nDONE"}},
+		Outcome: done(),
+	})
+	result, err := Run(context.Background(), f.options(t, agent))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Notes) != 1 || !strings.Contains(result.Notes[0], "Kept both sides") || strings.Contains(result.Notes[0], "DONE") {
+		t.Fatalf("the final words stand for the note, without the marker; got %q", result.Notes)
+	}
+}
+
+func TestAConflictPromptDoesNotAskForEveryDocumentUpFront(t *testing.T) {
+	f := setup(t, "master\n", "branch\n")
+	agent := fake.New(fake.Step{Do: resolveTo("both\n", ""), Outcome: done()})
+	o := f.options(t, agent)
+	o.Context = []string{"AGENTS.md"}
+	if _, err := Run(context.Background(), o); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(agent.Prompts[0], "in full") || !strings.Contains(agent.Prompts[0], "`AGENTS.md`") {
+		t.Fatalf("a conflict names the documents without asking for all of them first:\n%s", agent.Prompts[0])
+	}
+}

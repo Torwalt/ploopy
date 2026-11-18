@@ -16,7 +16,7 @@ What now?
   h  history: what a unit took each agent here, and the usage windows
   n  lend a subscription to every run, or list what is lent
   c  close a plan without landing it, or a review or fix plan
-  l  land a finished branch: rebase, check, close its plans, fast-forward
+  l  land finished branches: rebase, check, close their plans, fast-forward
   w  show a unit's work order
   y  replay a unit's session
   m  mark a unit by hand
@@ -163,13 +163,20 @@ Review session history and stats include `review_mode`, `review_base` and
 `review_head` alongside time and cost, so comparisons can identify the reviewed
 snapshot. Costs remain subject to what each harness reports.
 
-**Land.** `ploopy land [BRANCH]` rebases the branch onto the default branch,
-runs the checks, closes the branch's plans and fast-forwards.
+**Land.** `ploopy land [BRANCH...]` rebases each branch onto the default
+branch, runs the checks, closes the branch's plans and fast-forwards.
+- Branches named land in the order named; `--all` lands every finished plan's
+  branch in the order the plans are found. ploopy does not choose an order.
 - With no branch named, outside a plan's worktree, it offers the branches of the
   plans master holds that are finished; a stale worktree is never offered. A
   branch named outright may be any branch.
+- Every branch is checked before the first lands. A branch that then does not
+  land is skipped and the rest go on; master stays where the last landed branch
+  put it.
 - A conflict or red check goes to a `land-repair` session; `--no-agent` stops
-  instead.
+  instead. Each repair leaves a note of its decisions, and every later repair of
+  the batch is handed the accepted notes, so a change master made is worked out
+  once. They are kept in `.git/ploopy/land/<branch>/notes-*.md`.
 - The worktree and branch are removed; master is yours to push.
 
 **Skills.** `ploopy skills` writes the skills ploopy ships into

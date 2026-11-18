@@ -59,6 +59,14 @@ type Options struct {
 	Rounds   int // rebases when onto moves during the checks
 	Logs     string
 
+	// Settled is what the repairs of the branches landed before this one in
+	// the same batch decided, one entry each. Every repair session is handed
+	// it with this landing's own, so a decision is made once.
+	Settled []string
+	// Notes, when set, is the file each accepted repair's note is appended
+	// to, so what a landing settled outlives it.
+	Notes string
+
 	// Finish commits on the branch what landing it settles, once the checks
 	// pass and before the fast-forward: the plans it closes.
 	Finish func(ctx context.Context) error
@@ -72,6 +80,9 @@ type Result struct {
 	Before   string // the branch's commit before the first rebase
 	Sessions int
 	CostUSD  float64
+	// Notes is what the accepted repairs of this landing settled, one entry
+	// each, in order; a later landing of the batch is handed them as Settled.
+	Notes []string
 }
 
 func (o *Options) defaults() {
@@ -95,6 +106,7 @@ type lander struct {
 	result    Result
 	routes    map[string]time.Time
 	lastModel string
+	lastTail  string
 }
 
 // Run lands the branch checked out at Root on Onto. On failure the branch is
@@ -102,6 +114,9 @@ type lander struct {
 func Run(ctx context.Context, o Options) (Result, error) {
 	o.defaults()
 	l := &lander{o: o, r: repo.New(o.Root, o.AuthorPaths)}
+	if err := l.prepareWorkDir(); err != nil {
+		return l.result, err
+	}
 	before, err := l.r.Head(ctx)
 	if err != nil {
 		return l.result, err
@@ -183,7 +198,7 @@ func (l *lander) resolve(ctx context.Context) error {
 			return err
 		}
 		task := l.conflictTask(ctx, paths, replaying)
-		outcome, err := l.session(ctx, "conflict", attempt, task, failure)
+		outcome, err := l.session(ctx, "conflict", attempt, task, failure, conflictReading)
 		if err != nil {
 			return err
 		}
@@ -195,11 +210,13 @@ func (l *lander) resolve(ctx context.Context) error {
 		if outcome.Marker == harness.Blocked {
 			return fmt.Errorf("the session is blocked: %s", outcome.Reason)
 		}
+		note := l.note()
 		failure = l.judgeResolve(ctx, head, paths, outcome)
 		if failure == "" {
-			return nil
+			return l.settle("conflict replaying "+firstLine(replaying), note)
 		}
 		o.Report.Fail("the conflict is not resolved: %s", failure)
+		failure = withNote(failure, note)
 		if !l.r.Rebasing(ctx) {
 			return errors.New("the rebase is no longer going on")
 		}
@@ -235,6 +252,7 @@ func (l *lander) checks(ctx context.Context) error {
 	if failure == "" {
 		return nil
 	}
+	first := failure
 	if o.Agent == nil {
 		return fmt.Errorf("%s, and no agent to repair it", firstLine(failure))
 	}
@@ -245,7 +263,7 @@ func (l *lander) checks(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		outcome, err := l.session(ctx, "checks", attempt, l.checksTask(ctx, failure), previous)
+		outcome, err := l.session(ctx, "checks", attempt, l.checksTask(ctx, failure), previous, checksReading)
 		if err != nil {
 			return err
 		}
@@ -257,13 +275,15 @@ func (l *lander) checks(ctx context.Context) error {
 		if outcome.Marker == harness.Blocked {
 			return fmt.Errorf("the session is blocked: %s", outcome.Reason)
 		}
+		note := l.note()
 		previous = l.judgeRepair(ctx, head, outcome)
 		if previous == "" {
 			if failure = l.runChecks(ctx, fmt.Sprintf("repair-%d", attempt)); failure == "" {
-				return nil
+				return l.settle("repair after "+strings.TrimSuffix(firstLine(first), ":"), note)
 			}
 			previous = "the checks still fail:\n" + failure
 		}
+		previous = withNote(previous, note)
 		o.Report.Fail("not repaired: %s", firstLine(previous))
 	}
 	return fmt.Errorf("%d sessions did not make the checks pass on the rebased %s", o.Attempts, o.Branch)
@@ -346,16 +366,19 @@ func logTail(path string) string {
 }
 
 // session runs one repair and streams it to the reporter.
-func (l *lander) session(ctx context.Context, kind string, attempt int, task, failure string) (harness.Outcome, error) {
+func (l *lander) session(ctx context.Context, kind string, attempt int, task, failure, reading string) (harness.Outcome, error) {
 	o := l.o
 	stem := fmt.Sprintf("%s-%s-%d-%d", kind, o.Now().Format("20060102-150405"), attempt, l.result.Sessions)
 	logPath := filepath.Join(o.Logs, stem+".log")
 	if err := os.MkdirAll(o.Logs, 0o755); err != nil {
 		return harness.Outcome{}, err
 	}
+	if err := os.Remove(l.notePath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return harness.Outcome{}, err
+	}
 	o.Report.Say("session %d of %d with %s · %s", attempt, o.Attempts, o.Agent.Harness.Name(), logPath)
 	spec := harness.Spec{
-		Prompt:       l.prompt(task, failure),
+		Prompt:       l.prompt(task, failure, reading),
 		Model:        l.model(),
 		Effort:       o.Agent.Effort,
 		Title:        fmt.Sprintf("ploopy land %s %s", o.Branch, kind),
@@ -372,9 +395,14 @@ func (l *lander) session(ctx context.Context, kind string, attempt int, task, fa
 	if err != nil {
 		return harness.Outcome{}, err
 	}
+	var tail []string
 	for event := range session.Events() {
 		o.Report.Event(event)
+		if event.Kind == harness.EventText {
+			tail = append(tail, event.Text)
+		}
 	}
+	l.lastTail = strings.Join(tail, "\n")
 	outcome, err := session.Wait()
 	l.result.Sessions++
 	l.result.CostUSD += outcome.CostUSD
@@ -420,7 +448,7 @@ var (
 	frontMatterRe = regexp.MustCompile(`(?s)\A---\n.*?\n---\n+`)
 )
 
-func (l *lander) prompt(task, failure string) string {
+func (l *lander) prompt(task, failure, intro string) string {
 	if strings.TrimSpace(failure) == "" {
 		failure = "None. This is the first attempt."
 	}
@@ -428,13 +456,123 @@ func (l *lander) prompt(task, failure string) string {
 		"branch":  l.o.Branch,
 		"onto":    l.o.Onto,
 		"skill":   strings.TrimSpace(frontMatterRe.ReplaceAllString(l.o.Skill, "")),
+		"reading": intro,
 		"context": reading(l.o.Context),
+		"note":    filepath.ToSlash(filepath.Join(repo.WorkDir, noteFile)),
+		"settled": l.settled(),
 		"failure": strings.TrimSpace(failure),
 		"task":    strings.TrimSpace(task),
 	}
 	return placeholderRe.ReplaceAllStringFunc(promptTemplate, func(match string) string {
 		return values[placeholderRe.FindStringSubmatch(match)[1]]
 	})
+}
+
+// A conflict usually needs a few paths and their history, so its session
+// reads the repository's documents as the conflict calls for them; a failing
+// check can sit anywhere, so its session reads them all first.
+const (
+	conflictReading = "These documents describe the repository. Read what this conflict needs of them, when it needs it; do not read them all up front:"
+	checksReading   = "Read these first, in this order, in full:"
+)
+
+// noteFile is where, under ploopy's own directory, a repair session leaves
+// the decisions it made for the sessions after it.
+var noteFile = filepath.Join("land", "note.md")
+
+// settledLimit bounds the settled decisions a prompt carries, in lines; the
+// oldest entries give way first.
+const settledLimit = 400
+
+// noteTailLines is how much of its final output stands for a session's note
+// when it wrote none.
+const noteTailLines = 20
+
+// prepareWorkDir makes ploopy's directory ignore itself, so a session staging
+// its resolution with `git add -A` cannot sweep its note into the commit.
+func (l *lander) prepareWorkDir() error {
+	own := filepath.Join(l.o.Root, repo.WorkDir)
+	if err := os.MkdirAll(filepath.Join(own, filepath.Dir(noteFile)), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(own, ".gitignore"), []byte("*\n"), 0o644)
+}
+
+func (l *lander) notePath() string { return filepath.Join(l.o.Root, repo.WorkDir, noteFile) }
+
+// note is what the last session left for the ones after it: the file it was
+// asked to write or, failing that, the end of what it said, without its marker.
+func (l *lander) note() string {
+	if text, err := os.ReadFile(l.notePath()); err == nil && strings.TrimSpace(string(text)) != "" {
+		return strings.TrimSpace(string(text))
+	}
+	lines := strings.Split(strings.TrimSpace(harness.StripANSI(l.lastTail)), "\n")
+	if last := strings.TrimSpace(lines[len(lines)-1]); last == "DONE" || strings.HasPrefix(last, "BLOCKED") {
+		lines = lines[:len(lines)-1]
+	}
+	if len(lines) > noteTailLines {
+		lines = lines[len(lines)-noteTailLines:]
+	}
+	text := strings.TrimSpace(strings.Join(lines, "\n"))
+	if text == "" {
+		return ""
+	}
+	return "(The session wrote no note; the end of its final message.)\n\n" + text
+}
+
+// settle records an accepted repair's note for the sessions after it.
+func (l *lander) settle(what, note string) error {
+	if note == "" {
+		return nil
+	}
+	entry := fmt.Sprintf("### %s · %s\n\n%s", l.o.Branch, what, note)
+	l.result.Notes = append(l.result.Notes, entry)
+	if l.o.Notes == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(l.o.Notes), 0o755); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(l.o.Notes, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(entry + "\n\n"); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+// withNote hands a rejected attempt's note to the next attempt only: what it
+// decided is not settled.
+func withNote(failure, note string) string {
+	if note == "" {
+		return failure
+	}
+	return failure + "\n\nThe note it left, not settled:\n\n" + note
+}
+
+// settled is every accepted decision so far, the batch's then this
+// landing's, the newest kept whole when they outgrow the limit.
+func (l *lander) settled() string {
+	entries := append(append([]string(nil), l.o.Settled...), l.result.Notes...)
+	if len(entries) == 0 {
+		return "Nothing yet: this is the first repair of the landing."
+	}
+	kept, lines := 0, 0
+	for i := len(entries) - 1; i >= 0; i-- {
+		n := strings.Count(entries[i], "\n") + 2
+		if kept > 0 && lines+n > settledLimit {
+			break
+		}
+		kept, lines = kept+1, lines+n
+	}
+	text := strings.Join(entries[len(entries)-kept:], "\n\n")
+	if dropped := len(entries) - kept; dropped > 0 {
+		text = fmt.Sprintf("(%d older entries left out.)\n\n", dropped) + text
+	}
+	return text
 }
 
 func reading(docs []string) string {

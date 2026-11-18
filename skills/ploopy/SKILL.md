@@ -238,10 +238,20 @@ names.
   and run `benchpress lint`. Ploopy executes no hook command.
 - Review history and stats record `review_mode`, `review_base` and `review_head`
   alongside time and cost for comparisons.
-- `ploopy land [branch]` is how finished work reaches the default branch. It
-  refuses while a plan of the branch has open units. With no branch named, it
+- `ploopy land [branch...]` is how finished work reaches the default branch. It
+  refuses while a plan of a branch has open units. With no branch named, it
   offers the branches of the finished plans the default branch holds; a branch
   named outright may be any branch, a plan's or not.
+- Several branches land as one batch, in the order named; `--all` takes every
+  finished plan's branch in the order the plans are found. ploopy chooses no
+  order: when the order matters, decide it yourself (fewest conflicts first,
+  from the files the branches share) and name the branches in it.
+- Every branch of a batch is checked before the first lands. One that then
+  does not land is skipped and the rest go on; the command fails naming it.
+  The default branch is moved only by a whole landing, never part of one.
+- Each repair session leaves a note of what it decided; later repairs of the
+  batch are handed the accepted ones. They are in
+  `.git/ploopy/land/<branch>/notes-*.md`, beside the sessions' logs.
 - `ploopy close <plan>` drops a plan from the default branch without landing
   it, leaving its branch alone; on a review or fix plan it closes that one on
   its branch.

@@ -47,6 +47,24 @@ job is to make them hold together, not to choose one or redo either.
 4. Run the checks the prompt names until they are green, then commit with the
    repository's own commit conventions.
 
+## Settled decisions and your note
+
+The prompt lists what earlier repairs of this landing, and of the branches
+landed before it, settled. Apply those decisions where your repair meets them;
+reopen one only when this commit shows it cannot hold, and say so in your note.
+
+Before you finish, write your note to the path the prompt names: a few bullets
+that a later commit, of this branch or another, may meet again. Each names
+what the default branch changed and how the branch's code was carried onto it:
+
+```
+- master replaced `Projectile.lobbed` with `anti_air` (596d185fb): keep
+  master's field and move the branch's projectile code onto it.
+```
+
+Leave out what only this commit needed and what is already settled. The note
+is never committed; ploopy keeps it only when git accepts your repair.
+
 ## Blocked
 
 Finish with `BLOCKED <reason>` when the two sides want contradictory behaviour
