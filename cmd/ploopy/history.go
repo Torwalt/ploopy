@@ -122,6 +122,7 @@ func importHistory(ctx context.Context, e *env, path string) (int, error) {
 					Agent: rec.Agent, Harness: strings.Fields(rec.Agent + " ?")[0],
 					Started: rec.Started, Seconds: rec.Seconds, Verdict: rec.Verdict,
 					Tokens: rec.Tokens, CostUSD: rec.CostUSD, After: rec.Budget, Degraded: rec.Degraded,
+					Pings: rec.Pings, PingTokens: rec.PingTokens,
 				}
 				if r.Harness == "claude" {
 					r.Before, r.After = transcriptBudgets(filepath.Join(dir, "logs", rec.Stem+".log"), rec)

@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/history"
 	"github.com/Torwalt/ploopy/internal/stats"
 )
@@ -18,7 +19,7 @@ func TestTheHistoryImportsWhatTheCheckoutsHold(t *testing.T) {
 	started := time.Date(2026, 10, 15, 10, 0, 0, 0, time.UTC)
 	for _, r := range []stats.Record{
 		{Kind: "session", Run: "r1", Unit: "1.1", Stem: "1.1-0", Agent: "claude sonnet high", Started: started,
-			Seconds: 600, CostUSD: 2, Verdict: "landed"},
+			Seconds: 600, CostUSD: 2, Verdict: "landed", Pings: 2, PingTokens: &harness.Tokens{CacheRead: 9000}},
 		{Kind: "check", Run: "r1", Unit: "1.1", Started: started, Seconds: 7, Reason: "verify"},
 		{Kind: "session", Run: "r1", Unit: "1.2", Stem: "1.2-0", Agent: "opencode deepseek/deepseek-flash high",
 			Started: started, Seconds: 300, CostUSD: 0.05, Verdict: "landed"},
@@ -50,7 +51,8 @@ func TestTheHistoryImportsWhatTheCheckoutsHold(t *testing.T) {
 	first := records[0]
 	if first.Plan != "PASS" || first.Branch != "pass" || first.Harness != "claude" ||
 		first.Before == nil || first.Before.Session.Used != 0.49 || first.After.Session.Used != 0.59 ||
-		!first.After.At.Equal(started.Add(10*time.Minute)) {
+		!first.After.At.Equal(started.Add(10*time.Minute)) ||
+		first.Pings != 2 || first.PingTokens == nil || first.PingTokens.CacheRead != 9000 {
 		t.Fatalf("record %+v", first)
 	}
 	if records[1].Harness != "opencode" || records[1].Before != nil {
