@@ -25,6 +25,32 @@
         "cache_read": 463073,
         "cache_write": 50064
       }
+    },
+    "2.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-11-19T15:30:30+01:00",
+      "agent": "claude sonnet high",
+      "base": "c0c9435469416a347c3e694e355bb562d3c257af",
+      "commits": [
+        "cea45339c84ddcdf2e670481672c21b8a16858de Ping a waiting Claude session before its five-minute cache expires"
+      ],
+      "attempts": 1,
+      "handover": "## What landed\nOne commit. New `internal/harness/claude/warm.go`: a `warmer` per session with\nthe clock, pending main-thread calls (deadline or zero), pings since the last\nreal request, last main-thread context size, outstanding ping. `run()` is a\ngoroutine started in `Start`; `read()` feeds it (`call`, `results`, `usage`,\n`answered`) and `defer s.endWarming()` joins it and turns a stop into\n`drift.Missing(\"cache warming stopped: ...\")` before `done` closes.\n`Start` uses `StartProcWithEnv` with `CLAUDE_CODE_PROMPT_CACHE_TTL=5m`.\n`control_response` lines are read. `harness.Outcome` gained `Pings` and\n`PingTokens` (cache-read estimate only). Tests in `warm_test.go`.\n\n## Landmark drift\nNone.\n\n## Deviations from the work order\n- Tuning values are package vars in `warm.go` (`pingAfter`, `deadlineMargin`,\n  `pingCap`, `answerWait`, `cacheTTL`) plus the tool limits\n  (`defaultBashTimeout`, `maxBashTimeout`, `defaultMonitorTimeout`,\n  `maxMonitorTimeout`), so tests shrink the deadline arithmetic too.\n- The subagent-clock test drives `session.assistant`/`toolResults` directly\n  rather than through a fake process: timing through a process cannot show a\n  clock that did not move deterministically.\n- Several pending calls with one unknown deadline count as unknown (the latest\n  of a set containing infinity).\n\n## What the next session must know\n- Warming is always on; there is no switch yet. 2.2 must add the `cache = \"1h\"`\n  opt-out: skip the TTL env var (or set `1h`) and do not start/finish the\n  warmer (`newWarmer`/`run` in `Start`; `finish` is called from `read` and\n  closes `quit`, so it must not run on a warmer whose `run` never started).\n- `BASH_DEFAULT_TIMEOUT_MS`/`BASH_MAX_TIMEOUT_MS` are read from ploopy's own\n  environment when the warmer is created (the child inherits it).\n- A ping write error (child gone) ends warming silently, with counts rolled\n  back; only error/synthetic/missing answers leave a note.\n- `Outcome.Pings`/`PingTokens` are filled in `Wait`; nothing consumes them yet\n  (2.3 books them). Other adapters leave them zero.\n- Test fake: `warmingClaude` in `warm_test.go` reads stdin by line, has\n  `reply ok|error|synthetic|silent`, and records unread stdin at exit.\n\n## Open problems\nNone. Build, vet, gofmt and `go test ./...` green; the claude package also\npassed `-race -count=5`.",
+      "session_id": "55f9fd66-8a49-4edc-97f4-873633e63b23",
+      "cost_usd": 1.0898291999999998,
+      "harness": "claude",
+      "elapsed_s": 591,
+      "session_s": 537,
+      "verify_s": 2,
+      "test_s": 53,
+      "tokens": {
+        "input": 52,
+        "output": 18573,
+        "reasoning": 16537,
+        "cache_read": 1928786,
+        "cache_write": 88217
+      }
     }
   }
 }
