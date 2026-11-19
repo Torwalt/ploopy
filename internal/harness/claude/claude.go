@@ -83,7 +83,10 @@ func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session
 	if err != nil {
 		return nil, err
 	}
-	proc, err := harness.StartProc(ctx, argv, spec.Dir, reader, spec.LogPath, spec.Timeout)
+	// The short cache is what makes pings worth it: the hour's costs twice the
+	// input price to write.
+	env := []string{"CLAUDE_CODE_PROMPT_CACHE_TTL=" + cacheTTL}
+	proc, err := harness.StartProcWithEnv(ctx, argv, spec.Dir, reader, spec.LogPath, spec.Timeout, env)
 	// The child holds its own copy; with ours closed, a write to a dead child
 	// fails instead of blocking.
 	reader.Close()
@@ -96,12 +99,15 @@ func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session
 		proc: proc, events: make(chan harness.Event, 64), stdin: &input{file: writer},
 		done: make(chan struct{}), id: spec.SessionID, calls: map[string]call{},
 	}
+	s.warm = newWarmer(s.stdin.send)
 	if err := s.stdin.send(prompt); err != nil {
 		s.stdin.close()
 		proc.Kill()
 		proc.Wait()
 		return nil, err
 	}
+	s.warm.requested(time.Now())
+	go s.warm.run()
 	go s.read()
 	return s, nil
 }
@@ -177,6 +183,7 @@ func hookSettings() string {
 type session struct {
 	proc    *harness.Proc
 	stdin   *input
+	warm    *warmer
 	events  chan harness.Event
 	done    chan struct{}
 	id      string
@@ -206,6 +213,7 @@ func (s *session) Wait() (harness.Outcome, error) {
 	exit, timedOut := s.proc.Wait()
 	s.outcome.Exit = exit
 	s.outcome.TimedOut = timedOut
+	s.outcome.Pings, s.outcome.PingTokens = s.warm.totals()
 	said := strings.Join(s.said, "\n")
 	if s.outcome.Marker == harness.None && !timedOut {
 		s.outcome.Marker, s.outcome.Reason = harness.ParseMarker(said)
@@ -263,6 +271,12 @@ type streamLine struct {
 	APIKeySource    string          `json:"apiKeySource"`
 	Message         json.RawMessage `json:"message"`
 	RateLimitInfo   *rateLimitInfo  `json:"rate_limit_info"`
+
+	// ParentToolUseID is set on what a subagent said or was told; the main
+	// thread's lines carry null.
+	ParentToolUseID json.RawMessage `json:"parent_tool_use_id"`
+	// Response is a control_response's body.
+	Response json.RawMessage `json:"response"`
 
 	IsError        bool            `json:"is_error"`
 	Result         string          `json:"result"`
@@ -350,7 +364,14 @@ func (u usage) tokens() harness.Tokens {
 	}
 }
 
+// subagent tells a line of a subagent's from one of the main thread's.
+func (l streamLine) subagent() bool {
+	id := strings.TrimSpace(string(l.ParentToolUseID))
+	return id != "" && id != "null"
+}
+
 type assistantMessage struct {
+	Usage   json.RawMessage `json:"usage"`
 	Content []struct {
 		Type      string          `json:"type"`
 		ID        string          `json:"id"`
@@ -373,6 +394,8 @@ func (s *session) read() {
 	defer close(s.events)
 	// A session that ends without a result leaves nothing to wait for.
 	defer s.stdin.close()
+	// Runs first of the defers, so a stopped warmer's note is in before Wait.
+	defer s.endWarming()
 
 	for line := range s.proc.Lines() {
 		if strings.TrimSpace(line) == "" {
@@ -387,7 +410,7 @@ func (s *session) read() {
 			continue
 		}
 		switch head.Type {
-		case "assistant", "user", "system", "result", "rate_limit_event":
+		case "assistant", "user", "system", "result", "rate_limit_event", "control_response":
 		default:
 			continue
 		}
@@ -410,6 +433,8 @@ func (s *session) read() {
 			}
 		case "rate_limit_event":
 			s.rateLimit(parsed.RateLimitInfo)
+		case "control_response":
+			s.controlResponse(parsed)
 		case "result":
 			s.result(parsed)
 		}
@@ -448,6 +473,12 @@ func (s *session) assistant(parsed streamLine) {
 		s.drift.Undecoded("an assistant message", err)
 		return
 	}
+	if !parsed.subagent() {
+		var u usage
+		if json.Unmarshal(message.Usage, &u) == nil {
+			s.warm.usage(u)
+		}
+	}
 	for _, block := range message.Content {
 		switch block.Type {
 		case "text":
@@ -459,6 +490,9 @@ func (s *session) assistant(parsed streamLine) {
 			text := harness.Summarise(block.Input)
 			if block.ID != "" {
 				s.calls[block.ID] = call{tool: block.Name, text: text, at: time.Now()}
+				if !parsed.subagent() {
+					s.warm.call(block.ID, block.Name, block.Input, time.Now())
+				}
 			}
 			s.events <- harness.Event{Kind: harness.EventToolUse, Tool: block.Name, Text: text}
 		}
@@ -471,9 +505,14 @@ func (s *session) toolResults(parsed streamLine) {
 		s.drift.Undecoded("a tool result", err)
 		return
 	}
+	var returned []string
 	for _, block := range message.Content {
+		if block.Type != "tool_result" {
+			continue
+		}
+		returned = append(returned, block.ToolUseID)
 		pending, ok := s.calls[block.ToolUseID]
-		if block.Type != "tool_result" || !ok {
+		if !ok {
 			continue
 		}
 		delete(s.calls, block.ToolUseID)
@@ -481,6 +520,42 @@ func (s *session) toolResults(parsed streamLine) {
 			Kind: harness.EventToolDone, Tool: pending.tool, Text: pending.text, Took: time.Since(pending.at),
 		}
 	}
+	// Claude Code sends its next request right after the results of a turn.
+	if len(returned) > 0 && !parsed.subagent() {
+		s.warm.results(returned, time.Now())
+	}
+}
+
+// endWarming stops the warmer and reports why it stopped early.
+func (s *session) endWarming() {
+	if reason := s.warm.finish(); reason != "" {
+		s.drift.Missing("cache warming stopped: " + reason)
+	}
+}
+
+// controlResponse reads the answer to one of the pings.
+func (s *session) controlResponse(parsed streamLine) {
+	var reply struct {
+		Subtype   string          `json:"subtype"`
+		RequestID string          `json:"request_id"`
+		Response  json.RawMessage `json:"response"`
+	}
+	if err := json.Unmarshal(parsed.Response, &reply); err != nil {
+		s.drift.Undecoded("a control_response", err)
+		return
+	}
+	if reply.Subtype != "success" {
+		s.warm.answered(reply.RequestID, "a ping got an error answer ("+reply.Subtype+")")
+		return
+	}
+	var answer struct {
+		Synthetic bool `json:"synthetic"`
+	}
+	if json.Unmarshal(reply.Response, &answer) == nil && answer.Synthetic {
+		s.warm.answered(reply.RequestID, "a ping got a synthetic answer: none was produced")
+		return
+	}
+	s.warm.answered(reply.RequestID, "")
 }
 
 func (s *session) result(parsed streamLine) {

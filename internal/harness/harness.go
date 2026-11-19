@@ -100,6 +100,12 @@ type Outcome struct {
 	Turns     int
 	RateLimit *RateLimit
 
+	// Pings is how many requests an adapter sent to keep a prompt cache warm,
+	// and PingTokens what they are estimated to have read. The harness reports
+	// neither, so they are not part of Tokens.
+	Pings      int
+	PingTokens Tokens
+
 	// Exhausted is set when the run's own spending cap was reached. It is a
 	// deliberate stop, not a limit to wait out and not a block.
 	Exhausted string
