@@ -59,6 +59,9 @@ the checks say about it.
   the new contract or deleted, and deleted test files are named in the commit
   body. Never weaken an invariant to get green.
 - Run the repository's own test commands as its instructions describe them.
+- A command you start in the background stops when your session ends. Never
+  finish while one whose result you need is still running: wait for it, in
+  steps if need be, and read its result before you commit or report.
 
 ## Repository rules
 

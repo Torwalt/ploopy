@@ -12,6 +12,9 @@ requirements and the integration across its units. Earlier fixes are part of
 the current result. Handovers explain intent; the repository supplies evidence.
 Use the repository checklist when supplied. Run a focused test when it would
 settle a concrete concern; do not run broad suites merely to generate activity.
+A command you start in the background stops when your session ends. Never
+finish while one whose result you need is still running: wait for it, in steps
+if need be, and read its result before you record the concern or commit.
 
 You write documents, never implementation. Change only the review document,
 the fix plan when needed, and one follow-up document allowed by your order.

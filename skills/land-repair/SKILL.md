@@ -19,6 +19,9 @@ job is to make them hold together, not to choose one or redo either.
   conflict does not force belongs to another day.
 - Do not weaken, skip or delete a test to make it pass. A test that fails after
   the rebase is evidence of where the two sides disagree.
+- A command you start in the background stops when your session ends. Never
+  finish while one whose result you need is still running: wait for it, in
+  steps if need be, and read its result before you commit or report.
 
 ## A conflict
 

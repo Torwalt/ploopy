@@ -20,6 +20,9 @@ will carry out the fixes. Spend your effort deciding.
   you trip over a defect while checking a finding; then add it, marked as yours.
 - Do not run the test suite. Run one focused test only when a finding hangs on it
   and reading cannot settle it.
+- A command you start in the background stops when your session ends. Never
+  finish while one whose result you need is still running: wait for it, in
+  steps if need be, and read its result before you decide the finding.
 
 ## Steps
 

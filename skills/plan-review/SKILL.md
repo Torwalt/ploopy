@@ -20,6 +20,9 @@ findings are only as useful as the evidence in them.
   `git log`, `git blame`), and run the repository's checks or a single test when
   a finding depends on what they say. Ignored build output does not count.
 - Something worth fixing is a finding. Write it down; never fix it, however small.
+- A command you start in the background stops when your session ends. Never
+  finish while one whose result you need is still running: wait for it, in
+  steps if need be, and read its result before you write the findings.
 
 ## The steps
 

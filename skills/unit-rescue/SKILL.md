@@ -14,6 +14,10 @@ You must not edit, stage, commit, stash, revert or land anything. The loop
 compares the head and the working tree before and after your session: any
 change fails the rescue, stops the run, and stays for the author to inspect.
 
+A command you start in the background stops when your session ends. Never
+finish while one whose result you need is still running: wait for it, in steps
+if need be, and read its result before you write the report.
+
 ## Tell the failure from the work
 
 Read the attempts, the logs and the repository before deciding. A failure that
