@@ -64,6 +64,9 @@ type Record struct {
 	Tool       string          `json:"tool,omitempty"`
 	Command    string          `json:"command,omitempty"`
 
+	Pings      int             `json:"pings,omitempty"`       // requests an adapter sent to keep a cache warm
+	PingTokens *harness.Tokens `json:"ping_tokens,omitempty"` // what they are estimated to have read
+
 	Budget   *harness.Budget `json:"budget,omitempty"`   // the usage windows the session ended on
 	Degraded []string        `json:"degraded,omitempty"` // what its adapter could not read
 }

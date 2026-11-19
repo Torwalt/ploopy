@@ -186,6 +186,7 @@ func (r *report) outcome() {
 		}
 		r.line("%-9s %s · %s written", "Tokens", line, Count(tokens.Generated()))
 	}
+	r.pings()
 	if waited > 0 {
 		var parts []string
 		for _, why := range sortedKeys(waits) {
@@ -193,6 +194,31 @@ func (r *report) outcome() {
 		}
 		r.line("%-9s %s", "Waits", strings.Join(parts, " · "))
 	}
+}
+
+// pings is the keep-warm requests the sessions sent. Their tokens are an
+// estimate and stay out of the totals above, so the cache share is only what
+// the harness reported.
+func (r *report) pings() {
+	count := 0
+	var tokens harness.Tokens
+	for _, rec := range r.records {
+		if rec.Kind != "session" {
+			continue
+		}
+		count += rec.Pings
+		if rec.PingTokens != nil {
+			tokens = tokens.Add(*rec.PingTokens)
+		}
+	}
+	if count == 0 {
+		return
+	}
+	line := fmt.Sprintf("%d to keep the cache warm", count)
+	if tokens != (harness.Tokens{}) {
+		line += fmt.Sprintf(" · ≈%s read (estimated, not in the totals above)", Count(tokens.Prompt()))
+	}
+	r.line("%-9s %s", "Pings", line)
 }
 
 // loggedCost is what every session in the log cost, and whether any of it

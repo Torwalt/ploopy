@@ -86,6 +86,12 @@ func (l *Loop) accountSession(u plan.Unit, stem string, agent Agent, info sessio
 		tokens = &spent
 	}
 	r.Tokens = tokens
+	var pingTokens *harness.Tokens
+	if outcome.PingTokens != (harness.Tokens{}) {
+		est := outcome.PingTokens
+		pingTokens = &est
+	}
+	r.Pings, r.PingTokens = outcome.Pings, pingTokens
 	l.log(r)
 	l.degraded(agent, stem, outcome.Degraded)
 
@@ -97,7 +103,8 @@ func (l *Loop) accountSession(u plan.Unit, stem string, agent Agent, info sessio
 		Plan: l.name, Role: role, Branch: l.opts.Branch, Run: l.runID, Unit: u.ID, Stem: stem,
 		Agent: agent.Label(), Harness: agent.Harness.Name(),
 		Started: info.Started, Seconds: info.Took.Seconds(), Verdict: verdict,
-		Tokens: tokens, CostUSD: outcome.CostUSD, Before: outcome.BudgetBefore, After: outcome.Budget,
+		Tokens: tokens, CostUSD: outcome.CostUSD, Pings: outcome.Pings, PingTokens: pingTokens,
+		Before: outcome.BudgetBefore, After: outcome.Budget,
 		Away: info.Away, WorkOrder: info.WorkOrder, Degraded: outcome.Degraded,
 	})
 }

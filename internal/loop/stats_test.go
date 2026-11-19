@@ -11,6 +11,7 @@ import (
 
 	"github.com/Torwalt/ploopy/internal/harness"
 	"github.com/Torwalt/ploopy/internal/harness/fake"
+	"github.com/Torwalt/ploopy/internal/history"
 	"github.com/Torwalt/ploopy/internal/stats"
 )
 
@@ -93,6 +94,54 @@ func TestAUnitRecordsWhatEveryAttemptCost(t *testing.T) {
 	}
 	if runs != 1 {
 		t.Fatalf("%d run stats.Records", runs)
+	}
+}
+
+// A session's pings are booked apart from its reported tokens, in the log
+// and the history, and a session without any leaves no trace of them.
+func TestPingsAreBookedApartFromReportedTokens(t *testing.T) {
+	pinged := spending(0.5, 100, 10)
+	pinged.Pings, pinged.PingTokens = 3, harness.Tokens{CacheRead: 3000}
+	f := setup(t, twoUnits,
+		fake.Step{Do: commits("one.go", "first"), Outcome: pinged},
+		fake.Step{Do: commits("two.go", "second"), Outcome: spending(0.25, 50, 5)},
+	)
+	f.opts.History = history.Path(t.TempDir())
+
+	result := f.run()
+	if result.Status != "done" {
+		t.Fatalf("run %+v", result)
+	}
+
+	var sessions []stats.Record
+	for _, r := range f.records() {
+		if r.Kind == "session" {
+			sessions = append(sessions, r)
+		}
+	}
+	if len(sessions) != 2 {
+		t.Fatalf("%d session records", len(sessions))
+	}
+	if r := sessions[0]; r.Pings != 3 || r.PingTokens == nil || *r.PingTokens != (harness.Tokens{CacheRead: 3000}) ||
+		r.Tokens == nil || *r.Tokens != (harness.Tokens{Input: 100, Output: 10}) {
+		t.Fatalf("pinged session record %+v", r)
+	}
+	if r := sessions[1]; r.Pings != 0 || r.PingTokens != nil {
+		t.Fatalf("plain session record %+v", r)
+	}
+	if entry := f.state().Entry("1.1"); entry.Tokens == nil || *entry.Tokens != (harness.Tokens{Input: 100, Output: 10}) {
+		t.Fatalf("pings leaked into the unit's tokens: %+v", entry.Tokens)
+	}
+
+	records, err := history.Load(f.opts.History)
+	if err != nil || len(records) != 2 {
+		t.Fatalf("history %v %v", records, err)
+	}
+	if r := records[0]; r.Pings != 3 || r.PingTokens == nil || r.PingTokens.CacheRead != 3000 {
+		t.Fatalf("history record %+v", r)
+	}
+	if r := records[1]; r.Pings != 0 || r.PingTokens != nil {
+		t.Fatalf("plain history record %+v", r)
 	}
 }
 

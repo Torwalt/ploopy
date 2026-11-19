@@ -1,6 +1,7 @@
 package stats
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -107,6 +108,39 @@ func TestTheReportSaysWhatThePlanTook(t *testing.T) {
 	}
 	if strings.Contains(text, "No stats log") {
 		t.Fatal("the report says the log is gone while it has one")
+	}
+}
+
+func TestThePingsAreShownApartAndLeaveTheCacheShareAlone(t *testing.T) {
+	p, s := fixture()
+	records := []Record{
+		{Kind: "session", Unit: "1.1", Agent: "claude sonnet high", Verdict: "landed", Pings: 2,
+			PingTokens: &harness.Tokens{CacheRead: 40_000}},
+		{Kind: "session", Unit: "1.2", Agent: "claude sonnet high", Verdict: "landed", Pings: 1,
+			PingTokens: &harness.Tokens{CacheRead: 20_000}},
+	}
+	text := Report(p, s, records, nil)
+	for _, want := range []string{
+		"Pings     3 to keep the cache warm · ≈60k read (estimated",
+		"1.8M read, 96% from cache · 25k written",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("the report lacks %q:\n%s", want, text)
+		}
+	}
+
+	if text := Report(p, s, []Record{{Kind: "session", Unit: "1.1", Verdict: "landed"}}, nil); strings.Contains(text, "Pings") {
+		t.Fatalf("the report mentions pings nobody sent:\n%s", text)
+	}
+}
+
+func TestARecordWithoutPingsSerializesAsBefore(t *testing.T) {
+	line, err := json.Marshal(Record{Kind: "session", Run: "r"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(line), "ping") {
+		t.Fatalf("record %s", line)
 	}
 }
 

@@ -34,6 +34,8 @@ type Record struct {
 	Verdict    string          `json:"verdict"`
 	Tokens     *harness.Tokens `json:"tokens,omitempty"`
 	CostUSD    float64         `json:"cost_usd,omitempty"`
+	Pings      int             `json:"pings,omitempty"`
+	PingTokens *harness.Tokens `json:"ping_tokens,omitempty"` // estimated, apart from Tokens
 	Before     *harness.Budget `json:"before,omitempty"`
 	After      *harness.Budget `json:"after,omitempty"`
 	Away       bool            `json:"away,omitempty"` // ran on a lent subscription
