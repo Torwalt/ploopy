@@ -77,6 +77,32 @@
         "cache_read": 523962,
         "cache_write": 52218
       }
+    },
+    "2.3": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-11-19T15:36:08+01:00",
+      "agent": "claude sonnet high",
+      "base": "dc01b085344ecc6ce944f69f9ccc297dbd7a8d4b",
+      "commits": [
+        "ecfcfec7673004c4eba8c68c40716e7eed776bc5 Book keep-warm pings in the stats log, history and report"
+      ],
+      "attempts": 1,
+      "handover": "## What landed\nOne commit. `stats.Record` and `history.Record` gain `Pings` (`pings`) and\n`PingTokens` (`ping_tokens`, pointer), both omitted when zero. `accountSession`\ncopies them from `harness.Outcome` for every role. The report prints a `Pings`\nline after `Tokens`: count, estimated read tokens, marked \"estimated, not in the\ntotals above\". The line is built from the log's session records only.\n\n## Landmark drift\nNone.\n\n## Deviations from the work order\nNone.\n\n## What the next session must know\n- Pings are not in `spent`, the unit's state entry, the run's `stats.Run` or the\n  run record: the state format is frozen, so the report shows them only when a\n  stats log exists (nothing is said without one).\n- Tests: loop `TestPingsAreBookedApartFromReportedTokens` (log, history, state\n  tokens unchanged); stats `TestThePingsAreShownApartAndLeaveTheCacheShareAlone`,\n  `TestARecordWithoutPingsSerializesAsBefore`.\n- README/skills did not describe the report's token lines, so no doc changed.\n\n## Open problems\nNone. Build, vet, gofmt and `go test ./...` green.",
+      "session_id": "3bc39424-ec6b-4f83-9eec-ee6b5867ab9a",
+      "cost_usd": 0.32114279999999995,
+      "harness": "claude",
+      "elapsed_s": 162,
+      "session_s": 108,
+      "verify_s": 2,
+      "test_s": 52,
+      "tokens": {
+        "input": 20,
+        "output": 4849,
+        "reasoning": 342,
+        "cache_read": 441384,
+        "cache_write": 45229
+      }
     }
   }
 }
