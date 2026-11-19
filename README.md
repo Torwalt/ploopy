@@ -237,11 +237,26 @@ the default routes; `fallbacks = {}` under `[agents.opencode]` disables the
 automatic API fallback. Routes have one fallback, with no chains or cycles.
 Existing leases keep the model and effort they were lent with.
 
-Claude sessions run with the five-minute prompt cache, and ploopy keeps it
-warm while a long tool call outlasts it. `cache = "1h"` under `[agents.claude]`
-opts a repository out: an hour's cache, written at twice the input price, and
-no pings. The default is `cache = "warm"`; no other value is accepted, and no
-other agent has the key.
+Claude sessions run with the five-minute prompt cache and ploopy keeps it
+warm. The hour's cache costs twice the input price to write, but a five-minute
+one expires during a long check and the whole context is then written again.
+While a tool call outlasts the cache, ploopy sends the running session a
+trivial side question, a *ping*, the way `/btw` does. Claude Code answers it
+from the cached prefix with its own login, and that read renews the cache; the
+call keeps running and nothing enters the conversation. A ping goes out once
+four minutes have passed since the session's last request, and only if the tool
+could still be running well past the next expiry. At most 12 follow one real
+request, the point where writing anew would have been as cheap. Warming stops
+for the session if a ping fails, gets no real answer or none within a minute.
+
+`cache = "1h"` under `[agents.claude]` opts a repository out: an hour's cache
+and no pings. The default is `cache = "warm"`; no other value is accepted, and
+no other agent has the key.
+
+Claude Code reports neither a ping's tokens nor its cost. `ploopy report` shows
+the number of pings and the context they are estimated to have read, apart from
+the session totals; those figures are estimates, and the cache share counts only
+what the harness reported.
 
 ## Settings
 

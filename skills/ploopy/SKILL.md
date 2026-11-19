@@ -110,9 +110,17 @@ or `[agents.opencode]`, each with `models = [...]` and `efforts = [...]`.
 Use the installed harness's model IDs; `opencode models` lists its IDs.
 Explicit plan and flag settings can still name other supported choices.
 `[agents.claude]` also takes `cache`: `"warm"` (the default) runs Claude with
-the five-minute prompt cache and pings it while a long tool call runs; `"1h"`
-runs it with the hour's cache and no pings. Other values, and `cache` under
-another agent, are refused.
+the five-minute prompt cache and keeps it warm; `"1h"` runs it with the hour's
+cache and no pings. Other values, and `cache` under another agent, are refused.
+A ping is a trivial side question (what `/btw` sends) that ploopy writes to the
+running session's stdin while a tool call outlasts the cache. Claude Code
+answers it from the cached prefix, which renews the cache; nothing enters the
+conversation. One goes out four minutes after the session's last request, if
+the tool could still be running well past the next expiry, at most 12 per real
+request. Warming stops for a session whose ping errors, gets no real answer or
+none within a minute. Claude Code reports a ping's tokens nowhere, so
+`ploopy report` shows the pings' count and estimated tokens apart from the
+totals: estimates, never counted as savings.
 
 DeepSeek Flash defaults to Go; select `deepseek/deepseek-flash` to use the API
 directly. On Go, a reported usage limit hands the unit's existing
