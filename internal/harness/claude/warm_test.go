@@ -38,7 +38,9 @@ const (
 	// A tool whose runtime is not known.
 	agentCall  = `{"type":"assistant","parent_tool_use_id":null,"message":{"usage":{"input_tokens":3,"cache_read_input_tokens":1000,"cache_creation_input_tokens":200,"output_tokens":5},"content":[{"type":"tool_use","id":"t1","name":"Agent","input":{"prompt":"look"}}]}}`
 	toolResult = `{"type":"user","parent_tool_use_id":null,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}`
-	resultLine = `{"type":"result","subtype":"success","is_error":false,"result":"done\n\nDONE","num_turns":2,"total_cost_usd":1,"usage":{"input_tokens":10,"output_tokens":5},"session_id":"abc"}`
+	// The result of a call made before the one a test is about.
+	earlierResult = `{"type":"user","parent_tool_use_id":null,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t0","content":"ok"}]}}`
+	resultLine    = `{"type":"result","subtype":"success","is_error":false,"result":"done\n\nDONE","num_turns":2,"total_cost_usd":1,"usage":{"input_tokens":10,"output_tokens":5},"session_id":"abc"}`
 )
 
 // warmingClaude puts a `claude` on PATH that reads its stdin a line at a time.
@@ -125,7 +127,9 @@ func TestAWaitingSessionIsPingedBeforeItsCacheExpires(t *testing.T) {
 
 func TestACallThatEndsBeforeTheCacheDoesIsNotPinged(t *testing.T) {
 	shrink(t)
-	requests, unread, _ := warmingClaude(t, shell(quickBashCall, "sleep 0.35", toolResult, resultLine))
+	// The earlier result sets the clock just before the call is seen, so how
+	// long the fake took to start does not count against the call's deadline.
+	requests, unread, _ := warmingClaude(t, shell(earlierResult, quickBashCall, "sleep 0.35", toolResult, resultLine))
 
 	outcome := waitWithin(t, startSession(t, "x"))
 	if outcome.Pings != 0 || outcome.PingTokens != (harness.Tokens{}) {
@@ -307,5 +311,35 @@ func TestADeadlineFollowsWhatTheToolCanTake(t *testing.T) {
 	}
 	if got := w.deadline("Bash", json.RawMessage(`{"command":"x","timeout":60000}`), seen); !got.Equal(seen.Add(20 * time.Second)) {
 		t.Errorf("environment max: %v", got.Sub(seen))
+	}
+}
+
+// Claude Code runs a call while its message is still streaming, so the first
+// call's result is read before the message's next call: no request went out
+// then, and the clock stays where the message's request set it.
+func TestAResultInsideAStreamingMessageDoesNotRenew(t *testing.T) {
+	s := &session{calls: map[string]call{}, events: make(chan harness.Event, 8)}
+	s.warm = newWarmer(func([]byte) error { return nil })
+	sent := time.Now().Add(-3 * time.Minute)
+	s.warm.requested(sent)
+
+	first := strings.Replace(bashCall, `"message":{`, `"message":{"id":"m1",`, 1)
+	second := strings.Replace(strings.Replace(first, `"id":"t1"`, `"id":"t2"`, 1), `"timeout":150`, `"timeout":600000`, 1)
+	s.assistant(decode(t, first))
+	s.toolResults(decode(t, toolResult))
+	if !s.warm.clock.After(sent) {
+		t.Fatal("a result did not move the clock")
+	}
+	s.assistant(decode(t, second))
+	if !s.warm.clock.Equal(sent) || s.warm.pings != 0 {
+		t.Fatalf("the message's next call left the clock at %v, want %v", s.warm.clock, sent)
+	}
+
+	// Its result is followed by a new message: that request renewed the cache.
+	s.toolResults(decode(t, strings.Replace(toolResult, `"t1"`, `"t2"`, 1)))
+	renewed := s.warm.clock
+	s.assistant(decode(t, strings.Replace(strings.Replace(bashCall, `"message":{`, `"message":{"id":"m2",`, 1), `"id":"t1"`, `"id":"t3"`, 1)))
+	if !s.warm.clock.Equal(renewed) || !renewed.After(sent) {
+		t.Fatalf("a new message moved the clock back: %v, want %v", s.warm.clock, renewed)
 	}
 }

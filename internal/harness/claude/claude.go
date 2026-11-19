@@ -8,11 +8,13 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Torwalt/ploopy/internal/guard"
@@ -118,7 +120,9 @@ func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session
 	if warming {
 		s.warm = newWarmer(s.stdin.send)
 	}
-	if err := s.stdin.send(prompt); err != nil {
+	// A child that exited before reading its prompt still left output to
+	// judge, as when exec copied stdin and ignored the broken pipe.
+	if err := s.stdin.send(prompt); err != nil && !errors.Is(err, syscall.EPIPE) {
 		s.stdin.close()
 		proc.Kill()
 		proc.Wait()
@@ -391,6 +395,7 @@ func (l streamLine) subagent() bool {
 }
 
 type assistantMessage struct {
+	ID      string          `json:"id"`
 	Usage   json.RawMessage `json:"usage"`
 	Content []struct {
 		Type      string          `json:"type"`
@@ -494,6 +499,7 @@ func (s *session) assistant(parsed streamLine) {
 		return
 	}
 	if !parsed.subagent() {
+		s.warm.message(message.ID)
 		var u usage
 		if json.Unmarshal(message.Usage, &u) == nil {
 			s.warm.usage(u)

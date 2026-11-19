@@ -47,15 +47,22 @@ type warmer struct {
 	clock time.Time // when the main thread last sent a request
 	// calls are the main-thread tool calls still without a result. The time is
 	// when a call can last until; zero when that is unknown.
-	calls    map[string]time.Time
-	pings    int // since the last real request
-	sent     int
-	tokens   harness.Tokens
-	context  int // what the last main-thread assistant line reported
-	awaiting string
-	askedAt  time.Time
-	seq      int
-	stopped  string
+	calls map[string]time.Time
+	pings int // since the last real request
+	// msg is the main-thread message the last assistant line belonged to.
+	// Results read while it may still stream set the clock provisionally:
+	// before is what a further call of the same message restores.
+	msg         string
+	provisional bool
+	before      time.Time
+	beforePings int
+	sent        int
+	tokens      harness.Tokens
+	context     int // what the last main-thread assistant line reported
+	awaiting    string
+	askedAt     time.Time
+	seq         int
+	stopped     string
 
 	wake     chan struct{}
 	quit     chan struct{}
@@ -102,7 +109,22 @@ func (w *warmer) requested(now time.Time) {
 	w.notify()
 }
 
-// call notes a main-thread tool call that has begun.
+// message notes which main-thread message an assistant line belongs to. A new
+// one shows the request after the last results went out.
+func (w *warmer) message(id string) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	if id == "" || id != w.msg {
+		w.msg, w.provisional = id, false
+	}
+	w.mu.Unlock()
+}
+
+// call notes a main-thread tool call that has begun. Claude Code runs a call
+// while the response is still streaming, so a call of the message whose
+// results were just read shows that no request followed them.
 func (w *warmer) call(id, tool string, input json.RawMessage, seen time.Time) {
 	if w == nil {
 		return
@@ -112,12 +134,16 @@ func (w *warmer) call(id, tool string, input json.RawMessage, seen time.Time) {
 	}
 	w.mu.Lock()
 	w.calls[id] = w.deadline(tool, input, seen)
+	if w.provisional {
+		w.clock, w.pings, w.provisional = w.before, w.beforePings, false
+	}
 	w.mu.Unlock()
 	w.notify()
 }
 
 // results notes a main-thread user line that carried tool results. Claude Code
-// sends its next request right after it.
+// sends its next request right after the last results of a turn; which ones
+// were the last shows only once the next line of the same message does not come.
 func (w *warmer) results(ids []string, now time.Time) {
 	if w == nil {
 		return
@@ -126,8 +152,12 @@ func (w *warmer) results(ids []string, now time.Time) {
 	for _, id := range ids {
 		delete(w.calls, id)
 	}
+	if !w.provisional {
+		w.before, w.beforePings = w.clock, w.pings
+	}
 	w.clock = now
 	w.pings = 0
+	w.provisional = true
 	w.mu.Unlock()
 	w.notify()
 }
@@ -283,7 +313,8 @@ func (w *warmer) step(now time.Time) (time.Duration, bool) {
 	}
 	// Booked before the write: the answer can be read before send returns.
 	pings, sent, tokens := w.pings, w.sent, w.tokens
-	w.awaiting, w.askedAt, w.clock = id, now, now
+	// A ping renews the cache whether or not a request followed the results.
+	w.awaiting, w.askedAt, w.clock, w.provisional = id, now, now, false
 	w.pings++
 	w.sent++
 	w.tokens = w.tokens.Add(harness.Tokens{CacheRead: w.context})
