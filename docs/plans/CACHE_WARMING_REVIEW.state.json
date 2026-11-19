@@ -1,0 +1,28 @@
+{
+  "units": {
+    "1.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-11-19T15:44:49+01:00",
+      "agent": "claude opus high",
+      "base": "06c25c1bf5583b7f279ece210fd5430a68f7fe43",
+      "commits": [
+        "a8f70c8602797c306f7fe806e91234e2622f288b plans: review CACHE_WARMING against its plan"
+      ],
+      "attempts": 1,
+      "handover": "## What landed\nOne commit, a8f70c8. It appends *For the author* to\n`docs/plans/CACHE_WARMING_REVIEW.md` and adds the optional-findings document\n`docs/plans/CACHE_WARMING_FOLLOWUPS_66035915e305.md`. Source and tests are\nunchanged.\n\n## Outcome\n- No required fixes, so there is no fix plan and nothing to run through `ploopy lint`.\n- Two optional findings:\n  - A tool result in a multi-call turn moves the warming clock before any\n    request has gone out. The evidence is `.ploopy/cache_warming/logs/2.3-0.log`\n    lines 32–35. The behaviour follows the contract as written.\n  - The `ploopy history` import does not copy `Pings` and `PingTokens`.\n- Six dropped concerns, each with its reason, are in the summary.\n\n## Verification\n`go test -race -count=3` passed for `internal/harness/claude`, `dev/fakeagent`,\n`internal/config` and `internal/stats`. `go vet ./internal/harness/...` and\n`gofmt` were clean.",
+      "session_id": "c5dbe05f-0815-429f-91bb-1b1280455abf",
+      "cost_usd": 1.3595610000000002,
+      "harness": "claude",
+      "elapsed_s": 243,
+      "session_s": 243,
+      "tokens": {
+        "input": 38,
+        "output": 7827,
+        "reasoning": 13695,
+        "cache_read": 1288765,
+        "cache_write": 83902
+      }
+    }
+  }
+}
