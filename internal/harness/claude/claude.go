@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Torwalt/ploopy/internal/guard"
@@ -41,12 +42,13 @@ func (*Harness) PeakWindows() []harness.Window { return nil }
 // windows only from inside one.
 func (*Harness) Budget(context.Context) (*harness.Budget, error) { return nil, nil }
 
-// Start runs one session. The prompt goes on stdin, which has no size limit.
+// Start runs one session. The prompt is the first line on stdin, which has no
+// size limit; stdin then stays open until the session's result.
 func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session, error) {
 	argv := []string{
 		"claude", "-p",
 		// stream-json refuses to run with --print unless --verbose is given.
-		"--output-format", "stream-json", "--verbose",
+		"--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--permission-mode", "bypassPermissions",
 	}
 	if spec.Model != "" {
@@ -73,17 +75,80 @@ func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session
 	}
 	argv = append(argv, spec.Extra...)
 
-	proc, err := harness.StartProc(ctx, argv, spec.Dir, strings.NewReader(spec.Prompt), spec.LogPath, spec.Timeout)
+	prompt, err := promptLine(spec.Prompt)
 	if err != nil {
+		return nil, err
+	}
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	proc, err := harness.StartProc(ctx, argv, spec.Dir, reader, spec.LogPath, spec.Timeout)
+	// The child holds its own copy; with ours closed, a write to a dead child
+	// fails instead of blocking.
+	reader.Close()
+	if err != nil {
+		writer.Close()
 		return nil, err
 	}
 
 	s := &session{
-		proc: proc, events: make(chan harness.Event, 64),
+		proc: proc, events: make(chan harness.Event, 64), stdin: &input{file: writer},
 		done: make(chan struct{}), id: spec.SessionID, calls: map[string]call{},
+	}
+	if err := s.stdin.send(prompt); err != nil {
+		s.stdin.close()
+		proc.Kill()
+		proc.Wait()
+		return nil, err
 	}
 	go s.read()
 	return s, nil
+}
+
+// promptLine is the prompt as the user message stream-json reads from stdin.
+func promptLine(prompt string) ([]byte, error) {
+	type message struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	line, err := json.Marshal(struct {
+		Type    string  `json:"type"`
+		Message message `json:"message"`
+	}{"user", message{"user", prompt}})
+	if err != nil {
+		return nil, err
+	}
+	return append(line, '\n'), nil
+}
+
+// input is the session's stdin. Every write and the close happen under one
+// lock, so nothing is written to a closed file and it is closed exactly once.
+type input struct {
+	mu     sync.Mutex
+	file   *os.File
+	closed bool
+}
+
+// send writes one line, and fails once the input is closed.
+func (in *input) send(line []byte) error {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	if in.closed {
+		return os.ErrClosed
+	}
+	_, err := in.file.Write(line)
+	return err
+}
+
+// close ends the child's stdin. Calling it again does nothing.
+func (in *input) close() {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	if !in.closed {
+		in.closed = true
+		in.file.Close()
+	}
 }
 
 // hookSettings asks Claude Code to run ploopy itself as a PreToolUse hook, so
@@ -111,6 +176,7 @@ func hookSettings() string {
 
 type session struct {
 	proc    *harness.Proc
+	stdin   *input
 	events  chan harness.Event
 	done    chan struct{}
 	id      string
@@ -130,7 +196,10 @@ type session struct {
 
 func (s *session) Events() <-chan harness.Event { return s.events }
 
-func (s *session) Kill() { s.proc.Kill() }
+func (s *session) Kill() {
+	s.proc.Kill()
+	s.stdin.close()
+}
 
 func (s *session) Wait() (harness.Outcome, error) {
 	<-s.done
@@ -302,6 +371,8 @@ type call struct {
 func (s *session) read() {
 	defer close(s.done)
 	defer close(s.events)
+	// A session that ends without a result leaves nothing to wait for.
+	defer s.stdin.close()
 
 	for line := range s.proc.Lines() {
 		if strings.TrimSpace(line) == "" {
@@ -414,6 +485,8 @@ func (s *session) toolResults(parsed streamLine) {
 
 func (s *session) result(parsed streamLine) {
 	s.resulted = true
+	// The session ends once stdin is closed after its result.
+	s.stdin.close()
 	marker, reason := harness.ParseMarker(parsed.Result)
 	s.outcome.Marker = marker
 	s.outcome.Reason = reason

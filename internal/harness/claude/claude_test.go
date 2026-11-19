@@ -128,7 +128,7 @@ func TestTheSessionIsStartedTheWayAnUnattendedRunNeeds(t *testing.T) {
 
 	// stream-json refuses to run with --print unless --verbose is given.
 	for _, want := range []string{
-		"-p", "--output-format stream-json", "--verbose",
+		"-p", "--input-format stream-json", "--output-format stream-json", "--verbose",
 		"--permission-mode bypassPermissions",
 		"--model sonnet", "--effort high", "--session-id abc",
 		"--max-budget-usd 5",
@@ -325,5 +325,92 @@ func TestASubscriptionSessionWithoutWindowsIsDegraded(t *testing.T) {
 	outcome, _ := start(t, harness.Spec{Prompt: "x", SessionID: "abc"})
 	if len(outcome.Degraded) != 1 || !strings.Contains(outcome.Degraded[0], "rate_limit_event") {
 		t.Fatalf("degraded %v", outcome.Degraded)
+	}
+}
+
+// streamingClaude puts a `claude` script on PATH that records its first stdin
+// line, then runs body.
+func streamingClaude(t *testing.T, body string) (stdinFile string) {
+	t.Helper()
+	dir := t.TempDir()
+	stdinFile = filepath.Join(dir, "stdin")
+	script := "#!/bin/sh\nIFS= read -r first\nprintf '%s\\n' \"$first\" > " + stdinFile + "\n" + body
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	return stdinFile
+}
+
+// waitWithin fails the test if the session's Wait does not return.
+func waitWithin(t *testing.T, session harness.Session) harness.Outcome {
+	t.Helper()
+	got := make(chan harness.Outcome, 1)
+	go func() {
+		for range session.Events() {
+		}
+		outcome, _ := session.Wait()
+		got <- outcome
+	}()
+	select {
+	case outcome := <-got:
+		return outcome
+	case <-time.After(10 * time.Second):
+		t.Fatal("Wait did not return")
+		return harness.Outcome{}
+	}
+}
+
+func startSession(t *testing.T, prompt string) harness.Session {
+	t.Helper()
+	session, err := New().Start(context.Background(), harness.Spec{
+		Prompt: prompt, Dir: t.TempDir(), Timeout: time.Minute,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
+}
+
+// The prompt is the first stdin line, as the user message stream-json reads.
+func TestThePromptIsTheFirstStdinLineAsAUserMessage(t *testing.T) {
+	stdinFile := streamingClaude(t, "")
+	prompt := "do the \"unit\"\nsecond line"
+	waitWithin(t, startSession(t, prompt))
+
+	raw, err := os.ReadFile(stdinFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"type":"user","message":{"role":"user","content":"do the \"unit\"\nsecond line"}}`
+	if got := strings.TrimSuffix(string(raw), "\n"); got != want {
+		t.Fatalf("first stdin line\n got %s\nwant %s", got, want)
+	}
+}
+
+// A session ends once stdin is closed after its result.
+func TestASessionThatWaitsForStdinToCloseEndsAfterItsResult(t *testing.T) {
+	streamingClaude(t, "printf '%s\\n' '"+strings.ReplaceAll(successStream[strings.LastIndex(successStream, "\n")+1:], "'", "")+"'\ncat > /dev/null\n")
+	outcome := waitWithin(t, startSession(t, "x"))
+	if outcome.Marker != harness.Done || outcome.Exit != 0 {
+		t.Fatalf("marker %q exit %d", outcome.Marker, outcome.Exit)
+	}
+}
+
+func TestASessionThatExitsWithoutAResultEnds(t *testing.T) {
+	streamingClaude(t, "exit 3\n")
+	outcome := waitWithin(t, startSession(t, "x"))
+	if outcome.Exit != 3 {
+		t.Fatalf("exit %d", outcome.Exit)
+	}
+}
+
+func TestAKilledSessionEnds(t *testing.T) {
+	streamingClaude(t, "cat > /dev/null\n")
+	session := startSession(t, "x")
+	time.AfterFunc(200*time.Millisecond, session.Kill)
+	outcome := waitWithin(t, session)
+	if outcome.Exit == 0 {
+		t.Fatalf("a killed session exited %d", outcome.Exit)
 	}
 }

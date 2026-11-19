@@ -107,7 +107,8 @@ func main() {
 }
 
 // readPrompt is where each CLI puts the prompt: stdin for claude and codex,
-// the last argument for opencode.
+// the last argument for opencode. Claude started with stream-json input gets
+// a user message on the first line, and its stdin stays open after it.
 func readPrompt(name string) (string, error) {
 	if name == "opencode" {
 		if len(os.Args) < 2 {
@@ -115,11 +116,35 @@ func readPrompt(name string) (string, error) {
 		}
 		return os.Args[len(os.Args)-1], nil
 	}
+	if name == "claude" && streamInput(os.Args[1:]) {
+		line, err := bufio.NewReader(os.Stdin).ReadBytes('\n')
+		if err != nil && len(line) == 0 {
+			return "", fmt.Errorf("claude read no prompt line: %w", err)
+		}
+		var message struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		}
+		if err := json.Unmarshal(line, &message); err != nil {
+			return "", fmt.Errorf("claude read a prompt line that is no user message: %w", err)
+		}
+		return message.Message.Content, nil
+	}
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return "", err
 	}
 	return string(data), nil
+}
+
+func streamInput(args []string) bool {
+	for i, arg := range args {
+		if arg == "--input-format" && i+1 < len(args) {
+			return args[i+1] == "stream-json"
+		}
+	}
+	return false
 }
 
 func appServer() error {
