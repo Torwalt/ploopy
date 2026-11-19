@@ -77,6 +77,7 @@ type Agent struct {
 	Models    []string          `toml:"models"`
 	Efforts   []string          `toml:"efforts"`
 	Fallbacks map[string]string `toml:"fallbacks"`
+	Cache     string            `toml:"cache"` // claude only: warm, or 1h to opt out of pings
 }
 
 // Default is what a repository without a settings file gets.
@@ -130,6 +131,12 @@ func Load(root string) (Config, error) {
 	for name, agent := range cfg.Agents {
 		if name != "claude" && name != "codex" && name != "opencode" {
 			return cfg, fmt.Errorf("%s: unknown agent %q", path, name)
+		}
+		switch {
+		case name != "claude" && agent.Cache != "":
+			return cfg, fmt.Errorf("%s: agents.%s.cache is only for claude", path, name)
+		case agent.Cache != "" && agent.Cache != "warm" && agent.Cache != "1h":
+			return cfg, fmt.Errorf("%s: agents.%s.cache must be warm or 1h, not %q", path, name, agent.Cache)
 		}
 		for key, choices := range map[string][]string{"models": agent.Models, "efforts": agent.Efforts} {
 			if choices != nil && len(choices) == 0 {

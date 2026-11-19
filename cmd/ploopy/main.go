@@ -195,6 +195,7 @@ func allHarnesses(configs ...config.Config) harness.Set {
 				preferences.Fallbacks = own.Fallbacks
 			}
 		}
+		c.Cache = configs[0].Agents["claude"].Cache
 	}
 	return harness.Set{c, o, x}
 }

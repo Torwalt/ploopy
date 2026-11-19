@@ -109,6 +109,10 @@ settings can replace a harness's lists with `[agents.claude]`, `[agents.codex]`
 or `[agents.opencode]`, each with `models = [...]` and `efforts = [...]`.
 Use the installed harness's model IDs; `opencode models` lists its IDs.
 Explicit plan and flag settings can still name other supported choices.
+`[agents.claude]` also takes `cache`: `"warm"` (the default) runs Claude with
+the five-minute prompt cache and pings it while a long tool call runs; `"1h"`
+runs it with the hour's cache and no pings. Other values, and `cache` under
+another agent, are refused.
 
 DeepSeek Flash defaults to Go; select `deepseek/deepseek-flash` to use the API
 directly. On Go, a reported usage limit hands the unit's existing

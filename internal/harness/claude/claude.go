@@ -20,7 +20,18 @@ import (
 )
 
 // Harness is Claude Code.
-type Harness struct{ harness.Preferences }
+type Harness struct {
+	harness.Preferences
+	// Cache is the repository's choice of prompt cache: "" or CacheWarm for the
+	// five-minute cache kept warm, CacheHour for the hour's with no pings.
+	Cache string
+}
+
+// The values `[agents.claude] cache` takes.
+const (
+	CacheWarm = "warm"
+	CacheHour = "1h"
+)
 
 // New builds the adapter.
 func New() *Harness { return &Harness{} }
@@ -85,7 +96,12 @@ func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session
 	}
 	// The short cache is what makes pings worth it: the hour's costs twice the
 	// input price to write.
-	env := []string{"CLAUDE_CODE_PROMPT_CACHE_TTL=" + cacheTTL}
+	warming := h.Cache != CacheHour
+	ttl := CacheHour
+	if warming {
+		ttl = cacheTTL
+	}
+	env := []string{"CLAUDE_CODE_PROMPT_CACHE_TTL=" + ttl}
 	proc, err := harness.StartProcWithEnv(ctx, argv, spec.Dir, reader, spec.LogPath, spec.Timeout, env)
 	// The child holds its own copy; with ours closed, a write to a dead child
 	// fails instead of blocking.
@@ -99,15 +115,19 @@ func (h *Harness) Start(ctx context.Context, spec harness.Spec) (harness.Session
 		proc: proc, events: make(chan harness.Event, 64), stdin: &input{file: writer},
 		done: make(chan struct{}), id: spec.SessionID, calls: map[string]call{},
 	}
-	s.warm = newWarmer(s.stdin.send)
+	if warming {
+		s.warm = newWarmer(s.stdin.send)
+	}
 	if err := s.stdin.send(prompt); err != nil {
 		s.stdin.close()
 		proc.Kill()
 		proc.Wait()
 		return nil, err
 	}
-	s.warm.requested(time.Now())
-	go s.warm.run()
+	if warming {
+		s.warm.requested(time.Now())
+		go s.warm.run()
+	}
 	go s.read()
 	return s, nil
 }

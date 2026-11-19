@@ -80,6 +80,22 @@ efforts = ["high", "xhigh"]
 	}
 }
 
+func TestClaudeCacheLoads(t *testing.T) {
+	for raw, want := range map[string]string{
+		"": "", "[agents.claude]\ncache = 'warm'": "warm", "[agents.claude]\ncache = '1h'": "1h",
+	} {
+		root := t.TempDir()
+		write(t, root, File, raw)
+		cfg, err := Load(root)
+		if err != nil {
+			t.Fatalf("%q: %v", raw, err)
+		}
+		if got := cfg.Agents["claude"].Cache; got != want {
+			t.Fatalf("%q: cache %q, want %q", raw, got, want)
+		}
+	}
+}
+
 func TestInvalidAgentPreferencesAreRefused(t *testing.T) {
 	for _, raw := range []string{
 		"[agents.typo]\nmodels = ['x']",
@@ -92,6 +108,10 @@ func TestInvalidAgentPreferencesAreRefused(t *testing.T) {
 		"[agents.opencode.fallbacks]\na = 'b'\nb = 'a'",
 		"[agents.opencode.fallbacks]\na = ''",
 		"[agents.opencode]\nmodel = ['typo']",
+		"[agents.claude]\ncache = '30m'",
+		"[agents.claude]\ncache = 'cold'",
+		"[agents.codex]\ncache = 'warm'",
+		"[agents.opencode]\ncache = '1h'",
 	} {
 		t.Run(raw, func(t *testing.T) {
 			root := t.TempDir()

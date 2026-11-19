@@ -35,7 +35,8 @@ const pingQuestion = "Reply with exactly: OK"
 // A request renews the cache, so while the main thread waits on a tool and no
 // request is due, it asks Claude Code a side question, which reads the same
 // cached prefix. ploopy never talks to the provider: the question goes down
-// the session's own stdin.
+// the session's own stdin. A nil warmer is warming switched off: every method
+// does nothing.
 type warmer struct {
 	send func([]byte) error
 
@@ -91,6 +92,9 @@ func (w *warmer) notify() {
 // requested notes a request the main thread sent: the prompt, or the one that
 // follows a tool result.
 func (w *warmer) requested(now time.Time) {
+	if w == nil {
+		return
+	}
 	w.mu.Lock()
 	w.clock = now
 	w.pings = 0
@@ -100,6 +104,9 @@ func (w *warmer) requested(now time.Time) {
 
 // call notes a main-thread tool call that has begun.
 func (w *warmer) call(id, tool string, input json.RawMessage, seen time.Time) {
+	if w == nil {
+		return
+	}
 	if id == "" {
 		return
 	}
@@ -112,6 +119,9 @@ func (w *warmer) call(id, tool string, input json.RawMessage, seen time.Time) {
 // results notes a main-thread user line that carried tool results. Claude Code
 // sends its next request right after it.
 func (w *warmer) results(ids []string, now time.Time) {
+	if w == nil {
+		return
+	}
 	w.mu.Lock()
 	for _, id := range ids {
 		delete(w.calls, id)
@@ -124,6 +134,9 @@ func (w *warmer) results(ids []string, now time.Time) {
 
 // usage notes how large the context was on the main thread's last request.
 func (w *warmer) usage(u usage) {
+	if w == nil {
+		return
+	}
 	size := u.Input + u.CacheRead + u.CacheCreation
 	if size == 0 {
 		return
@@ -183,6 +196,9 @@ func (w *warmer) latest() (time.Time, bool) {
 
 // answered reads the reply to a ping.
 func (w *warmer) answered(id, problem string) {
+	if w == nil {
+		return
+	}
 	w.mu.Lock()
 	if id == w.awaiting {
 		w.awaiting = ""
@@ -286,6 +302,9 @@ func (w *warmer) step(now time.Time) (time.Duration, bool) {
 
 // finish stops the goroutine and returns why warming stopped, if it did.
 func (w *warmer) finish() string {
+	if w == nil {
+		return ""
+	}
 	close(w.quit)
 	<-w.finished
 	w.mu.Lock()
@@ -295,6 +314,9 @@ func (w *warmer) finish() string {
 
 // totals is how many pings were sent and what they are estimated to have read.
 func (w *warmer) totals() (int, harness.Tokens) {
+	if w == nil {
+		return 0, harness.Tokens{}
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return w.sent, w.tokens

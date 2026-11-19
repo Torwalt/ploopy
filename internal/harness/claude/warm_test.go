@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -206,6 +207,35 @@ func TestTheSessionRunsWithTheShortCache(t *testing.T) {
 	}
 	if string(raw) != "5m" {
 		t.Fatalf("CLAUDE_CODE_PROMPT_CACHE_TTL=%q", raw)
+	}
+}
+
+// The hour's cache needs no pings: a session that the default would ping is
+// left alone.
+func TestTheHourCacheSetsItAndSendsNoPing(t *testing.T) {
+	shrink(t)
+	requests, unread, ttl := warmingClaude(t, shell(bashCall, "sleep 0.5", toolResult, resultLine))
+	h := New()
+	h.Cache = CacheHour
+	session, err := h.Start(context.Background(), harness.Spec{Dir: t.TempDir(), Prompt: "x", Timeout: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome := waitWithin(t, session)
+	if outcome.Marker != harness.Done || len(outcome.Degraded) != 0 {
+		t.Fatalf("marker %q degraded %v", outcome.Marker, outcome.Degraded)
+	}
+	if outcome.Pings != 0 || outcome.PingTokens != (harness.Tokens{}) {
+		t.Fatalf("pings %d tokens %+v", outcome.Pings, outcome.PingTokens)
+	}
+	if raw, err := os.ReadFile(ttl); err != nil || string(raw) != "1h" {
+		t.Fatalf("CLAUDE_CODE_PROMPT_CACHE_TTL=%q (%v)", raw, err)
+	}
+	if sent := lines(t, requests); len(sent) != 0 {
+		t.Fatalf("requests %q", sent)
+	}
+	if left := lines(t, unread); len(left) != 0 {
+		t.Fatalf("unread stdin %q", left)
 	}
 }
 

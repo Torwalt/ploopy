@@ -237,6 +237,12 @@ the default routes; `fallbacks = {}` under `[agents.opencode]` disables the
 automatic API fallback. Routes have one fallback, with no chains or cycles.
 Existing leases keep the model and effort they were lent with.
 
+Claude sessions run with the five-minute prompt cache, and ploopy keeps it
+warm while a long tool call outlasts it. `cache = "1h"` under `[agents.claude]`
+opts a repository out: an hour's cache, written at twice the input price, and
+no pings. The default is `cache = "warm"`; no other value is accepted, and no
+other agent has the key.
+
 ## Settings
 
 `.ploopy.toml` at the repository root configures a repository once. Every key
