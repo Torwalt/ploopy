@@ -129,6 +129,32 @@
         "cache_read": 231670,
         "cache_write": 30612
       }
+    },
+    "3.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-11-19T15:40:44+01:00",
+      "agent": "claude sonnet high",
+      "base": "60379490935b60ca54ec36ea7bb4fbe41188d322",
+      "commits": [
+        "eb52e3379a9ca04e6ca7f552aff860178d92a8da Describe Claude cache warming in the README and the ploopy skill"
+      ],
+      "attempts": 1,
+      "handover": "## What landed\nOne docs commit. `README.md` (agent section) and `skills/ploopy/SKILL.md`\n(`[agents.claude]` paragraph) now describe: the five-minute cache kept warm by\ndefault; a ping as a `/btw`-style side question answered from the cached\nprefix; when one is sent (4 min after the last request, tool may outlast the\nnext expiry, at most 12 per real request, warming stops on error, synthetic\nanswer or 60 s silence); `cache = \"1h\"` opting out; and that `ploopy report`'s\nping count and tokens are estimates kept apart from the totals.\n\n## Landmark drift\nBoth files already carried a short `cache` description from the settings unit;\nI extended those passages instead of adding new sections.\n\n## Deviations from the work order\nNone.\n\n## What the next session must know\n- Neither file mentioned stdin or plain-text prompts, so nothing had to be\n  removed; `rg -i 'stdin|plain text'` finds only the new ping sentence.\n- No code changed. Build, vet, gofmt and `go test ./...` green.\n\n## Open problems\nNone.",
+      "session_id": "73e02f0f-1b24-4dfa-b210-01bb71ab15c4",
+      "cost_usd": 0.18890240000000003,
+      "harness": "claude",
+      "elapsed_s": 136,
+      "session_s": 83,
+      "verify_s": 2,
+      "test_s": 50,
+      "tokens": {
+        "input": 16,
+        "output": 2876,
+        "reasoning": 116,
+        "cache_read": 254652,
+        "cache_write": 27005
+      }
     }
   }
 }
