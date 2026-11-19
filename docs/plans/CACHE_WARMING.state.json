@@ -103,6 +103,32 @@
         "cache_read": 441384,
         "cache_write": 45229
       }
+    },
+    "3.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-11-19T15:38:28+01:00",
+      "agent": "claude sonnet high",
+      "base": "fd89a7c3ad80ac22f556d766fbc5343da62790a9",
+      "commits": [
+        "b18dac4b5886322a45c8301617eec0a7d742e54d Tell every session a background command dies with it and must be waited for"
+      ],
+      "attempts": 1,
+      "handover": "## What landed\nOne commit, text only. Every skill whose session runs commands now says: a\ncommand started in the background stops when the session ends; never finish\nwhile one whose result is needed is still running; wait in steps if need be and\nread the result before committing or reporting. Added to `plan-unit` (Tests),\n`land-repair` (Limits), `plan-review` (You change nothing), `review-direct`,\n`review-triage` (Limits) and `unit-rescue` (intro). The wording is\nharness-neutral. Each copy ends with the step that session performs (commit,\nwrite the findings, write the report).\n\n## Landmark drift\nNone.\n\n## Deviations from the work order\nNone. The order named plan-unit and land-repair as the start; the other four\nwere added because the order said to add the rule wherever a session runs\ncommands (plan-review runs checks, review-direct and review-triage run focused\ntests, unit-rescue runs read-only commands). plan-writing and ploopy were not\ntouched: they are not handed to a session that runs commands.\n\n## What the next session must know\n- No test pins the skills' text; the embedded copies are read from `skills/`\n  through `embed.go`, so nothing else needed updating.\n- Stage 3's remaining units, if any, are not affected.\n\n## Open problems\nNone. Build, vet, gofmt and `go test ./...` green.",
+      "session_id": "6ff68744-629a-4963-bf11-30d551a85e34",
+      "cost_usd": 0.20242000000000002,
+      "harness": "claude",
+      "elapsed_s": 140,
+      "session_s": 90,
+      "verify_s": 2,
+      "test_s": 48,
+      "tokens": {
+        "input": 14,
+        "output": 3097,
+        "reasoning": 264,
+        "cache_read": 231670,
+        "cache_write": 30612
+      }
     }
   }
 }
