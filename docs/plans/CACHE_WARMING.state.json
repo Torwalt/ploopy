@@ -51,6 +51,32 @@
         "cache_read": 1928786,
         "cache_write": 88217
       }
+    },
+    "2.2": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-11-19T15:33:26+01:00",
+      "agent": "claude sonnet high",
+      "base": "d3691b595dd30a00950a3291231a2bf88a4b575a",
+      "commits": [
+        "dc2d31dfd5228809af1cc5d9ea7ba4dac7a8db65 Let [agents.claude] cache = \"1h\" opt a repository out of cache warming"
+      ],
+      "attempts": 1,
+      "handover": "## What landed\nOne commit. `config.Agent.Cache` (`cache` key); `Load` refuses any value but\n`warm`/`1h` under `[agents.claude]` and any `cache` under another agent, naming\n`agents.\u003cname\u003e.cache`. `allHarnesses` copies it to `claude.Harness.Cache`.\n`Start` sets `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` and builds no warmer when it is\n`1h` (`CacheHour`; `CacheWarm` and empty mean warm). README and\n`skills/ploopy/SKILL.md` describe the key.\n\n## Landmark drift\nNone.\n\n## Deviations from the work order\n- A nil `*warmer` means warming off: every warmer method returns at once on nil,\n  so `read`, `Wait` and `endWarming` needed no branches.\n- `config` uses the literals `\"warm\"`/`\"1h\"` rather than importing the adapter.\n\n## What the next session must know\n- `Outcome.Pings`/`PingTokens` are zero under `1h`, as for the other adapters.\n- Tests: config (`TestClaudeCacheLoads`, bad values in\n  `TestInvalidAgentPreferencesAreRefused`); adapter\n  `TestTheHourCacheSetsItAndSendsNoPing` (a call the default would ping, no\n  request on stdin, TTL env `1h`).\n\n## Open problems\nNone. Build, vet, gofmt, `go test ./...` green; claude and config packages\npass `-race -count=3`.",
+      "session_id": "12586281-ca57-4b74-8550-0604329d5ab8",
+      "cost_usd": 0.3956284000000001,
+      "harness": "claude",
+      "elapsed_s": 176,
+      "session_s": 120,
+      "verify_s": 2,
+      "test_s": 54,
+      "tokens": {
+        "input": 22,
+        "output": 7394,
+        "reasoning": 798,
+        "cache_read": 523962,
+        "cache_write": 52218
+      }
     }
   }
 }
