@@ -1,0 +1,30 @@
+{
+  "units": {
+    "1.1": {
+      "status": "landed",
+      "outcome": "done",
+      "date": "2026-11-19T15:20:39+01:00",
+      "agent": "claude sonnet high",
+      "base": "1be6f592df48213f88fc069f36c1e50ea3d05aed",
+      "commits": [
+        "7000fc48d567be16cd474ee06e908b9f85f96863 Hand Claude its prompt as a stream-json message and keep stdin open until the result"
+      ],
+      "attempts": 1,
+      "handover": "## What landed\nOne commit. `claude.Start` passes `--input-format stream-json`, creates an\n`os.Pipe`, hands the read end to `harness.StartProc` as stdin, closes the\nparent's copy of it, and writes the prompt as\n`{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"...\"}}\\n`.\nThe write end lives in `session.stdin` (`*input`: mutex, `send(line)`,\nidempotent `close()`). It is closed on `result`, on `Kill`, and by a defer in\n`session.read` when output ends without a result.\n`dev/fakeagent` as `claude` reads only the first line when argv carries\n`--input-format stream-json`; otherwise it still reads to EOF (its own tests\npipe a raw prompt).\nTests added in `claude_test.go`: first stdin line, and `Wait` returning for a\nfake that prints a result then waits for EOF, one that exits without a result,\nand one killed.\n\n## Landmark drift\nNone. `harness.StartProc` is unchanged; it already accepts an `io.Reader`, and\nan `*os.File` goes straight to `cmd.Stdin`, so `Cmd.Wait` has no copy goroutine.\n\n## Deviations from the work order\nNone.\n\n## What the next session must know\n- The prompt write in `Start` is synchronous. A pipe holds 64 KB, so a larger\n  prompt blocks until the child reads. A real claude reads; a context cancel or\n  a crash fails the write (EPIPE). A test fake that never reads stdin is fine\n  for small prompts only.\n- A fake that neither prints a `result` nor exits keeps stdin open and hangs\n  `Wait`, as the real claude would. Test fakes must exit or print a result.\n- Later units should write via `s.stdin.send(line)` (one full line including\n  `\\n`); it errors with `os.ErrClosed` after close.\n- `Kill` calls `proc.Kill()` first, then closes stdin, so a write blocked on a\n  full pipe is released by the child's death rather than by the close.\n- `codex` still uses `strings.NewReader`; untouched.\n\n## Open problems\nNone. All checks and `go test ./...` were green.",
+      "session_id": "1e27a6f5-2761-49d2-a7fc-5bd40971b8f9",
+      "cost_usd": 0.38198059999999995,
+      "harness": "claude",
+      "elapsed_s": 172,
+      "session_s": 133,
+      "verify_s": 1,
+      "test_s": 39,
+      "tokens": {
+        "input": 20,
+        "output": 6730,
+        "reasoning": 2177,
+        "cache_read": 463073,
+        "cache_write": 50064
+      }
+    }
+  }
+}
